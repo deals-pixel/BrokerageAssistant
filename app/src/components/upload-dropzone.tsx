@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { ProcessDealButton } from "@/components/process-deal-button";
 import { toast } from "sonner";
 import { DOCUMENT_TYPES, type DocumentType } from "@/lib/types";
 
@@ -131,6 +132,7 @@ export function UploadDropzone({ dealId, compact = false, replaceDocType = "" }:
   const [pendingBatch, setPendingBatch] = useState<PendingBatch | null>(null);
   const [replaceChoices, setReplaceChoices] = useState<Set<DocumentType>>(new Set());
   const [committing, setCommitting] = useState(false);
+  const [readyToProcessPageCount, setReadyToProcessPageCount] = useState<number | null>(null);
 
   const handleFiles = useCallback(
     async (fileList: FileList | File[]) => {
@@ -138,6 +140,7 @@ export function UploadDropzone({ dealId, compact = false, replaceDocType = "" }:
       if (files.length === 0) return;
       setPendingBatch(null);
       setReplaceChoices(new Set());
+      setReadyToProcessPageCount(null);
 
       const invalid = files.find((file) => !isPdf(file) && !isJpeg(file));
       if (invalid) {
@@ -466,17 +469,10 @@ export function UploadDropzone({ dealId, compact = false, replaceDocType = "" }:
         },
       });
 
-      setPhase("preparing");
-      setProgress("Parsing updated package...");
-      const processRes = await fetch(`/api/deals/${dealId}/process`, { method: "POST" });
-      if (!processRes.ok) {
-        const body = await processRes.json().catch(() => null);
-        throw new Error(body?.error ?? "Processing failed");
-      }
-
-      toast.success("Package updated and processed.");
+      toast.success("Package updated. Click Process when ready.");
       setPendingBatch(null);
       setReplaceChoices(new Set());
+      setReadyToProcessPageCount(count ?? nextPageNumber - 1);
       router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Package update failed");
@@ -521,6 +517,10 @@ export function UploadDropzone({ dealId, compact = false, replaceDocType = "" }:
           <div className="w-full space-y-3">
             <div className="space-y-1 text-sm">
               <p className="font-medium">Recognized documents</p>
+              <p className="text-xs text-muted-foreground">
+                {pendingBatch.files.length} file{pendingBatch.files.length === 1 ? "" : "s"} -{" "}
+                {pendingBatch.pages.length} page{pendingBatch.pages.length === 1 ? "" : "s"}
+              </p>
               <div className="flex flex-wrap gap-1">
                 {pendingBatch.incomingDocTypes.map((docType) => (
                   <span key={docType} className="rounded border px-2 py-0.5 text-xs">
@@ -569,7 +569,7 @@ export function UploadDropzone({ dealId, compact = false, replaceDocType = "" }:
             )}
 
             <div className="flex flex-wrap gap-2">
-              <Button onClick={confirmPendingUpload}>Confirm and parse</Button>
+              <Button onClick={confirmPendingUpload}>Confirm update</Button>
               <Button
                 variant="outline"
                 onClick={() => {
@@ -581,20 +581,38 @@ export function UploadDropzone({ dealId, compact = false, replaceDocType = "" }:
               </Button>
             </div>
           </div>
+        ) : dealId && readyToProcessPageCount ? (
+          <div className="w-full space-y-3 text-center">
+            <p className="text-sm font-medium">Package update saved</p>
+            <p className="text-xs text-muted-foreground">
+              Review the updated package, then run extraction when ready.
+            </p>
+            <div className="flex justify-center">
+              <ProcessDealButton
+                dealId={dealId}
+                status="uploaded"
+                pageCount={readyToProcessPageCount}
+                variant="default"
+              />
+            </div>
+            <Button variant="outline" onClick={() => setReadyToProcessPageCount(null)}>
+              Add more files
+            </Button>
+          </div>
         ) : (
           <>
             <p className="text-center text-sm font-medium">
               {dealId
                 ? replaceDocType
                   ? "Drop a replacement PDF or JPEG"
-                  : "Drop PDFs or JPEGs to add more pages"
+                  : "Drop one or more PDFs/JPEGs to update this package"
                 : "Drop PDFs or JPEG files here"}
             </p>
             <Button onClick={() => inputRef.current?.click()}>
               {dealId ? (replaceDocType ? "Choose replacement" : "Add files") : "Choose files"}
             </Button>
             <p className="text-center text-xs text-muted-foreground">
-              .pdf, .jpg, .jpeg - max {MAX_FILE_MB} MB per file - process manually when ready
+              Select multiple files at once. .pdf, .jpg, .jpeg - max {MAX_FILE_MB} MB per file
             </p>
             <input
               ref={inputRef}

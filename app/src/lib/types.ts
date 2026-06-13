@@ -3,7 +3,7 @@ export const DOCUMENT_TYPES = {
   agreement_of_purchase_and_sale: "Agreement of Purchase and Sale (Form 100)",
   lease_agreement: "Residential Tenancy Agreement (Standard Lease)",
   form_801_offer_summary: "Offer Summary Document (Form 801)",
-  form_320_confirmation_cooperation: "Confirmation of Co-operation (Form 320)",
+  form_320_confirmation_cooperation: "Confirmation of Co-operation (Form 320 / 324)",
   form_630_individual_identification: "Individual Identification Record (Form 630 / FINTRAC)",
   form_631_pep_checklist: "PEP / FINTRAC Checklist (Form 631)",
   form_635_receipt_of_funds: "Receipt of Funds Record (Form 635)",

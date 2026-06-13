@@ -14,7 +14,7 @@ ${FIELD_GUIDE}
 
 Rules:
 - Return one entry per field you can read from these pages; omit fields not shown.
-- Dates in YYYY-MM-DD. Money as plain numbers without $ or commas (e.g. "850000"). Percentages as numbers (e.g. "2.5").
+- Dates in YYYY-MM-DD. Money as plain numbers without $ or commas (e.g. "850000"). Percentages as numbers (e.g. "2.5"). If a commission is written as text instead of a percentage (for example "1/2 months rent plus HST"), return that visible text rather than omitting it.
 - transaction_type is "purchase" or "lease". firm_or_conditional is "firm" or "conditional". multiple_offer is "yes (N)" or "no".
 - representation_side: "listing", "cooperating", or "both" (multiple representation).
 - Multiple people in one field: join with "; ".
@@ -41,8 +41,6 @@ export const EXTRACTABLE_DOCS: DocumentType[] = [
 const DOC_HINTS: Partial<Record<DocumentType, string>> = {
   form_801_offer_summary:
     "Form 801 shows the property address, the offer date, irrevocable date/time, signature/acceptance dates, buyer and seller names, and both brokerages with their agents. It does NOT normally show the dollar amount — never infer sale_price from this form.",
-  form_320_confirmation_cooperation:
-    "Form 320 shows the commission offered to the co-operating brokerage (cooperating_commission_pct) and which side(s) each brokerage represents (representation_side; both boxes for the same brokerage = 'both' / multiple representation). The trade/MLS number may appear in the header.",
   deposit_proof:
     "Bank drafts / wire confirmations / receipts show deposit_amount, deposit_method (wire transfer / bank draft / cheque), the payee holding the deposit (deposit_held_by), and often the buyer's name and address.",
   form_124_notice_fulfillment:
@@ -50,7 +48,9 @@ const DOC_HINTS: Partial<Record<DocumentType, string>> = {
   agreement_of_purchase_and_sale:
     "The APS (Form 100) shows purchase price, deposit, irrevocable date, completion/closing date, buyer/seller names and addresses, and conditions in Schedule A.",
   lease_agreement:
-    "The Ontario Standard Lease shows monthly rent (sale_price for leases), lease_start_date/lease_end_date, tenant and landlord names and contact info, and deposit details.",
+    "The lease agreement shows monthly rent (sale_price for leases), lease_start_date/lease_end_date, tenant and landlord names and contact info, and deposit details. OREA Form 400 may also show the MLS number in the header/property line. For lease packages, if the brokerage form needs a closing_date and there is no separate closing/completion date, use the lease commencement date as closing_date.",
+  form_320_confirmation_cooperation:
+    "Form 320/324 shows the commission offered to the co-operating brokerage (cooperating_commission_pct) and which side(s) each brokerage represents (representation_side; both boxes for the same brokerage = 'both' / multiple representation). The trade/MLS number may appear in the header. For tenant/landlord deals, the commission is often written as a rent-based phrase such as '1/2 months rent plus HST'; capture that exact text as cooperating_commission_pct. Do not infer total_commission_pct or listing_commission_pct if only the co-operating commission is shown.",
   listing_agreement:
     "The listing agreement shows the total commission (total_commission_pct), the listing period, the seller/landlord names, and MLS listing details.",
   buyer_representation_agreement:
