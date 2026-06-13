@@ -13,6 +13,31 @@ export function validateFields(fields: MergedField[], transactionType: string): 
     f.notes = f.notes ? `${f.notes}; ${note}` : note;
   };
 
+  if (transactionType === "lease") {
+    const leaseStart = get("lease_start_date");
+    if (leaseStart?.value) {
+      const closing = get("closing_date");
+      if (closing) {
+        closing.value = leaseStart.value;
+        closing.confidence = leaseStart.confidence;
+        closing.sourceDocumentType = leaseStart.sourceDocumentType;
+        closing.sourcePage = leaseStart.sourcePage;
+        closing.needsReview = leaseStart.needsReview;
+        closing.notes = leaseStart.notes ?? "Lease closing date set from lease start date";
+      } else {
+        fields.push({
+          key: "closing_date",
+          value: leaseStart.value,
+          confidence: leaseStart.confidence,
+          sourceDocumentType: leaseStart.sourceDocumentType,
+          sourcePage: leaseStart.sourcePage,
+          needsReview: leaseStart.needsReview,
+          notes: leaseStart.notes ?? "Lease closing date set from lease start date",
+        });
+      }
+    }
+  }
+
   // Deposit should not exceed price
   const price = num(get("sale_price")?.value);
   const deposit = num(get("deposit_amount")?.value);
