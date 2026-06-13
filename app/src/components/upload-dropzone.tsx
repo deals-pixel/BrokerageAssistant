@@ -42,6 +42,19 @@ function formatPackageName(files: File[]) {
   return `${first} + ${files.length - 1} more`;
 }
 
+function safeStorageFileName(name: string) {
+  const extension = name.includes(".") ? `.${name.split(".").pop()}` : "";
+  const baseName = extension ? name.slice(0, -extension.length) : name;
+  const safeBaseName =
+    baseName
+      .normalize("NFKD")
+      .replace(/[^\w.-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "document";
+
+  return `${safeBaseName}${extension.toLowerCase().replace(/[^\w.]/g, "")}`;
+}
+
 async function renderPdfPages(file: File, onProgress: (message: string) => void): Promise<PageUpload[]> {
   onProgress(`Opening ${file.name}...`);
   const pdfjs = await import("pdfjs-dist");
@@ -168,7 +181,7 @@ export function UploadDropzone({ dealId, compact = false, replaceDocType = "" }:
 
         for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
           const file = files[fileIndex];
-          const sourcePath = `${activeDealId}/sources/${String(fileIndex + 1).padStart(3, "0")}-${Date.now()}-${file.name}`;
+          const sourcePath = `${activeDealId}/sources/${String(fileIndex + 1).padStart(3, "0")}-${Date.now()}-${safeStorageFileName(file.name)}`;
 
           setPhase("uploading");
           setProgress(`Uploading source ${fileIndex + 1} of ${files.length}...`);
