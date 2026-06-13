@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix app ci && npm --prefix app run build",
+    "start": "npm --prefix app run start"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
