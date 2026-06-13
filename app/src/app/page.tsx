@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { UploadDropzone } from "@/components/upload-dropzone";
+import { ProcessDealButton } from "@/components/process-deal-button";
 import { SignOutButton } from "@/components/sign-out-button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -56,6 +57,7 @@ export default async function DashboardPage() {
               <TableHead>Pages</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Uploaded</TableHead>
+              <TableHead className="text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -72,11 +74,19 @@ export default async function DashboardPage() {
                   <Badge variant={STATUS_VARIANT[d.status] ?? "outline"}>{d.status}</Badge>
                 </TableCell>
                 <TableCell>{new Date(d.created_at).toLocaleString()}</TableCell>
+                <TableCell className="text-right">
+                  <ProcessDealButton
+                    dealId={d.id}
+                    status={d.status}
+                    pageCount={d.page_count}
+                    variant={d.status === "uploaded" ? "default" : "outline"}
+                  />
+                </TableCell>
               </TableRow>
             ))}
             {(!deals || deals.length === 0) && (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
+                <TableCell colSpan={6} className="text-center text-muted-foreground">
                   No packages yet — upload one above.
                 </TableCell>
               </TableRow>

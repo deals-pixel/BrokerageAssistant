@@ -10,6 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { UploadDropzone } from "@/components/upload-dropzone";
+import { ProcessDealButton } from "@/components/process-deal-button";
 import { toast } from "sonner";
 import {
   FIELD_SECTIONS,
@@ -63,7 +65,7 @@ export function ReviewScreen({
   const router = useRouter();
   const [edited, setEdited] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [reprocessing, setReprocessing] = useState(false);
+  const [replaceDocType, setReplaceDocType] = useState<DocumentType | "">("");
   const [selectedPage, setSelectedPage] = useState<number | null>(
     pages.length > 0 ? pages[0].page_number : null,
   );
@@ -74,6 +76,17 @@ export function ReviewScreen({
     edited[key] !== undefined ? edited[key] : (fieldMap.get(key)?.value ?? "");
 
   const dirty = Object.keys(edited).length > 0;
+  const replaceableDocTypes = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          pages
+            .map((page) => page.doc_type)
+            .filter((docType): docType is DocumentType => Boolean(docType)),
+        ),
+      ).sort((a, b) => DOCUMENT_TYPES[a].localeCompare(DOCUMENT_TYPES[b])),
+    [pages],
+  );
 
   async function saveEdits(markReviewed: boolean) {
     setSaving(true);
@@ -141,20 +154,6 @@ export function ReviewScreen({
     toast.success("Summary copied to clipboard.");
   }
 
-  async function reprocess() {
-    setReprocessing(true);
-    try {
-      const res = await fetch(`/api/deals/${deal.id}/process`, { method: "POST" });
-      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Failed");
-      toast.success("Re-processed.");
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Re-process failed");
-    } finally {
-      setReprocessing(false);
-    }
-  }
-
   const missingRequired = checklist.filter((c) => c.required && !c.found);
 
   return (
@@ -164,7 +163,7 @@ export function ReviewScreen({
         <div>
           <div className="flex items-center gap-3">
             <Link href="/" className="text-sm text-muted-foreground hover:underline">
-              ← Dashboard
+              &lt;- Dashboard
             </Link>
             <h1 className="text-xl font-semibold">
               {deal.property_address ?? deal.file_name}
@@ -177,9 +176,12 @@ export function ReviewScreen({
           )}
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={reprocess} disabled={reprocessing}>
-            {reprocessing ? "Re-processing…" : "Re-run AI"}
-          </Button>
+          <ProcessDealButton
+            dealId={deal.id}
+            status={deal.status}
+            pageCount={deal.page_count}
+            variant={deal.status === "uploaded" ? "default" : "outline"}
+          />
           <Button
             variant="outline"
             size="sm"
@@ -194,14 +196,104 @@ export function ReviewScreen({
         </div>
       </header>
 
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_420px]">
+        <Card>
+          <CardHeader className="py-3">
+            <CardTitle className="text-base">
+              Document checklist{" "}
+              {missingRequired.length > 0 ? (
+                <span className="text-sm font-normal text-destructive">
+                  ({missingRequired.length} required missing)
+                </span>
+              ) : (
+                <span className="text-sm font-normal text-green-600">(complete)</span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-1 md:grid-cols-2">
+            {checklist.map((item) => (
+              <button
+                key={item.docType}
+                type="button"
+                className="flex items-center gap-2 rounded px-1 py-0.5 text-left text-sm hover:bg-muted"
+                onClick={() => item.pages[0] && setSelectedPage(item.pages[0])}
+              >
+                <span
+                  className={
+                    item.found
+                      ? "text-green-600"
+                      : item.required
+                        ? "text-destructive"
+                        : "text-muted-foreground"
+                  }
+                >
+                  {item.found ? "Yes" : "No"}
+                </span>
+                <span className={!item.found && item.required ? "font-medium" : ""}>
+                  {item.label}
+                </span>
+                {item.pages.length > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    p.{item.pages.join(", ")}
+                  </span>
+                )}
+                {!item.required && (
+                  <span className="text-xs text-muted-foreground">(optional)</span>
+                )}
+              </button>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="py-3">
+            <CardTitle className="text-base">Update package documents</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <UploadDropzone dealId={deal.id} compact />
+            <div className="space-y-2 rounded border p-3">
+              <label className="text-xs font-medium text-muted-foreground">
+                Replace existing document type
+              </label>
+              <select
+                className="h-8 w-full rounded-lg border border-input bg-background px-2 text-sm"
+                value={replaceDocType}
+                onChange={(e) => setReplaceDocType(e.target.value as DocumentType | "")}
+                disabled={replaceableDocTypes.length === 0}
+              >
+                <option value="">
+                  {replaceableDocTypes.length === 0
+                    ? "Process first to identify document types"
+                    : "Choose a document type"}
+                </option>
+                {replaceableDocTypes.map((docType) => (
+                  <option key={docType} value={docType}>
+                    {DOCUMENT_TYPES[docType]}
+                  </option>
+                ))}
+              </select>
+              {replaceDocType ? (
+                <UploadDropzone dealId={deal.id} compact replaceDocType={replaceDocType} />
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Select a classified document type, then upload the replacement PDF or JPEG pages.
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[440px_1fr]">
         {/* Left: page preview */}
-        <PagePanel
-          dealId={deal.id}
-          pages={pages}
-          selectedPage={selectedPage}
-          onSelect={setSelectedPage}
-        />
+        <div className="space-y-3 self-start lg:sticky lg:top-4">
+          <PagePanel
+            dealId={deal.id}
+            pages={pages}
+            selectedPage={selectedPage}
+            onSelect={setSelectedPage}
+          />
+        </div>
 
         {/* Right: fields form */}
         <div className="space-y-4">
@@ -267,56 +359,8 @@ export function ReviewScreen({
 
       <Separator />
 
-      {/* Bottom: checklist + export */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="py-3">
-            <CardTitle className="text-base">
-              Document checklist{" "}
-              {missingRequired.length > 0 ? (
-                <span className="text-sm font-normal text-destructive">
-                  ({missingRequired.length} required missing)
-                </span>
-              ) : (
-                <span className="text-sm font-normal text-green-600">(complete)</span>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-1 md:grid-cols-2">
-            {checklist.map((item) => (
-              <button
-                key={item.docType}
-                type="button"
-                className="flex items-center gap-2 rounded px-1 py-0.5 text-left text-sm hover:bg-muted"
-                onClick={() => item.pages[0] && setSelectedPage(item.pages[0])}
-              >
-                <span
-                  className={
-                    item.found
-                      ? "text-green-600"
-                      : item.required
-                        ? "text-destructive"
-                        : "text-muted-foreground"
-                  }
-                >
-                  {item.found ? "✓" : "□"}
-                </span>
-                <span className={!item.found && item.required ? "font-medium" : ""}>
-                  {item.label}
-                </span>
-                {item.pages.length > 0 && (
-                  <span className="text-xs text-muted-foreground">
-                    p.{item.pages.join(", ")}
-                  </span>
-                )}
-                {!item.required && (
-                  <span className="text-xs text-muted-foreground">(optional)</span>
-                )}
-              </button>
-            ))}
-          </CardContent>
-        </Card>
-
+      {/* Bottom: export */}
+      <div className="grid grid-cols-1 gap-4">
         <Card>
           <CardHeader className="py-3">
             <CardTitle className="text-base">Export</CardTitle>
