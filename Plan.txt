@@ -1,0 +1,352 @@
+
+Brokerage Deal Intake Assistant 
+1. Product Goal
+
+Build a private internal web app that takes a real estate transaction package PDF and automatically creates a draft **Deal Information Sheet** for admin review.
+
+The workflow is:
+
+Upload transaction package PDF
+→ classify pages/documents
+→ extract deal fields
+→ cross-check values
+→ admin reviews/edits
+→ export Deal Information Sheet / CSV 
+
+---
+
+2. Core Use Case
+
+The brokerage receives a 20–50 page PDF package containing documents such as:
+
+* Deal Information Sheet
+* Agreement of Purchase and Sale
+* OREA Form 801
+* OREA Form 320
+* Deposit proof
+* FINTRAC / ID forms
+* Lease agreement
+* Disclosure forms
+
+The sample PDFs include this kind of multi-document transaction package.   
+
+The app should help admins generate and complete the Deal Information Sheet faster.
+
+
+# 3. Recommended Tech Stack
+
+## Frontend
+
+
+Next.js
+TypeScript
+Tailwind CSS
+shadcn/ui
+React Hook Form
+Zod
+
+
+## Backend
+
+
+Next.js API routes or Supabase Edge Functions
+Supabase Auth
+Supabase Postgres
+Supabase Storage
+
+
+## AI
+
+```text
+AI API 
+Structured JSON output
+```
+
+## PDF Handling
+
+```text
+PDF upload
+PDF page splitting
+Page image preview
+Optional: pdf-lib or poppler for page rendering
+```
+
+## Hosting
+
+```text
+Railway
+Supabase
+```
+
+
+# 4. MVP Scope
+
+## Must Have
+
+### 1. Login
+
+Private access only.
+
+Roles:
+
+```text
+admin
+brokerage_user
+developer_superadmin
+```
+
+---
+
+### 2. Upload Transaction Package
+
+User uploads one PDF.
+
+Accepted:
+
+```text
+.pdf only
+max file size configurable
+```
+
+After upload:
+
+```text
+status = uploaded
+```
+
+---
+
+### 3. AI Page Classification
+
+The app should split or inspect the PDF and classify pages into document types.
+
+Document types:
+
+(review example pdfs to get the complete list of document types)
+
+### 4. AI Field Extraction
+
+(review example pdfs to decide the fields need to get extracted)
+
+### 5. Admin Review Screen
+
+Show extracted fields in editable form.
+
+Each field should have:
+
+```ts
+type FieldReview = {
+  value: string | number | null;
+  confidence: "high" | "medium" | "low";
+  sourceDocumentType?: DocumentType;
+  sourcePage?: number;
+  needsReview: boolean;
+};
+```
+
+UI behavior:
+
+```text
+Green = high confidence
+Yellow = needs review
+Red = missing
+```
+
+Admin can edit fields before final export.
+
+---
+
+### 6. Document Checklist
+
+The app should show found/missing documents.
+
+For purchase/sale:
+
+```text
+Required:
+Deal Information Sheet
+APS
+Form 801
+Form 320
+Deposit proof
+FINTRAC
+```
+
+For lease:
+
+```text
+Required:
+Lease agreement
+Deposit proof
+ID / FINTRAC if applicable
+Disclosure form if applicable
+```
+
+Example UI:
+
+```text
+Documents Found
+✓ Agreement of Purchase and Sale
+✓ Form 801
+✓ Deposit Proof
+
+Missing / Review
+□ FINTRAC
+□ Lawyer Info
+```
+
+---
+
+### 7. Export
+
+V1 exports:
+
+```text
+CSV
+copy-to-clipboard summary
+filled Deal Information Sheet PDF
+```
+
+
+# 5. Database Schema
+
+decide appropriate schema
+
+# 6. AI Pipeline
+
+## Step 1: Upload PDF
+## Step 2: Classify Pages
+## Step 3: Extract Fields
+## Step 4: Merge Fields
+## Step 5: Validate
+
+# 7. Review Screen Layout
+
+## Page Structure
+
+```text
+Header
+- Property address
+- Transaction type
+- Status
+
+Left panel
+- PDF preview
+- page thumbnails
+- document type labels
+
+Right panel
+- extracted fields form
+- confidence indicators
+- source references
+
+Bottom
+- document checklist
+- export buttons
+```
+
+---
+
+## Field Sections
+
+### Property
+
+```text
+Address
+MLS number
+Transaction type
+```
+
+### Financial
+
+```text
+Purchase price / rent
+Deposit
+Commission
+```
+
+### Dates
+
+```text
+Offer date
+Acceptance date
+Closing date
+Lease start/end
+```
+
+### Parties
+
+```text
+Buyer / seller
+Tenant / landlord
+```
+
+### Agents / Brokerage
+
+```text
+Listing agent
+Cooperating agent
+Brokerage
+```
+
+### Lawyer
+
+```text
+Lawyer name
+Firm
+Email
+Phone
+```
+
+---
+
+# 8. Security Requirements
+
+These PDFs contain sensitive transaction, identity, signature, and financial information.
+
+Minimum security:
+
+```text
+Supabase Auth required
+Row Level Security enabled
+Private storage buckets only
+Signed URLs only
+Audit logs
+No public file URLs
+Auto-delete original PDFs after configurable period
+```
+
+Recommended retention:
+
+```text
+Original PDFs: delete after 7–30 days
+Extracted/reviewed deal record: retain unless brokerage requests deletion
+Audit logs: retain
+```
+
+Important product promise:
+
+```text
+Uploaded documents are used only to process the brokerage’s transaction package and are not used to train models.
+```
+
+---
+
+
+# 11. Acceptance Criteria for MVP
+
+The MVP is successful if:
+
+```text
+Admin uploads one transaction package.
+System extracts major deal fields.
+Admin can correct fields.
+System generates a reviewed transaction summary.
+Admin can export data for Lone Wolf entry.
+```
+
+Target result:
+
+```text
+Reduce admin preparation time from 10–20 minutes to under 2–3 minutes per file.
+```

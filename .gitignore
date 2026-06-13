@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+.next/
+**/.next/
+dist/
+build/
+out/
+coverage/
+
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Logs and caches
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.turbo/
+.cache/
+
+# Generated document-processing artifacts
+_e2e/
+_extracted/
+_pages/
+_sheets/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+
+# Local assistant/tool settings
+.claude/settings.local.json
+**/.claude/settings.local.json
+
+# TypeScript
+*.tsbuildinfo
