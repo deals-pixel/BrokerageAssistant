@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import type { DocumentType } from "@/lib/types";
+import { DOCUMENT_TYPES, type DocumentType } from "@/lib/types";
 
 const MAX_FILE_MB = Number(process.env.NEXT_PUBLIC_MAX_FILE_MB ?? 50);
 const RETENTION_DAYS = Number(process.env.NEXT_PUBLIC_PDF_RETENTION_DAYS ?? 14);
@@ -19,6 +19,15 @@ type Phase = "idle" | "preparing" | "rendering" | "uploading";
 type PageUpload = {
   blob: Blob;
   sourceName: string;
+  docType?: DocumentType;
+  confidence?: "high" | "medium" | "low";
+};
+
+type PendingBatch = {
+  files: File[];
+  pages: PageUpload[];
+  incomingDocTypes: DocumentType[];
+  conflicts: DocumentType[];
 };
 
 type UploadDropzoneProps = {
@@ -53,6 +62,28 @@ function safeStorageFileName(name: string) {
       .slice(0, 80) || "document";
 
   return `${safeBaseName}${extension.toLowerCase().replace(/[^\w.]/g, "")}`;
+}
+
+async function blobToBase64(blob: Blob) {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Could not read page image"));
+    reader.readAsDataURL(blob);
+  });
+  return dataUrl.split(",")[1] ?? "";
+}
+
+async function filesToPageUploads(files: File[], onProgress: (message: string) => void) {
+  const pages: PageUpload[] = [];
+  for (const file of files) {
+    if (isPdf(file)) {
+      pages.push(...(await renderPdfPages(file, onProgress)));
+    } else {
+      pages.push({ blob: file, sourceName: file.name });
+    }
+  }
+  return pages;
 }
 
 async function renderPdfPages(file: File, onProgress: (message: string) => void): Promise<PageUpload[]> {
@@ -97,11 +128,16 @@ export function UploadDropzone({ dealId, compact = false, replaceDocType = "" }:
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [pendingBatch, setPendingBatch] = useState<PendingBatch | null>(null);
+  const [replaceChoices, setReplaceChoices] = useState<Set<DocumentType>>(new Set());
+  const [committing, setCommitting] = useState(false);
 
   const handleFiles = useCallback(
     async (fileList: FileList | File[]) => {
       const files = Array.from(fileList);
       if (files.length === 0) return;
+      setPendingBatch(null);
+      setReplaceChoices(new Set());
 
       const invalid = files.find((file) => !isPdf(file) && !isJpeg(file));
       if (invalid) {
@@ -126,6 +162,59 @@ export function UploadDropzone({ dealId, compact = false, replaceDocType = "" }:
           data: { user },
         } = await supabase.auth.getUser();
         if (!user) throw new Error("Not signed in");
+
+        if (dealId && !replaceDocType) {
+          setPhase("rendering");
+          const pages = await filesToPageUploads(files, setProgress);
+          const images = await Promise.all(
+            pages.map(async (page, index) => ({
+              pageNumber: index + 1,
+              base64: await blobToBase64(page.blob),
+              mediaType: "image/jpeg" as const,
+            })),
+          );
+
+          setPhase("preparing");
+          setProgress("Identifying document types...");
+          const res = await fetch(`/api/deals/${dealId}/classify-upload`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ images }),
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => null);
+            throw new Error(body?.error ?? "Could not identify document types");
+          }
+          const result = (await res.json()) as {
+            classification: {
+              pages: {
+                page_number: number;
+                doc_type: DocumentType;
+                confidence: "high" | "medium" | "low";
+              }[];
+            };
+            incomingDocTypes: DocumentType[];
+            conflicts: DocumentType[];
+          };
+          const classifiedPages = pages.map((page, index) => {
+            const classification = result.classification.pages.find((p) => p.page_number === index + 1);
+            return {
+              ...page,
+              docType: classification?.doc_type,
+              confidence: classification?.confidence,
+            };
+          });
+
+          setPendingBatch({
+            files,
+            pages: classifiedPages,
+            incomingDocTypes: result.incomingDocTypes,
+            conflicts: result.conflicts,
+          });
+          setReplaceChoices(new Set(result.conflicts));
+          toast.success("Document types identified. Confirm how to update the package.");
+          return;
+        }
 
         if (!activeDealId) {
           const deleteAfter = new Date(Date.now() + RETENTION_DAYS * 86400_000).toISOString();
@@ -273,7 +362,133 @@ export function UploadDropzone({ dealId, compact = false, replaceDocType = "" }:
     [dealId, replaceDocType, router],
   );
 
-  const busy = phase !== "idle";
+  async function confirmPendingUpload() {
+    if (!dealId || !pendingBatch) return;
+
+    const supabase = createClient();
+    setCommitting(true);
+    setPhase("uploading");
+    setProgress("Updating package...");
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not signed in");
+
+      const docTypesToReplace = Array.from(replaceChoices);
+      for (const docType of docTypesToReplace) {
+        const { data: pagesToReplace, error: lookupErr } = await supabase
+          .from("deal_pages")
+          .select("image_path")
+          .eq("deal_id", dealId)
+          .eq("doc_type", docType);
+        if (lookupErr) throw new Error(lookupErr.message);
+
+        const imagePaths = (pagesToReplace ?? []).map((page) => page.image_path);
+        if (imagePaths.length > 0) {
+          const { error: removeErr } = await supabase.storage.from("deals").remove(imagePaths);
+          if (removeErr) throw new Error(`Could not remove old ${DOCUMENT_TYPES[docType]} pages`);
+        }
+
+        const { error: deleteErr } = await supabase
+          .from("deal_pages")
+          .delete()
+          .eq("deal_id", dealId)
+          .eq("doc_type", docType);
+        if (deleteErr) throw new Error(deleteErr.message);
+      }
+
+      const { data: lastPage } = await supabase
+        .from("deal_pages")
+        .select("page_number")
+        .eq("deal_id", dealId)
+        .order("page_number", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      let nextPageNumber = (lastPage?.page_number ?? 0) + 1;
+      let firstPdfPath: string | null = null;
+
+      for (let fileIndex = 0; fileIndex < pendingBatch.files.length; fileIndex++) {
+        const file = pendingBatch.files[fileIndex];
+        const sourcePath = `${dealId}/sources/${String(fileIndex + 1).padStart(3, "0")}-${Date.now()}-${crypto.randomUUID()}-${safeStorageFileName(file.name)}`;
+        const { error: sourceErr } = await supabase.storage
+          .from("deals")
+          .upload(sourcePath, file, {
+            contentType: isPdf(file) ? "application/pdf" : "image/jpeg",
+          });
+        if (sourceErr) throw new Error(`${file.name} upload failed: ${sourceErr.message}`);
+        if (isPdf(file) && !firstPdfPath) firstPdfPath = sourcePath;
+      }
+
+      for (const page of pendingBatch.pages) {
+        const pageNumber = nextPageNumber++;
+        setProgress(`Uploading page ${pageNumber}...`);
+        const imagePath = `${dealId}/pages/p${String(pageNumber).padStart(3, "0")}.jpg`;
+        const { error: imageErr } = await supabase.storage
+          .from("deals")
+          .upload(imagePath, page.blob, { contentType: "image/jpeg" });
+        if (imageErr) throw new Error(`Page ${pageNumber} upload failed: ${imageErr.message}`);
+
+        const { error: rowErr } = await supabase.from("deal_pages").insert({
+          deal_id: dealId,
+          page_number: pageNumber,
+          image_path: imagePath,
+          doc_type: page.docType ?? null,
+          doc_confidence: page.confidence ?? null,
+        });
+        if (rowErr) throw new Error(`Page ${pageNumber} record failed: ${rowErr.message}`);
+      }
+
+      const { count } = await supabase
+        .from("deal_pages")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId);
+
+      const update: Record<string, unknown> = {
+        page_count: count ?? nextPageNumber - 1,
+        status: "uploaded",
+        error_message: null,
+      };
+      if (firstPdfPath) update.original_pdf_path = firstPdfPath;
+
+      await supabase.from("deal_fields").delete().eq("deal_id", dealId);
+      await supabase.from("deals").update(update).eq("id", dealId);
+      await supabase.from("audit_logs").insert({
+        user_id: user.id,
+        deal_id: dealId,
+        action: "pending_upload_confirmed",
+        details: {
+          incoming_doc_types: pendingBatch.incomingDocTypes,
+          replaced_doc_types: docTypesToReplace,
+          pages_added: pendingBatch.pages.length,
+          page_count: count ?? nextPageNumber - 1,
+        },
+      });
+
+      setPhase("preparing");
+      setProgress("Parsing updated package...");
+      const processRes = await fetch(`/api/deals/${dealId}/process`, { method: "POST" });
+      if (!processRes.ok) {
+        const body = await processRes.json().catch(() => null);
+        throw new Error(body?.error ?? "Processing failed");
+      }
+
+      toast.success("Package updated and processed.");
+      setPendingBatch(null);
+      setReplaceChoices(new Set());
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Package update failed");
+      router.refresh();
+    } finally {
+      setCommitting(false);
+      setPhase("idle");
+      setProgress("");
+    }
+  }
+
+  const busy = phase !== "idle" || committing;
 
   return (
     <Card
@@ -302,6 +517,70 @@ export function UploadDropzone({ dealId, compact = false, replaceDocType = "" }:
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             <p className="text-center text-sm text-muted-foreground">{progress}</p>
           </>
+        ) : pendingBatch ? (
+          <div className="w-full space-y-3">
+            <div className="space-y-1 text-sm">
+              <p className="font-medium">Recognized documents</p>
+              <div className="flex flex-wrap gap-1">
+                {pendingBatch.incomingDocTypes.map((docType) => (
+                  <span key={docType} className="rounded border px-2 py-0.5 text-xs">
+                    {DOCUMENT_TYPES[docType]}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {pendingBatch.conflicts.length > 0 ? (
+              <div className="space-y-2 rounded border p-3">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Existing document types found
+                </p>
+                {pendingBatch.conflicts.map((docType) => (
+                  <label key={docType} className="flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={replaceChoices.has(docType)}
+                      onChange={(e) =>
+                        setReplaceChoices((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) {
+                            next.add(docType);
+                          } else {
+                            next.delete(docType);
+                          }
+                          return next;
+                        })
+                      }
+                    />
+                    <span>
+                      Replace existing {DOCUMENT_TYPES[docType]}
+                      <span className="block text-xs text-muted-foreground">
+                        Unchecked keeps both copies in the package.
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded border p-3 text-sm text-muted-foreground">
+                No matching existing document types were found. These pages will be added to the package.
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={confirmPendingUpload}>Confirm and parse</Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setPendingBatch(null);
+                  setReplaceChoices(new Set());
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
         ) : (
           <>
             <p className="text-center text-sm font-medium">

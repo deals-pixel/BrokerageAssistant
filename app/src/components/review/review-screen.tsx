@@ -65,7 +65,6 @@ export function ReviewScreen({
   const router = useRouter();
   const [edited, setEdited] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [replaceDocType, setReplaceDocType] = useState<DocumentType | "">("");
   const [selectedPage, setSelectedPage] = useState<number | null>(
     pages.length > 0 ? pages[0].page_number : null,
   );
@@ -76,17 +75,6 @@ export function ReviewScreen({
     edited[key] !== undefined ? edited[key] : (fieldMap.get(key)?.value ?? "");
 
   const dirty = Object.keys(edited).length > 0;
-  const replaceableDocTypes = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          pages
-            .map((page) => page.doc_type)
-            .filter((docType): docType is DocumentType => Boolean(docType)),
-        ),
-      ).sort((a, b) => DOCUMENT_TYPES[a].localeCompare(DOCUMENT_TYPES[b])),
-    [pages],
-  );
 
   async function saveEdits(markReviewed: boolean) {
     setSaving(true);
@@ -251,35 +239,6 @@ export function ReviewScreen({
           </CardHeader>
           <CardContent className="space-y-3">
             <UploadDropzone dealId={deal.id} compact />
-            <div className="space-y-2 rounded border p-3">
-              <label className="text-xs font-medium text-muted-foreground">
-                Replace existing document type
-              </label>
-              <select
-                className="h-8 w-full rounded-lg border border-input bg-background px-2 text-sm"
-                value={replaceDocType}
-                onChange={(e) => setReplaceDocType(e.target.value as DocumentType | "")}
-                disabled={replaceableDocTypes.length === 0}
-              >
-                <option value="">
-                  {replaceableDocTypes.length === 0
-                    ? "Process first to identify document types"
-                    : "Choose a document type"}
-                </option>
-                {replaceableDocTypes.map((docType) => (
-                  <option key={docType} value={docType}>
-                    {DOCUMENT_TYPES[docType]}
-                  </option>
-                ))}
-              </select>
-              {replaceDocType ? (
-                <UploadDropzone dealId={deal.id} compact replaceDocType={replaceDocType} />
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Select a classified document type, then upload the replacement PDF or JPEG pages.
-                </p>
-              )}
-            </div>
           </CardContent>
         </Card>
       </div>
