@@ -89,6 +89,7 @@ export async function processDeal(dealId: string): Promise<void> {
         source_doc_type: f.sourceDocumentType ?? null,
         source_page: f.sourcePage ?? null,
         source_box: f.sourceBox ?? null,
+        conflict_sources: f.conflictSources ?? null,
         needs_review: f.needsReview,
         notes: f.notes ?? null,
       }));

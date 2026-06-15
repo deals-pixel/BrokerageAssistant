@@ -18,6 +18,7 @@ import {
   DOCUMENT_TYPES,
   type Confidence,
   type DocumentType,
+  type FieldSourceCandidate,
   type SourceBox,
 } from "@/lib/types";
 import type { ChecklistResult } from "@/lib/checklist";
@@ -44,6 +45,7 @@ type FieldRow = {
   source_doc_type: string | null;
   source_page: number | null;
   source_box: SourceBox | null;
+  conflict_sources: FieldSourceCandidate[] | null;
   needs_review: boolean;
   notes: string | null;
 };
@@ -121,6 +123,7 @@ export function ReviewScreen({
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [recipient, setRecipient] = useState("");
   const [selectedFieldKey, setSelectedFieldKey] = useState<string | null>(null);
+  const [selectedSourceIndex, setSelectedSourceIndex] = useState<number | null>(null);
   const [selectedPage, setSelectedPage] = useState<number | null>(
     pages.length > 0 ? pages[0].page_number : null,
   );
@@ -132,9 +135,14 @@ export function ReviewScreen({
   const documentGroups = useMemo(() => groupDocuments(pages), [pages]);
   const latestReminder = reminders.find((reminder) => reminder.sent_at) ?? reminders[0];
   const selectedField = selectedFieldKey ? fieldMap.get(selectedFieldKey) : null;
+  const selectedConflictSource =
+    selectedField && selectedSourceIndex != null
+      ? validConflictSources(selectedField.conflict_sources)[selectedSourceIndex]
+      : null;
+  const activeSource = selectedConflictSource ?? fieldToSourceCandidate(selectedField);
   const activeSourceBox =
-    selectedField?.source_page === selectedPage && isSourceBox(selectedField.source_box)
-      ? selectedField.source_box
+    activeSource?.sourcePage === selectedPage && isSourceBox(activeSource.sourceBox)
+      ? activeSource.sourceBox
       : null;
 
   const currentValue = (key: string) =>
@@ -145,7 +153,15 @@ export function ReviewScreen({
   function jumpToFieldSource(row: FieldRow | undefined, fieldKey?: string) {
     if (row?.source_page == null) return;
     setSelectedFieldKey(fieldKey ?? row.field_key);
+    setSelectedSourceIndex(null);
     setSelectedPage(row.source_page);
+  }
+
+  function jumpToConflictSource(fieldKey: string, source: FieldSourceCandidate, index: number) {
+    if (source.sourcePage == null) return;
+    setSelectedFieldKey(fieldKey);
+    setSelectedSourceIndex(index);
+    setSelectedPage(source.sourcePage);
   }
 
   async function saveEdits(markReviewed: boolean) {
@@ -165,8 +181,10 @@ export function ReviewScreen({
               value: value || null,
               needs_review: false,
               confidence: "high",
+              conflict_sources: null,
               edited_by: user?.id,
               edited_at: new Date().toISOString(),
+              notes: null,
             })
             .eq("deal_id", deal.id)
             .eq("field_key", key);
@@ -364,6 +382,7 @@ export function ReviewScreen({
                 className="flex w-full items-start gap-2 rounded px-1 py-1 text-left text-sm hover:bg-muted"
                 onClick={() => {
                   setSelectedFieldKey(null);
+                  setSelectedSourceIndex(null);
                   if (item.pages[0]) setSelectedPage(item.pages[0]);
                 }}
               >
@@ -542,6 +561,7 @@ export function ReviewScreen({
                   className="rounded border p-2 text-left text-sm hover:bg-muted"
                   onClick={() => {
                     setSelectedFieldKey(null);
+                    setSelectedSourceIndex(null);
                     setSelectedPage(group.pages[0]);
                   }}
                 >
@@ -575,6 +595,7 @@ export function ReviewScreen({
             highlight={activeSourceBox}
             onSelect={(page) => {
               setSelectedFieldKey(null);
+              setSelectedSourceIndex(null);
               setSelectedPage(page);
             }}
           />
@@ -594,6 +615,7 @@ export function ReviewScreen({
                   const sourceLabel = row?.source_doc_type
                     ? DOCUMENT_TYPES[row.source_doc_type as DocumentType] ?? row.source_doc_type
                     : null;
+                  const conflictSources = validConflictSources(row?.conflict_sources);
                   const tone =
                     fieldTone(row) + (edited[f.key] !== undefined ? " ring-2 ring-blue-300" : "");
                   return (
@@ -649,6 +671,38 @@ export function ReviewScreen({
                       )}
                       {row?.notes && (
                         <p className="text-xs text-amber-700">{row.notes}</p>
+                      )}
+                      {conflictSources.length > 1 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {conflictSources.map((source, index) => {
+                            const active =
+                              selectedFieldKey === f.key && selectedSourceIndex === index;
+                            const label = source.sourceDocumentType
+                              ? DOCUMENT_TYPES[source.sourceDocumentType] ?? source.sourceDocumentType
+                              : "Source";
+                            return (
+                              <button
+                                key={`${source.sourceDocumentType ?? "source"}-${source.sourcePage ?? "?"}-${index}`}
+                                type="button"
+                                className={`max-w-full rounded border px-2 py-1 text-left text-[11px] leading-tight ${
+                                  active
+                                    ? "border-amber-500 bg-amber-100 text-amber-950"
+                                    : "border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                                }`}
+                                onClick={() => jumpToConflictSource(f.key, source, index)}
+                                title={`${label}${source.sourcePage ? ` p.${source.sourcePage}` : ""}: ${source.value}`}
+                              >
+                                <span className="font-medium">
+                                  Source {index + 1}
+                                  {source.sourcePage ? ` p.${source.sourcePage}` : ""}
+                                </span>
+                                <span className="ml-1 text-amber-800">
+                                  {truncateSourceValue(source.value)}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       )}
                     </div>
                   );
@@ -718,6 +772,24 @@ export function ReviewScreen({
   );
 }
 
+function fieldToSourceCandidate(row: FieldRow | null | undefined): FieldSourceCandidate | null {
+  if (!row || row.source_page == null) return null;
+  return {
+    value: row.value ?? "",
+    confidence: row.confidence,
+    sourceDocumentType: row.source_doc_type ? (row.source_doc_type as DocumentType) : undefined,
+    sourcePage: row.source_page,
+    sourceBox: row.source_box,
+  };
+}
+
+function validConflictSources(
+  sources: FieldSourceCandidate[] | null | undefined,
+): FieldSourceCandidate[] {
+  if (!Array.isArray(sources)) return [];
+  return sources.filter((source) => source && source.value && source.sourcePage != null);
+}
+
 function isSourceBox(value: SourceBox | null | undefined): value is SourceBox {
   if (!value) return false;
   const { x, y, width, height } = value;
@@ -730,6 +802,10 @@ function isSourceBox(value: SourceBox | null | undefined): value is SourceBox {
     x + width <= 1 &&
     y + height <= 1
   );
+}
+
+function truncateSourceValue(value: string) {
+  return value.length > 34 ? `${value.slice(0, 31)}...` : value;
 }
 
 function groupDocuments(pages: PageRow[]) {

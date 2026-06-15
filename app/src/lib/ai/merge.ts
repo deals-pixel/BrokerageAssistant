@@ -1,4 +1,10 @@
-import type { Confidence, DocumentType, FieldReview, SourceBox } from "@/lib/types";
+import type {
+  Confidence,
+  DocumentType,
+  FieldReview,
+  FieldSourceCandidate,
+  SourceBox,
+} from "@/lib/types";
 import type { FieldExtraction } from "./schemas";
 import { EXTRACTABLE_DOCS } from "./extract";
 
@@ -52,6 +58,15 @@ export function mergeExtractions(
 
     const disagreeing = candidates.filter((c) => !valuesAgree(key, c.value, winner.value));
     const conflict = disagreeing.length > 0;
+    const conflictSources: FieldSourceCandidate[] | undefined = conflict
+      ? candidates.map((candidate) => ({
+          value: candidate.value,
+          confidence: candidate.confidence,
+          sourceDocumentType: candidate.docType,
+          sourcePage: candidate.sourcePage,
+          sourceBox: candidate.sourceBox,
+        }))
+      : undefined;
 
     merged.push({
       key,
@@ -60,6 +75,7 @@ export function mergeExtractions(
       sourceDocumentType: winner.docType,
       sourcePage: winner.sourcePage ?? undefined,
       sourceBox: winner.sourceBox,
+      conflictSources,
       needsReview: conflict || winner.confidence !== "high",
       notes: conflict
         ? `Conflicts: ${disagreeing.map((d) => `${d.docType} p.${d.sourcePage ?? "?"} = "${d.value}"`).join("; ")}`
