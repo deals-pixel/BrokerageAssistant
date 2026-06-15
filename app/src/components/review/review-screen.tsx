@@ -134,6 +134,11 @@ export function ReviewScreen({
 
   const dirty = Object.keys(edited).length > 0;
 
+  function jumpToFieldSource(row: FieldRow | undefined) {
+    if (row?.source_page == null) return;
+    setSelectedPage(row.source_page);
+  }
+
   async function saveEdits(markReviewed: boolean) {
     setSaving(true);
     const supabase = createClient();
@@ -545,29 +550,6 @@ export function ReviewScreen({
         </Card>
       </div>
 
-      <Card>
-        <CardHeader className="py-3">
-          <CardTitle className="text-base">Activity Log</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2">
-          {auditLogs.length > 0 ? (
-            auditLogs.map((log) => (
-              <div key={log.id} className="rounded border p-2 text-sm">
-                <p className="font-medium">{formatAction(log.action)}</p>
-                <p className="text-xs text-muted-foreground">{new Date(log.created_at).toLocaleString()}</p>
-                {log.details && (
-                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                    {summarizeDetails(log.details)}
-                  </p>
-                )}
-              </div>
-            ))
-          ) : (
-            <p className="text-sm text-muted-foreground">No activity available.</p>
-          )}
-        </CardContent>
-      </Card>
-
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[440px_1fr]">
         {/* Left: page preview */}
         <div className="space-y-3 self-start lg:sticky lg:top-4">
@@ -589,24 +571,27 @@ export function ReviewScreen({
               <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {section.fields.map((f) => {
                   const row = fieldMap.get(f.key);
+                  const inputId = `field-${f.key}`;
+                  const sourceLabel = row?.source_doc_type
+                    ? DOCUMENT_TYPES[row.source_doc_type as DocumentType] ?? row.source_doc_type
+                    : null;
                   const tone =
                     fieldTone(row) + (edited[f.key] !== undefined ? " ring-2 ring-blue-300" : "");
                   return (
                     <div key={f.key} className={`space-y-1 ${f.wide ? "md:col-span-2" : ""}`}>
                       <div className="flex items-center justify-between">
-                        <label className="text-xs font-medium text-muted-foreground">
+                        <label
+                          htmlFor={inputId}
+                          className="text-xs font-medium text-muted-foreground"
+                        >
                           {f.label}
                         </label>
                         {row?.source_page != null && (
                           <button
                             type="button"
                             className="text-xs text-blue-600 hover:underline"
-                            onClick={() => setSelectedPage(row.source_page)}
-                            title={
-                              row.source_doc_type
-                                ? DOCUMENT_TYPES[row.source_doc_type as DocumentType]
-                                : undefined
-                            }
+                            onClick={() => jumpToFieldSource(row)}
+                            title={sourceLabel ?? undefined}
                           >
                             p.{row.source_page}
                           </button>
@@ -614,16 +599,30 @@ export function ReviewScreen({
                       </div>
                       {f.multiline ? (
                         <Textarea
+                          id={inputId}
                           className={`min-h-20 ${tone}`}
+                          title={
+                            row?.source_page != null
+                              ? `Source: ${sourceLabel ?? "uploaded document"}, page ${row.source_page}`
+                              : undefined
+                          }
                           value={currentValue(f.key)}
+                          onFocus={() => jumpToFieldSource(row)}
                           onChange={(e) =>
                             setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))
                           }
                         />
                       ) : (
                         <Input
+                          id={inputId}
                           className={tone}
+                          title={
+                            row?.source_page != null
+                              ? `Source: ${sourceLabel ?? "uploaded document"}, page ${row.source_page}`
+                              : undefined
+                          }
                           value={currentValue(f.key)}
+                          onFocus={() => jumpToFieldSource(row)}
                           onChange={(e) =>
                             setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))
                           }
@@ -673,6 +672,29 @@ export function ReviewScreen({
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="py-3">
+          <CardTitle className="text-base">Activity Log</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          {auditLogs.length > 0 ? (
+            auditLogs.map((log) => (
+              <div key={log.id} className="rounded border p-2 text-sm">
+                <p className="font-medium">{formatAction(log.action)}</p>
+                <p className="text-xs text-muted-foreground">{new Date(log.created_at).toLocaleString()}</p>
+                {log.details && (
+                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                    {summarizeDetails(log.details)}
+                  </p>
+                )}
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground">No activity available.</p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
