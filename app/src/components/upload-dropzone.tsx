@@ -11,8 +11,8 @@ import type { DocumentType } from "@/lib/types";
 
 const MAX_FILE_MB = Number(process.env.NEXT_PUBLIC_MAX_FILE_MB ?? 50);
 const RETENTION_DAYS = Number(process.env.NEXT_PUBLIC_PDF_RETENTION_DAYS ?? 14);
-const RENDER_SCALE = 2.0;
-const JPEG_QUALITY = 0.8;
+const RENDER_SCALE = 2.5;
+const JPEG_QUALITY = 0.92;
 const ACCEPTED_TYPES = "application/pdf,image/jpeg,.pdf,.jpg,.jpeg";
 
 type Phase = "idle" | "preparing" | "rendering" | "uploading";

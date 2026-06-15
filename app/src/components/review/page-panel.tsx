@@ -90,7 +90,7 @@ export function PagePanel({
                 />
                 {highlight && (
                   <div
-                    className="pointer-events-none absolute rounded-sm border-2 border-yellow-500 bg-yellow-300/30 shadow-[0_0_0_9999px_rgba(0,0,0,0.08)] ring-2 ring-yellow-200"
+                    className="pointer-events-none absolute rounded-[2px] bg-yellow-300/35 mix-blend-multiply"
                     style={{
                       left: `${highlight.x * 100}%`,
                       top: `${highlight.y * 100}%`,

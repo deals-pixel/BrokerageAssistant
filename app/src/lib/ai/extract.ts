@@ -22,7 +22,10 @@ Rules:
 - Multiple people in one field: join with "; ".
 - confidence: high if clearly legible/typed, medium if handwriting is readable but ambiguous, low if partially illegible or inferred.
 - source_page is the package page number labeled above each image.
-- source_box is the tightest rectangle around the visible source text on that page, normalized to the full page image as decimals from 0 to 1: x is left, y is top, width and height are rectangle size. Return null if the field is inferred, combines multiple distant areas, or you cannot localize it confidently.`;
+- source_box is the tightest rectangle around the exact visible text/value that supports the extracted field.
+- Calculate source_box against the full raster page image exactly as shown, including all white margins and page edges. Do not calculate relative to the cropped form content, a table, a section, or the text line only.
+- Use normalized decimals from 0 to 1: x = left edge / full image width, y = top edge / full image height, width = box width / full image width, height = box height / full image height.
+- Keep the box tight but include the whole readable value; do not add padding. Return null if the field is inferred, combines multiple distant areas, or you cannot localize it confidently.`;
 
 export const EXTRACTABLE_DOCS: DocumentType[] = [
   "agreement_of_purchase_and_sale",
