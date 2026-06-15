@@ -35,6 +35,7 @@ export type DocumentType = keyof typeof DOCUMENT_TYPES;
 
 export type Confidence = "high" | "medium" | "low";
 export type TransactionType = "purchase" | "lease" | "unknown";
+export type SourceBox = { x: number; y: number; width: number; height: number };
 export type DealStatus =
   | "uploaded"
   | "processing"
@@ -49,6 +50,7 @@ export type FieldReview = {
   confidence: Confidence;
   sourceDocumentType?: DocumentType;
   sourcePage?: number;
+  sourceBox?: SourceBox | null;
   needsReview: boolean;
   notes?: string;
 };

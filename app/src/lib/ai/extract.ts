@@ -21,7 +21,8 @@ Rules:
 - seller_is_corporation and buyer_is_corporation should be yes, no, or unknown when visible.
 - Multiple people in one field: join with "; ".
 - confidence: high if clearly legible/typed, medium if handwriting is readable but ambiguous, low if partially illegible or inferred.
-- source_page is the package page number labeled above each image.`;
+- source_page is the package page number labeled above each image.
+- source_box is the tightest rectangle around the visible source text on that page, normalized to the full page image as decimals from 0 to 1: x is left, y is top, width and height are rectangle size. Return null if the field is inferred, combines multiple distant areas, or you cannot localize it confidently.`;
 
 export const EXTRACTABLE_DOCS: DocumentType[] = [
   "agreement_of_purchase_and_sale",

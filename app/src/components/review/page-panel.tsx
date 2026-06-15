@@ -1,6 +1,9 @@
 "use client";
 
-import { DOCUMENT_TYPES, type DocumentType } from "@/lib/types";
+import { useState } from "react";
+import { RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
+import { DOCUMENT_TYPES, type DocumentType, type SourceBox } from "@/lib/types";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 type PageRow = { page_number: number; doc_type: string | null; doc_confidence: string | null };
@@ -9,36 +12,101 @@ export function PagePanel({
   dealId,
   pages,
   selectedPage,
+  highlight,
   onSelect,
 }: {
   dealId: string;
   pages: PageRow[];
   selectedPage: number | null;
+  highlight?: SourceBox | null;
   onSelect: (page: number) => void;
 }) {
+  const [zoom, setZoom] = useState(100);
   const imageUrl = (page: number) => `/api/deals/${dealId}/pages/${page}/image`;
+  const selectedDocType =
+    selectedPage != null ? pages.find((p) => p.page_number === selectedPage)?.doc_type : null;
 
   return (
     <Card className="self-start lg:sticky lg:top-4">
       <CardContent className="space-y-3 p-3">
         {selectedPage != null && (
-          <div className="space-y-1">
-            {/* eslint-disable-next-line @next/next/no-img-element -- signed URLs expire; bypass image optimizer */}
-            <img
-              src={imageUrl(selectedPage)}
-              alt={`Page ${selectedPage}`}
-              className="w-full rounded border"
-            />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="min-w-0 truncate text-xs text-muted-foreground">
+                Page {selectedPage}
+                {selectedDocType
+                  ? ` - ${DOCUMENT_TYPES[selectedDocType as DocumentType] ?? selectedDocType}`
+                  : ""}
+              </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  title="Zoom out"
+                  onClick={() => setZoom((value) => Math.max(75, value - 25))}
+                  disabled={zoom <= 75}
+                >
+                  <ZoomOut />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  title="Reset zoom"
+                  onClick={() => setZoom(100)}
+                >
+                  {zoom}%
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  title="Zoom in"
+                  onClick={() => setZoom((value) => Math.min(200, value + 25))}
+                  disabled={zoom >= 200}
+                >
+                  <ZoomIn />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  title="Fit to panel"
+                  onClick={() => setZoom(100)}
+                  disabled={zoom === 100}
+                >
+                  <RotateCcw />
+                </Button>
+              </div>
+            </div>
+            <div className="max-h-[76vh] overflow-auto rounded border bg-muted/30 p-2">
+              <div className="relative mx-auto" style={{ width: `${zoom}%` }}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- signed URLs expire; bypass image optimizer */}
+                <img
+                  src={imageUrl(selectedPage)}
+                  alt={`Page ${selectedPage}`}
+                  className="block w-full rounded bg-background"
+                />
+                {highlight && (
+                  <div
+                    className="pointer-events-none absolute rounded-sm border-2 border-yellow-500 bg-yellow-300/30 shadow-[0_0_0_9999px_rgba(0,0,0,0.08)] ring-2 ring-yellow-200"
+                    style={{
+                      left: `${highlight.x * 100}%`,
+                      top: `${highlight.y * 100}%`,
+                      width: `${highlight.width * 100}%`,
+                      height: `${highlight.height * 100}%`,
+                    }}
+                  />
+                )}
+              </div>
+            </div>
             <p className="text-center text-xs text-muted-foreground">
-              Page {selectedPage}
-              {(() => {
-                const dt = pages.find((p) => p.page_number === selectedPage)?.doc_type;
-                return dt ? ` — ${DOCUMENT_TYPES[dt as DocumentType] ?? dt}` : "";
-              })()}
+              {highlight ? "Highlighted source area" : "Click a sourced field to jump to its page"}
             </p>
           </div>
         )}
-        <div className="grid max-h-[420px] grid-cols-4 gap-2 overflow-y-auto">
+        <div className="grid max-h-[360px] grid-cols-5 gap-2 overflow-y-auto">
           {pages.map((p) => (
             <button
               key={p.page_number}

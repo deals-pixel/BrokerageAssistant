@@ -18,7 +18,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
 
   const { data: fields } = await supabase
     .from("deal_fields")
-    .select("field_key, value, confidence, source_doc_type, source_page, needs_review, notes")
+    .select("field_key, value, confidence, source_doc_type, source_page, source_box, needs_review, notes")
     .eq("deal_id", id);
 
   const { data: tasks } = await supabase

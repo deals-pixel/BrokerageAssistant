@@ -19,6 +19,14 @@ const extractedField = z.object({
   value: z.string().nullable(),
   confidence: z.enum(["high", "medium", "low"]),
   source_page: z.number().int().nullable(),
+  source_box: z
+    .object({
+      x: z.number().min(0).max(1),
+      y: z.number().min(0).max(1),
+      width: z.number().min(0).max(1),
+      height: z.number().min(0).max(1),
+    })
+    .nullable(),
 });
 
 // One flat object per document group; keys match ALL_FIELD_KEYS.
@@ -30,6 +38,14 @@ export const FieldExtractionSchema = z.object({
       value: z.string().nullable(),
       confidence: z.enum(["high", "medium", "low"]),
       source_page: z.number().int().nullable(),
+      source_box: z
+        .object({
+          x: z.number().min(0).max(1),
+          y: z.number().min(0).max(1),
+          width: z.number().min(0).max(1),
+          height: z.number().min(0).max(1),
+        })
+        .nullable(),
     }),
   ),
 });

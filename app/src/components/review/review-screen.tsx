@@ -18,8 +18,9 @@ import {
   DOCUMENT_TYPES,
   type Confidence,
   type DocumentType,
+  type SourceBox,
 } from "@/lib/types";
-import type { ChecklistItem, ChecklistResult } from "@/lib/checklist";
+import type { ChecklistResult } from "@/lib/checklist";
 import { PagePanel } from "./page-panel";
 
 type DealRow = {
@@ -42,6 +43,7 @@ type FieldRow = {
   confidence: Confidence;
   source_doc_type: string | null;
   source_page: number | null;
+  source_box: SourceBox | null;
   needs_review: boolean;
   notes: string | null;
 };
@@ -118,6 +120,7 @@ export function ReviewScreen({
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [recipient, setRecipient] = useState("");
+  const [selectedFieldKey, setSelectedFieldKey] = useState<string | null>(null);
   const [selectedPage, setSelectedPage] = useState<number | null>(
     pages.length > 0 ? pages[0].page_number : null,
   );
@@ -128,14 +131,20 @@ export function ReviewScreen({
   const openTasks = tasks.filter((task) => task.status === "open");
   const documentGroups = useMemo(() => groupDocuments(pages), [pages]);
   const latestReminder = reminders.find((reminder) => reminder.sent_at) ?? reminders[0];
+  const selectedField = selectedFieldKey ? fieldMap.get(selectedFieldKey) : null;
+  const activeSourceBox =
+    selectedField?.source_page === selectedPage && isSourceBox(selectedField.source_box)
+      ? selectedField.source_box
+      : null;
 
   const currentValue = (key: string) =>
     edited[key] !== undefined ? edited[key] : (fieldMap.get(key)?.value ?? "");
 
   const dirty = Object.keys(edited).length > 0;
 
-  function jumpToFieldSource(row: FieldRow | undefined) {
+  function jumpToFieldSource(row: FieldRow | undefined, fieldKey?: string) {
     if (row?.source_page == null) return;
+    setSelectedFieldKey(fieldKey ?? row.field_key);
     setSelectedPage(row.source_page);
   }
 
@@ -353,7 +362,10 @@ export function ReviewScreen({
                 key={item.id}
                 type="button"
                 className="flex w-full items-start gap-2 rounded px-1 py-1 text-left text-sm hover:bg-muted"
-                onClick={() => item.pages[0] && setSelectedPage(item.pages[0])}
+                onClick={() => {
+                  setSelectedFieldKey(null);
+                  if (item.pages[0]) setSelectedPage(item.pages[0]);
+                }}
               >
                 <span
                   className={
@@ -528,7 +540,10 @@ export function ReviewScreen({
                   key={group.key}
                   type="button"
                   className="rounded border p-2 text-left text-sm hover:bg-muted"
-                  onClick={() => setSelectedPage(group.pages[0])}
+                  onClick={() => {
+                    setSelectedFieldKey(null);
+                    setSelectedPage(group.pages[0]);
+                  }}
                 >
                   <p className="font-medium">{group.label}</p>
                   <p className="text-xs text-muted-foreground">Pages {group.pages.join(", ")}</p>
@@ -550,14 +565,18 @@ export function ReviewScreen({
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[440px_1fr]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(560px,0.95fr)_1fr]">
         {/* Left: page preview */}
         <div className="space-y-3 self-start lg:sticky lg:top-4">
           <PagePanel
             dealId={deal.id}
             pages={pages}
             selectedPage={selectedPage}
-            onSelect={setSelectedPage}
+            highlight={activeSourceBox}
+            onSelect={(page) => {
+              setSelectedFieldKey(null);
+              setSelectedPage(page);
+            }}
           />
         </div>
 
@@ -590,7 +609,7 @@ export function ReviewScreen({
                           <button
                             type="button"
                             className="text-xs text-blue-600 hover:underline"
-                            onClick={() => jumpToFieldSource(row)}
+                            onClick={() => jumpToFieldSource(row, f.key)}
                             title={sourceLabel ?? undefined}
                           >
                             p.{row.source_page}
@@ -607,7 +626,7 @@ export function ReviewScreen({
                               : undefined
                           }
                           value={currentValue(f.key)}
-                          onFocus={() => jumpToFieldSource(row)}
+                          onFocus={() => jumpToFieldSource(row, f.key)}
                           onChange={(e) =>
                             setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))
                           }
@@ -622,7 +641,7 @@ export function ReviewScreen({
                               : undefined
                           }
                           value={currentValue(f.key)}
-                          onFocus={() => jumpToFieldSource(row)}
+                          onFocus={() => jumpToFieldSource(row, f.key)}
                           onChange={(e) =>
                             setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))
                           }
@@ -696,6 +715,20 @@ export function ReviewScreen({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function isSourceBox(value: SourceBox | null | undefined): value is SourceBox {
+  if (!value) return false;
+  const { x, y, width, height } = value;
+  return (
+    [x, y, width, height].every((n) => Number.isFinite(n)) &&
+    x >= 0 &&
+    y >= 0 &&
+    width > 0 &&
+    height > 0 &&
+    x + width <= 1 &&
+    y + height <= 1
   );
 }
 
