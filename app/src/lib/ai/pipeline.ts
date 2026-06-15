@@ -3,6 +3,8 @@ import { classifyPages } from "./classify";
 import { extractFromDocument, EXTRACTABLE_DOCS } from "./extract";
 import { mergeExtractions } from "./merge";
 import { validateFields } from "./validate";
+import { buildChecklistResult } from "@/lib/checklist";
+import { syncMissingDocumentTasks } from "@/lib/workflow";
 import type { DocumentType } from "@/lib/types";
 import type { FieldExtraction } from "./schemas";
 
@@ -94,14 +96,27 @@ export async function processDeal(dealId: string): Promise<void> {
     }
 
     const address = merged.find((f) => f.key === "property_address")?.value ?? null;
+    const checklist = buildChecklistResult(
+      classification.transaction_type,
+      classification.pages.map((page) => ({
+        page_number: page.page_number,
+        doc_type: page.doc_type,
+      })),
+      null,
+      merged.map((field) => ({ field_key: field.key, value: field.value })),
+    );
     await supabase
       .from("deals")
       .update({
         status: "extracted",
         transaction_type: classification.transaction_type,
         property_address: address,
+        scenario_key: checklist.scenario.key,
+        scenario_label: checklist.scenario.label,
       })
       .eq("id", dealId);
+
+    await syncMissingDocumentTasks(supabase, dealId);
 
     await supabase.from("audit_logs").insert({
       deal_id: dealId,
@@ -110,6 +125,8 @@ export async function processDeal(dealId: string): Promise<void> {
         pages: classification.pages.length,
         documents: [...byDoc.keys()],
         fields: merged.length,
+        scenario: checklist.scenario.key,
+        missing_required: checklist.missingRequired.map((item) => item.label),
       },
     });
   } catch (err) {

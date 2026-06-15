@@ -1,8 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { DOCUMENT_TYPES } from "@/lib/types";
 import { anthropic, AI_MODEL } from "./client";
 import { PageClassificationSchema, type PageClassification } from "./schemas";
-import { DOCUMENT_TYPES } from "@/lib/types";
 
 const DOC_TYPE_GUIDE = Object.entries(DOCUMENT_TYPES)
   .map(([key, label]) => `- ${key}: ${label}`)
@@ -14,12 +14,14 @@ ${DOC_TYPE_GUIDE}
 
 Guidance:
 - The Deal Information Sheet is the brokerage's internal one-page summary form titled "DEAL INFORMATION SHEET".
-- OREA forms show their form number bottom-left or in the header (e.g. "Form 100", "Form 801", "Form 630").
-- Schedule A/B pages belong to their parent document (APS schedules → agreement_of_purchase_and_sale; lease schedules and Ontario Standard Lease appendix pages → lease_agreement; listing agreement schedules → listing_agreement; BRA schedules → buyer_representation_agreement).
+- OREA forms show their form number bottom-left or in the header, for example Form 100, Form 801, Form 630.
+- Schedule A/B pages belong to their parent document: APS schedules are agreement_of_purchase_and_sale, listing schedules are listing_agreement, buyer representation schedules are buyer_representation_agreement, and tenant representation schedules are tenant_representation_agreement.
+- Use agreement_to_lease for OREA Agreement to Lease forms. Use ontario_residential_tenancy_agreement for the Ontario Standard Lease. Use lease_agreement only when the page is a lease document but not clearly one of those two.
 - Continuation pages without their own title belong to the same document as the preceding page.
-- Bank drafts, cheque images, wire confirmations, and deposit receipts → deposit_proof.
+- Bank drafts, cheque images, wire confirmations, and deposit receipts are deposit_proof unless the page clearly says it is a copy from another brokerage.
+- Referral agreements, co-brokerage agreements, corporate articles, beneficial ownership attestations, tenant representation agreements, and builder confirmations have their own document types; do not collapse them into other.
 - The RECO Information Guide acknowledgement page is a single page titled "Acknowledgement" referencing the RECO Information Guide.
-- Determine the overall transaction_type: "purchase" if an Agreement of Purchase and Sale is present, "lease" if a tenancy/lease agreement is present, otherwise your best judgment from the Deal Information Sheet.`;
+- Determine the overall transaction_type: "purchase" if an Agreement of Purchase and Sale or pre-construction APS page is present, "lease" if an agreement to lease or tenancy agreement is present, otherwise your best judgment from the Deal Information Sheet.`;
 
 const BATCH_SIZE = 10;
 
@@ -62,11 +64,10 @@ export async function classifyPages(
     txVotes[parsed.transaction_type] = (txVotes[parsed.transaction_type] ?? 0) + 1;
   }
 
-  // Majority vote across batches; explicit purchase/lease beats unknown.
   const tx: "purchase" | "lease" =
-    (txVotes["lease"] ?? 0) > (txVotes["purchase"] ?? 0) ? "lease" : "purchase";
+    (txVotes.lease ?? 0) > (txVotes.purchase ?? 0) ? "lease" : "purchase";
   const transaction_type =
-    (txVotes["purchase"] ?? 0) + (txVotes["lease"] ?? 0) > 0 ? tx : "unknown";
+    (txVotes.purchase ?? 0) + (txVotes.lease ?? 0) > 0 ? tx : "unknown";
 
   return { pages: results, transaction_type };
 }

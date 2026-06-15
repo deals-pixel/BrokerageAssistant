@@ -1,8 +1,12 @@
-/* Applies supabase/migrations/0001_init.sql to the project in .env.local.
+/* Applies a migration file from supabase/migrations to the project in .env.local.
    Tries the direct host first (IPv6), then regional poolers (IPv4). */
 import { readFileSync } from "fs";
 import { join } from "path";
 import { Client } from "pg";
+import { config } from "dotenv";
+
+config({ path: join(__dirname, "..", ".env.local") });
+config({ path: join(__dirname, "..", ".env") });
 
 const ref = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).hostname.split(".")[0];
 const password = process.env.SUPABASE_DATABASE_PASSWORD!;
@@ -42,11 +46,12 @@ async function connect(): Promise<Client> {
 }
 
 async function main() {
-  const sql = readFileSync(join(__dirname, "..", "supabase", "migrations", "0001_init.sql"), "utf8");
+  const migrationFile = process.argv[2] ?? "0001_init.sql";
+  const sql = readFileSync(join(__dirname, "..", "supabase", "migrations", migrationFile), "utf8");
   const client = await connect();
   try {
     await client.query(sql);
-    console.log("Migration applied successfully.");
+    console.log(`${migrationFile} applied successfully.`);
   } finally {
     await client.end();
   }

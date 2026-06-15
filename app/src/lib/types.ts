@@ -1,20 +1,32 @@
 export const DOCUMENT_TYPES = {
   deal_information_sheet: "Deal Information Sheet",
   agreement_of_purchase_and_sale: "Agreement of Purchase and Sale (Form 100)",
-  lease_agreement: "Residential Tenancy Agreement (Standard Lease)",
+  first_page_aps: "First Page of the Agreement of Purchase and Sale",
+  agreement_to_lease: "Agreement to Lease",
+  lease_agreement: "Lease Agreement",
+  ontario_residential_tenancy_agreement: "Ontario Residential Tenancy Agreement",
   form_801_offer_summary: "Offer Summary Document (Form 801)",
   form_320_confirmation_cooperation: "Confirmation of Co-operation (Form 320 / 324)",
   form_630_individual_identification: "Individual Identification Record (Form 630 / FINTRAC)",
   form_631_pep_checklist: "PEP / FINTRAC Checklist (Form 631)",
   form_635_receipt_of_funds: "Receipt of Funds Record (Form 635)",
   deposit_proof: "Deposit Proof (draft / cheque / wire)",
+  copy_deposit_receipt_other_brokerage: "Copy of Deposit Receipt from Other Brokerage",
   form_124_notice_fulfillment: "Notice of Fulfillment of Conditions (Form 124)",
+  waiver_notice_fulfillment_amendment: "Waiver / Notice of Fulfillment / Amendment",
   listing_agreement: "Listing Agreement (Form 200 / 270)",
   buyer_representation_agreement: "Buyer Representation Agreement (Form 371)",
+  tenant_representation_agreement: "Tenant Representation Agreement",
   reco_information_guide_ack: "RECO Information Guide Acknowledgement",
   reco_self_represented_disclosure: "RECO Self-Represented Party Disclosure",
   registrant_disclosure_of_interest: "Registrant Disclosure of Interest",
   multiple_representation_consent: "Multiple Representation Consent",
+  corporate_id_articles: "Corporate ID and Articles of Incorporation",
+  attestation_beneficial_ownership: "Attestation of Beneficial Ownership",
+  referral_agreement: "Referral Agreement",
+  co_brokerage_agreement: "Co-brokerage Agreement",
+  mls_listing: "MLS Listing",
+  builder_confirmation_cooperation: "Confirmation of Cooperation from Builder",
   mls_data_form: "MLS Data Information Form",
   other: "Other / Unrecognized",
 } as const;
@@ -58,6 +70,7 @@ export const FIELD_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: "conditions_summary", label: "Condition(s)", wide: true, multiline: true },
       { key: "condition_expiry_date", label: "Expiry" },
       { key: "multiple_offer", label: "Multiple Offer? (how many)" },
+      { key: "scenario_hint", label: "Scenario Hint" },
     ],
   },
   {
@@ -65,6 +78,7 @@ export const FIELD_SECTIONS: { title: string; fields: FieldDef[] }[] = [
     fields: [
       { key: "seller_names", label: "Seller Name(s)" },
       { key: "seller_emails", label: "Seller Email" },
+      { key: "seller_is_corporation", label: "Seller/Landlord Corporation?" },
       { key: "seller_lawyer_name", label: "Lawyer" },
       { key: "seller_lawyer_firm", label: "Lawyer Firm" },
       { key: "seller_lawyer_email", label: "Lawyer Email" },
@@ -77,6 +91,7 @@ export const FIELD_SECTIONS: { title: string; fields: FieldDef[] }[] = [
     fields: [
       { key: "buyer_names", label: "Buyer Name(s)" },
       { key: "buyer_emails", label: "Buyer Email" },
+      { key: "buyer_is_corporation", label: "Buyer/Tenant Corporation?" },
       { key: "buyer_lawyer_name", label: "Lawyer" },
       { key: "buyer_lawyer_firm", label: "Lawyer Firm" },
       { key: "buyer_lawyer_email", label: "Lawyer Email" },
@@ -112,6 +127,8 @@ export const FIELD_SECTIONS: { title: string; fields: FieldDef[] }[] = [
     fields: [
       { key: "transaction_type", label: "Transaction Type" },
       { key: "representation_side", label: "Representation Side" },
+      { key: "seller_representation", label: "Seller/Landlord Representation" },
+      { key: "buyer_representation", label: "Buyer/Tenant Representation" },
       { key: "offer_date", label: "Offer Date" },
       { key: "acceptance_date", label: "Acceptance Date" },
       { key: "irrevocable_date", label: "Irrevocable Until" },
@@ -132,31 +149,3 @@ export const FIELD_LABELS: Record<string, string> = Object.fromEntries(
 // Document checklist rules per transaction type.
 // The Deal Information Sheet is NOT required — it is the OUTPUT this app
 // generates from the rest of the package.
-export const REQUIRED_DOCS: Record<"purchase" | "lease", DocumentType[]> = {
-  purchase: [
-    "agreement_of_purchase_and_sale",
-    "form_801_offer_summary",
-    "form_320_confirmation_cooperation",
-    "deposit_proof",
-    "form_630_individual_identification",
-    "form_631_pep_checklist",
-  ],
-  lease: ["lease_agreement", "deposit_proof"],
-};
-
-export const OPTIONAL_DOCS: Record<"purchase" | "lease", DocumentType[]> = {
-  purchase: [
-    "form_635_receipt_of_funds",
-    "form_124_notice_fulfillment",
-    "listing_agreement",
-    "buyer_representation_agreement",
-    "reco_information_guide_ack",
-  ],
-  lease: [
-    "form_630_individual_identification",
-    "form_631_pep_checklist",
-    "listing_agreement",
-    "reco_information_guide_ack",
-    "reco_self_represented_disclosure",
-  ],
-};

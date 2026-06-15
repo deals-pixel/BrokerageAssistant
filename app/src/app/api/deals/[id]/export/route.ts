@@ -29,7 +29,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     deal_id: id,
     action: `export_${format}`,
   });
-  await supabase.from("deals").update({ status: "exported" }).eq("id", id);
+  await supabase
+    .from("deals")
+    .update({ status: "exported", submitted_at: new Date().toISOString() })
+    .eq("id", id);
 
   const baseName = (deal.property_address ?? deal.file_name ?? "deal")
     .replace(/[^\w\- ]/g, "")
@@ -71,7 +74,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       fileName: deal.file_name,
       transactionType: deal.transaction_type,
       reviewedBy: profile?.full_name || profile?.email,
-      checklist: buildChecklist(deal.transaction_type, pages ?? []),
+      checklist: buildChecklist(deal.transaction_type, pages ?? [], deal.scenario_key, fields ?? []),
     });
     return new NextResponse(Buffer.from(pdf), {
       headers: {
