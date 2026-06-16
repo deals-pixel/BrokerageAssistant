@@ -21,12 +21,14 @@ export function PagePanel({
   pages,
   selectedPage,
   highlight,
+  highlightLabel,
   onSelect,
 }: {
   dealId: string;
   pages: PageRow[];
   selectedPage: number | null;
   highlight?: SourceBox | null;
+  highlightLabel?: string | null;
   onSelect: (page: number) => void;
 }) {
   const [zoom, setZoom] = useState(100);
@@ -114,7 +116,9 @@ export function PagePanel({
               </div>
             </div>
             <p className="text-center text-xs text-muted-foreground">
-              {highlight ? "Highlighted source area" : "Click a sourced field to jump to its page"}
+              {highlight
+                ? `Highlighted source area${highlightLabel ? ` - ${highlightLabel}` : ""}`
+                : "Click a sourced field to jump to its page"}
             </p>
           </div>
         )}

@@ -29,6 +29,7 @@ export function mergeExtractions(
       docType: DocumentType;
       sourcePage: number | null;
       sourceBox: SourceBox | null;
+      sourceBoxOrigin: "ai" | "template" | null;
     }[]
   >();
 
@@ -42,6 +43,7 @@ export function mergeExtractions(
         docType,
         sourcePage: f.source_page,
         sourceBox: f.source_box,
+        sourceBoxOrigin: f.source_box_origin ?? (f.source_box ? "ai" : null),
       });
       byKey.set(f.field_key, list);
     }
@@ -67,6 +69,13 @@ export function mergeExtractions(
           sourceBox: candidate.sourceBox,
         }))
       : undefined;
+    const templateSourceNote =
+      winner.sourceBoxOrigin === "template"
+        ? "Source highlight uses a standard form template fallback; verify against the uploaded document."
+        : undefined;
+    const conflictNote = conflict
+      ? `Conflicts: ${disagreeing.map((d) => `${d.docType} p.${d.sourcePage ?? "?"} = "${d.value}"`).join("; ")}`
+      : undefined;
 
     merged.push({
       key,
@@ -77,9 +86,7 @@ export function mergeExtractions(
       sourceBox: winner.sourceBox,
       conflictSources,
       needsReview: conflict || winner.confidence !== "high",
-      notes: conflict
-        ? `Conflicts: ${disagreeing.map((d) => `${d.docType} p.${d.sourcePage ?? "?"} = "${d.value}"`).join("; ")}`
-        : undefined,
+      notes: [conflictNote, templateSourceNote].filter(Boolean).join(" ") || undefined,
     });
   }
   return merged;

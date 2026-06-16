@@ -50,6 +50,7 @@ export const FieldExtractionSchema = z.object({
           height: z.number().min(0).max(1),
         })
         .nullable(),
+      source_box_origin: z.enum(["ai", "template"]).nullable().optional(),
     }),
   ),
 });

@@ -77,6 +77,7 @@ export function applyTemplateSourceFallbacks(
         ...field,
         source_page: field.source_page ?? matchedPage.pageNumber,
         source_box: region.boxes[0],
+        source_box_origin: "template" as const,
       };
     });
 

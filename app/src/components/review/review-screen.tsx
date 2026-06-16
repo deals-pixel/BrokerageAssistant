@@ -152,6 +152,10 @@ export function ReviewScreen({
     activeSource?.sourcePage === selectedPage && isSourceBox(activeSource.sourceBox)
       ? activeSource.sourceBox
       : null;
+  const activeSourceLabel =
+    activeSourceBox && selectedField
+      ? sourceBoxAuditLabel(selectedField, selectedConflictSource != null)
+      : null;
 
   const currentValue = (key: string) =>
     edited[key] !== undefined ? edited[key] : (fieldMap.get(key)?.value ?? "");
@@ -611,6 +615,7 @@ export function ReviewScreen({
             pages={pages}
             selectedPage={selectedPage}
             highlight={activeSourceBox}
+            highlightLabel={activeSourceLabel}
             onSelect={(page) => {
               setSelectedFieldKey(null);
               setSelectedSourceIndex(null);
@@ -689,6 +694,11 @@ export function ReviewScreen({
                       )}
                       {row?.notes && (
                         <p className="text-xs text-amber-700">{row.notes}</p>
+                      )}
+                      {row?.source_box && (
+                        <p className="text-xs text-muted-foreground">
+                          Highlight: {sourceBoxAuditLabel(row, false)}
+                        </p>
                       )}
                       {conflictSources.length > 1 && (
                         <div className="flex flex-wrap gap-1.5">
@@ -820,6 +830,13 @@ function isSourceBox(value: SourceBox | null | undefined): value is SourceBox {
     x + width <= 1 &&
     y + height <= 1
   );
+}
+
+function sourceBoxAuditLabel(row: FieldRow, conflictSource: boolean) {
+  if (conflictSource) return "Conflict source";
+  return row.notes?.toLowerCase().includes("template fallback")
+    ? "Template fallback"
+    : "AI source box";
 }
 
 function truncateSourceValue(value: string) {

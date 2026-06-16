@@ -29,6 +29,8 @@ export type StandardFormMatch = {
 
 const roughRegionNote =
   "Template region is a standard-form fallback. Prefer AI source_box when it is present.";
+const calibratedRegionNote =
+  "Template region measured from the blank standard form calibration report. Prefer AI source_box when it is present.";
 
 export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
   {
@@ -62,20 +64,20 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
       {
         fieldKey: "sale_price",
         label: "Purchase price",
-        boxes: [{ x: 0.11, y: 0.34, width: 0.78, height: 0.06 }],
-        note: roughRegionNote,
+        boxes: [{ x: 0.0662, y: 0.484, width: 0.8657, height: 0.05 }],
+        note: calibratedRegionNote,
       },
       {
         fieldKey: "deposit_amount",
         label: "Deposit",
-        boxes: [{ x: 0.11, y: 0.39, width: 0.78, height: 0.08 }],
-        note: roughRegionNote,
+        boxes: [{ x: 0.0662, y: 0.5472, width: 0.8663, height: 0.05 }],
+        note: calibratedRegionNote,
       },
       {
         fieldKey: "closing_date",
         label: "Completion date",
-        boxes: [{ x: 0.11, y: 0.53, width: 0.78, height: 0.07 }],
-        note: roughRegionNote,
+        boxes: [{ x: 0.0662, y: 0.7652, width: 0.8677, height: 0.05 }],
+        note: calibratedRegionNote,
       },
     ],
   },
@@ -130,14 +132,14 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
       {
         fieldKey: "cooperating_commission_pct",
         label: "Co-operating brokerage commission",
-        boxes: [{ x: 0.08, y: 0.46, width: 0.84, height: 0.12 }],
-        note: roughRegionNote,
+        boxes: [{ x: 0.0662, y: 0.2393, width: 0.72, height: 0.05 }],
+        note: calibratedRegionNote,
       },
       {
         fieldKey: "representation_side",
         label: "Representation side checkboxes",
-        boxes: [{ x: 0.08, y: 0.29, width: 0.84, height: 0.15 }],
-        note: roughRegionNote,
+        boxes: [{ x: 0.0956, y: 0.3283, width: 0.8383, height: 0.05 }],
+        note: calibratedRegionNote,
       },
     ],
   },
@@ -169,14 +171,14 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
       {
         fieldKey: "buyer_names",
         label: "Buyer names",
-        boxes: [{ x: 0.09, y: 0.17, width: 0.82, height: 0.08 }],
-        note: roughRegionNote,
+        boxes: [{ x: 0.2941, y: 0.0664, width: 0.7059, height: 0.05 }],
+        note: calibratedRegionNote,
       },
       {
         fieldKey: "cooperating_commission_pct",
         label: "Buyer brokerage commission",
-        boxes: [{ x: 0.09, y: 0.67, width: 0.82, height: 0.09 }],
-        note: roughRegionNote,
+        boxes: [{ x: 0.0956, y: 0.681, width: 0.8383, height: 0.05 }],
+        note: calibratedRegionNote,
       },
     ],
   },
@@ -192,8 +194,8 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
       {
         fieldKey: "buyer_names",
         label: "Tenant names",
-        boxes: [{ x: 0.09, y: 0.17, width: 0.82, height: 0.08 }],
-        note: roughRegionNote,
+        boxes: [{ x: 0.2941, y: 0.0664, width: 0.7059, height: 0.05 }],
+        note: calibratedRegionNote,
       },
     ],
   },
@@ -209,20 +211,20 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
       {
         fieldKey: "property_address",
         label: "Leased premises",
-        boxes: [{ x: 0.1, y: 0.19, width: 0.8, height: 0.06 }],
-        note: roughRegionNote,
+        boxes: [{ x: 0.0662, y: 0.2515, width: 0.8676, height: 0.05 }],
+        note: calibratedRegionNote,
       },
       {
         fieldKey: "sale_price",
         label: "Monthly rent",
-        boxes: [{ x: 0.1, y: 0.45, width: 0.8, height: 0.08 }],
-        note: roughRegionNote,
+        boxes: [{ x: 0.0662, y: 0.3513, width: 0.8677, height: 0.05 }],
+        note: calibratedRegionNote,
       },
       {
         fieldKey: "lease_start_date",
         label: "Lease start",
-        boxes: [{ x: 0.1, y: 0.31, width: 0.8, height: 0.06 }],
-        note: roughRegionNote,
+        boxes: [{ x: 0.0662, y: 0.3298, width: 0.8677, height: 0.05 }],
+        note: calibratedRegionNote,
       },
     ],
   },
@@ -247,14 +249,14 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
       {
         fieldKey: "buyer_names",
         label: "Individual name",
-        boxes: [{ x: 0.08, y: 0.16, width: 0.84, height: 0.12 }],
-        note: roughRegionNote,
+        boxes: [{ x: 0.0684, y: 0.3535, width: 0.72, height: 0.05 }],
+        note: calibratedRegionNote,
       },
       {
         fieldKey: "seller_names",
         label: "Individual name",
-        boxes: [{ x: 0.08, y: 0.16, width: 0.84, height: 0.12 }],
-        note: roughRegionNote,
+        boxes: [{ x: 0.0684, y: 0.3535, width: 0.72, height: 0.05 }],
+        note: calibratedRegionNote,
       },
     ],
   },
@@ -288,14 +290,14 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
       {
         fieldKey: "deposit_amount",
         label: "Amount received",
-        boxes: [{ x: 0.08, y: 0.2, width: 0.84, height: 0.1 }],
-        note: roughRegionNote,
+        boxes: [{ x: 0.0818, y: 0.357, width: 0.72, height: 0.05 }],
+        note: calibratedRegionNote,
       },
       {
         fieldKey: "deposit_method",
         label: "Funds method/source",
-        boxes: [{ x: 0.08, y: 0.34, width: 0.84, height: 0.18 }],
-        note: roughRegionNote,
+        boxes: [{ x: 0.0817, y: 0.4364, width: 0.72, height: 0.05 }],
+        note: calibratedRegionNote,
       },
     ],
   },
