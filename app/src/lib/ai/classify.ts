@@ -1,12 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { DOCUMENT_TYPES } from "@/lib/types";
+import { classificationGuideFromStandardForms } from "@/lib/standard-forms";
 import { anthropic, AI_MODEL } from "./client";
 import { PageClassificationSchema, type PageClassification } from "./schemas";
 
 const DOC_TYPE_GUIDE = Object.entries(DOCUMENT_TYPES)
   .map(([key, label]) => `- ${key}: ${label}`)
   .join("\n");
+const STANDARD_FORM_GUIDE = classificationGuideFromStandardForms();
 
 const SYSTEM = `You classify pages of Ontario real estate transaction packages for a brokerage (Sutton Group). Each page is a scanned form. Classify every page into exactly one document type:
 
@@ -14,8 +16,9 @@ ${DOC_TYPE_GUIDE}
 
 Guidance:
 - The Deal Information Sheet is the brokerage's internal one-page summary form titled "DEAL INFORMATION SHEET".
-- OREA forms show their form number bottom-left or in the header, for example Form 100, Form 801, Form 630.
-- Schedule A/B pages belong to their parent document: APS schedules are agreement_of_purchase_and_sale, listing schedules are listing_agreement, buyer representation schedules are buyer_representation_agreement, and tenant representation schedules are tenant_representation_agreement.
+- OREA forms show their form number bottom-left or in the header. Use this standard form registry:
+${STANDARD_FORM_GUIDE}
+- Schedule A/B pages belong to their parent document: APS and Office Schedule B pages are agreement_of_purchase_and_sale for sales, Office Schedule B Lease pages are agreement_to_lease, listing schedules are listing_agreement, buyer representation schedules are buyer_representation_agreement, and tenant representation schedules are tenant_representation_agreement.
 - Use agreement_to_lease for OREA Agreement to Lease forms. Use ontario_residential_tenancy_agreement for the Ontario Standard Lease. Use lease_agreement only when the page is a lease document but not clearly one of those two.
 - Continuation pages without their own title belong to the same document as the preceding page.
 - Bank drafts, cheque images, wire confirmations, and deposit receipts are deposit_proof unless the page clearly says it is a copy from another brokerage.

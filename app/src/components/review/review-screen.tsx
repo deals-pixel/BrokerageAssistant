@@ -404,6 +404,11 @@ export function ReviewScreen({
                   {item.condition && (
                     <span className="block text-xs text-muted-foreground">{item.condition}</span>
                   )}
+                  {item.standardForms?.length ? (
+                    <span className="block text-xs text-muted-foreground">
+                      Standard: {item.standardForms.join("; ")}
+                    </span>
+                  ) : null}
                 </span>
                 <span className="shrink-0 text-xs text-muted-foreground">
                   {item.pages.length > 0

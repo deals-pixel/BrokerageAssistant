@@ -18,7 +18,7 @@ Analyzed 2026-06-11 from the 3 example PDFs in `/Example`. **All 99 pages are sc
 - `form_801_offer_summary` — OREA Form 801
 - `form_320_confirmation_cooperation` — OREA Form 320 Confirmation of Co-operation and Representation
 - `form_630_individual_identification` — OREA Form 630 (FINTRAC Individual ID Information Record)
-- `form_631_pep_checklist` — OREA Form 631 (Politically Exposed Person checklist)
+- `form_631_pep_checklist` — OREA Form 634 (Politically Exposed Person / Head of International Organization checklist)
 - `form_635_receipt_of_funds` — OREA Form 635 (FINTRAC Receipt of Funds Record)
 - `deposit_proof` — bank draft / cheque image / wire confirmation
 - `form_124_notice_fulfillment` — OREA Form 124 Notice of Fulfillment of Condition(s)

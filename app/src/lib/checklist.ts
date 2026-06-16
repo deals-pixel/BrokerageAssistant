@@ -19,6 +19,7 @@ export type ChecklistItem = {
   pages: number[];
   condition?: string;
   taskTitle?: string;
+  standardForms?: string[];
 };
 
 export type ChecklistResult = {
@@ -111,5 +112,6 @@ function toChecklistItem(
     pages: Array.from(new Set(pages)).sort((a, b) => a - b),
     condition: requirement.condition,
     taskTitle: requirement.taskTitle,
+    standardForms: requirement.standardForms,
   };
 }

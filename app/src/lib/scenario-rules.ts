@@ -1,4 +1,5 @@
 import { DOCUMENT_TYPES, type DocumentType, type TransactionType } from "@/lib/types";
+import { standardFormLabelsForDocumentTypes } from "@/lib/standard-forms";
 
 export type RequirementLevel = "required" | "conditional" | "optional";
 
@@ -10,6 +11,7 @@ export type DocumentRequirement = {
   side?: "seller" | "buyer" | "landlord" | "tenant" | "deal";
   condition?: string;
   taskTitle?: string;
+  standardForms?: string[];
 };
 
 export type ScenarioDefinition = {
@@ -53,6 +55,7 @@ function req(
     level: "required",
     side,
     taskTitle: `Request ${side ? `${titleCase(side)} ` : ""}${baseLabel}`,
+    standardForms: standardFormLabelsForDocumentTypes(docs),
   };
 }
 
@@ -73,6 +76,7 @@ function conditional(
     side,
     condition,
     taskTitle: `Request ${side ? `${titleCase(side)} ` : ""}${baseLabel}`,
+    standardForms: standardFormLabelsForDocumentTypes(docs),
   };
 }
 
@@ -87,6 +91,7 @@ function optional(
     label: label ?? DOCUMENT_TYPES[docs[0]],
     docTypes: docs,
     level: "optional",
+    standardForms: standardFormLabelsForDocumentTypes(docs),
   };
 }
 

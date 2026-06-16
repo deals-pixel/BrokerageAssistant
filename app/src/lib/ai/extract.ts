@@ -62,7 +62,7 @@ const DOC_HINTS: Partial<Record<DocumentType, string>> = {
   form_801_offer_summary:
     "Form 801 shows property address, offer date, irrevocable date/time, signature/acceptance dates, buyer and seller names, and both brokerages with their agents. It does not normally show sale_price.",
   form_320_confirmation_cooperation:
-    "Form 320/324 shows the commission offered to the co-operating brokerage and which side each brokerage represents. If both boxes are selected for the same brokerage, representation_side is both / multiple representation.",
+    "Form 320 shows the commission offered to the co-operating brokerage and which side each brokerage represents. If both boxes are selected for the same brokerage, representation_side is both / multiple representation.",
   form_124_notice_fulfillment:
     "Form 124 quotes condition text and proves the deal was conditional. It also shows property address and parties.",
   waiver_notice_fulfillment_amendment:

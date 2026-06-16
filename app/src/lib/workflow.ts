@@ -220,12 +220,17 @@ export async function markReminderSent(
 
 function taskFromChecklistItem(dealId: string, item: ChecklistItem) {
   const docLabel = DOCUMENT_TYPES[item.docType] ?? item.label;
+  const referenceForms = item.standardForms?.length
+    ? ` Expected standard form${item.standardForms.length === 1 ? "" : "s"}: ${item.standardForms.join("; ")}.`
+    : "";
   return {
     deal_id: dealId,
     requirement_id: item.id,
     document_type: item.docType,
     title: item.taskTitle ?? `Request ${item.label}`,
-    description: item.condition ? `${item.label}. ${item.condition}` : `Missing required document: ${docLabel}`,
+    description: item.condition
+      ? `${item.label}. ${item.condition}${referenceForms}`
+      : `Missing required document: ${docLabel}.${referenceForms}`,
     status: "open",
     auto_created: true,
   };
