@@ -1,0 +1,577 @@
+{
+  "generatedAt": "2026-06-16T17:36:02.107Z",
+  "formsRoot": "Example\\Standard forms",
+  "totals": {
+    "pdfsScanned": 223,
+    "matchedPdfs": 223,
+    "unmatchedPdfs": 0,
+    "calibratedForms": 26,
+    "fieldAnchors": 15
+  },
+  "forms": [
+    {
+      "key": "attestation_beneficial_ownership",
+      "title": "Attestation of Beneficial Ownership",
+      "documentType": "attestation_beneficial_ownership",
+      "formNumber": null,
+      "representativePdf": "Example\\Standard forms\\1)For sale when only the seller(s) are represented by an SGA agent\\Attestation of Beneficial Ownership.pdf",
+      "matchedPdfCount": 11,
+      "pageCount": 2,
+      "score": 12,
+      "fieldAnchors": []
+    },
+    {
+      "key": "deal_information_sheet",
+      "title": "Deal Information Sheet",
+      "documentType": "deal_information_sheet",
+      "formNumber": null,
+      "representativePdf": "Example\\Standard forms\\1)For sale when only the seller(s) are represented by an SGA agent\\Deal information Sheet.pdf",
+      "matchedPdfCount": 18,
+      "pageCount": 1,
+      "score": 16,
+      "fieldAnchors": []
+    },
+    {
+      "key": "form_100_aps",
+      "title": "Agreement of Purchase and Sale",
+      "documentType": "agreement_of_purchase_and_sale",
+      "formNumber": "100",
+      "representativePdf": "Example\\Standard forms\\1)For sale when only the seller(s) are represented by an SGA agent\\Form 100 - Agreement of Purchase and Sale - PropTx-OREA.pdf",
+      "matchedPdfCount": 18,
+      "pageCount": 6,
+      "score": 36,
+      "fieldAnchors": [
+        {
+          "fieldKey": "sale_price",
+          "label": "Purchase price",
+          "page": 1,
+          "phrase": "purchase price",
+          "anchorBox": {
+            "x": 0.0662,
+            "y": 0.4679,
+            "width": 0.8657,
+            "height": 0.0101
+          },
+          "suggestedBox": {
+            "x": 0.0662,
+            "y": 0.484,
+            "width": 0.8657,
+            "height": 0.05
+          }
+        },
+        {
+          "fieldKey": "deposit_amount",
+          "label": "Deposit amount",
+          "page": 1,
+          "phrase": "deposit",
+          "anchorBox": {
+            "x": 0.0662,
+            "y": 0.5311,
+            "width": 0.8663,
+            "height": 0.0101
+          },
+          "suggestedBox": {
+            "x": 0.0662,
+            "y": 0.5472,
+            "width": 0.8663,
+            "height": 0.05
+          }
+        },
+        {
+          "fieldKey": "closing_date",
+          "label": "Completion date",
+          "page": 1,
+          "phrase": "completion date",
+          "anchorBox": {
+            "x": 0.0662,
+            "y": 0.8202,
+            "width": 0.8677,
+            "height": 0.0101
+          },
+          "suggestedBox": {
+            "x": 0.0662,
+            "y": 0.7652,
+            "width": 0.8677,
+            "height": 0.05
+          }
+        }
+      ]
+    },
+    {
+      "key": "form_120_123_124_sale_conditions",
+      "title": "Sale Waiver / Notice / Amendment",
+      "documentType": "waiver_notice_fulfillment_amendment",
+      "formNumber": "120",
+      "representativePdf": "Example\\Standard forms\\1)For sale when only the seller(s) are represented by an SGA agent\\Form 120 Amendment to Agreement of Purchase and Sale.pdf",
+      "matchedPdfCount": 6,
+      "pageCount": 2,
+      "score": 24,
+      "fieldAnchors": []
+    },
+    {
+      "key": "form_120_123_124_sale_conditions",
+      "title": "Sale Waiver / Notice / Amendment",
+      "documentType": "waiver_notice_fulfillment_amendment",
+      "formNumber": "123",
+      "representativePdf": "Example\\Standard forms\\1)For sale when only the seller(s) are represented by an SGA agent\\Form 123 Waiver.pdf",
+      "matchedPdfCount": 6,
+      "pageCount": 1,
+      "score": 24,
+      "fieldAnchors": []
+    },
+    {
+      "key": "form_124_notice_fulfillment",
+      "title": "Notice of Fulfillment of Conditions",
+      "documentType": "form_124_notice_fulfillment",
+      "formNumber": "124",
+      "representativePdf": "Example\\Standard forms\\1)For sale when only the seller(s) are represented by an SGA agent\\Form 124 Notice of Fulfillment of Conditions.pdf",
+      "matchedPdfCount": 6,
+      "pageCount": 1,
+      "score": 32,
+      "fieldAnchors": []
+    },
+    {
+      "key": "form_320_confirmation",
+      "title": "Confirmation of Cooperation",
+      "documentType": "form_320_confirmation_cooperation",
+      "formNumber": "320",
+      "representativePdf": "Example\\Standard forms\\1)For sale when only the seller(s) are represented by an SGA agent\\Form 320 - Confirmation of Cooperation.pdf",
+      "matchedPdfCount": 12,
+      "pageCount": 2,
+      "score": 38,
+      "fieldAnchors": [
+        {
+          "fieldKey": "representation_side",
+          "label": "Representation side",
+          "page": 1,
+          "phrase": "represents",
+          "anchorBox": {
+            "x": 0.0956,
+            "y": 0.3122,
+            "width": 0.8383,
+            "height": 0.0101
+          },
+          "suggestedBox": {
+            "x": 0.0956,
+            "y": 0.3283,
+            "width": 0.8383,
+            "height": 0.05
+          }
+        },
+        {
+          "fieldKey": "cooperating_commission_pct",
+          "label": "Co-operating commission",
+          "page": 1,
+          "phrase": "commission",
+          "anchorBox": {
+            "x": 0.0662,
+            "y": 0.2232,
+            "width": 0.3435,
+            "height": 0.0101
+          },
+          "suggestedBox": {
+            "x": 0.0662,
+            "y": 0.2393,
+            "width": 0.72,
+            "height": 0.05
+          }
+        }
+      ]
+    },
+    {
+      "key": "form_371_buyer_rep",
+      "title": "Buyer Designated Representation Agreement",
+      "documentType": "buyer_representation_agreement",
+      "formNumber": "371",
+      "representativePdf": "Example\\Standard forms\\10) For sale when the buyer(s) are represented by an SGA agent and the seller is self represented\\On Buyer Side\\Form 371 Buyer Designated Representation Agreement .pdf",
+      "matchedPdfCount": 5,
+      "pageCount": 4,
+      "score": 32,
+      "fieldAnchors": [
+        {
+          "fieldKey": "buyer_names",
+          "label": "Buyer names",
+          "page": 1,
+          "phrase": "buyer",
+          "anchorBox": {
+            "x": 0.2941,
+            "y": 0.0402,
+            "width": 0.4558,
+            "height": 0.0202
+          },
+          "suggestedBox": {
+            "x": 0.2941,
+            "y": 0.0664,
+            "width": 0.7059,
+            "height": 0.05
+          }
+        },
+        {
+          "fieldKey": "cooperating_commission_pct",
+          "label": "Commission",
+          "page": 1,
+          "phrase": "commission",
+          "anchorBox": {
+            "x": 0.0956,
+            "y": 0.6649,
+            "width": 0.8383,
+            "height": 0.0101
+          },
+          "suggestedBox": {
+            "x": 0.0956,
+            "y": 0.681,
+            "width": 0.8383,
+            "height": 0.05
+          }
+        }
+      ]
+    },
+    {
+      "key": "form_372_tenant_rep",
+      "title": "Tenant Designated Representation Agreement",
+      "documentType": "tenant_representation_agreement",
+      "formNumber": "372",
+      "representativePdf": "Example\\Standard forms\\11) For Lease when only the tenant(s) are represented by an SGA agent\\Form 372 Tenant Designated Representation Agmt - Auth for Lease or Purchase.pdf",
+      "matchedPdfCount": 4,
+      "pageCount": 4,
+      "score": 32,
+      "fieldAnchors": [
+        {
+          "fieldKey": "buyer_names",
+          "label": "Tenant names",
+          "page": 1,
+          "phrase": "tenant",
+          "anchorBox": {
+            "x": 0.2941,
+            "y": 0.0402,
+            "width": 0.4657,
+            "height": 0.0202
+          },
+          "suggestedBox": {
+            "x": 0.2941,
+            "y": 0.0664,
+            "width": 0.7059,
+            "height": 0.05
+          }
+        }
+      ]
+    },
+    {
+      "key": "form_400_agreement_to_lease",
+      "title": "Agreement to Lease",
+      "documentType": "agreement_to_lease",
+      "formNumber": "400",
+      "representativePdf": "Example\\Standard forms\\11) For Lease when only the tenant(s) are represented by an SGA agent\\Form 400 Agreement to Lease.pdf",
+      "matchedPdfCount": 28,
+      "pageCount": 4,
+      "score": 38,
+      "fieldAnchors": [
+        {
+          "fieldKey": "property_address",
+          "label": "Leased premises",
+          "page": 1,
+          "phrase": "premises",
+          "anchorBox": {
+            "x": 0.0662,
+            "y": 0.2354,
+            "width": 0.8676,
+            "height": 0.0101
+          },
+          "suggestedBox": {
+            "x": 0.0662,
+            "y": 0.2515,
+            "width": 0.8676,
+            "height": 0.05
+          }
+        },
+        {
+          "fieldKey": "sale_price",
+          "label": "Monthly rent",
+          "page": 1,
+          "phrase": "rent",
+          "anchorBox": {
+            "x": 0.0662,
+            "y": 0.3352,
+            "width": 0.8677,
+            "height": 0.0101
+          },
+          "suggestedBox": {
+            "x": 0.0662,
+            "y": 0.3513,
+            "width": 0.8677,
+            "height": 0.05
+          }
+        },
+        {
+          "fieldKey": "lease_start_date",
+          "label": "Lease start",
+          "page": 1,
+          "phrase": "commencing",
+          "anchorBox": {
+            "x": 0.0662,
+            "y": 0.3137,
+            "width": 0.8677,
+            "height": 0.0101
+          },
+          "suggestedBox": {
+            "x": 0.0662,
+            "y": 0.3298,
+            "width": 0.8677,
+            "height": 0.05
+          }
+        }
+      ]
+    },
+    {
+      "key": "form_630_individual_id",
+      "title": "Individual Identification Record",
+      "documentType": "form_630_individual_identification",
+      "formNumber": "630",
+      "representativePdf": "Example\\Standard forms\\1)For sale when only the seller(s) are represented by an SGA agent\\Form 630 Individual Identification Record (A) - PropTx-OREA.pdf",
+      "matchedPdfCount": 11,
+      "pageCount": 4,
+      "score": 34,
+      "fieldAnchors": [
+        {
+          "fieldKey": "buyer_names",
+          "label": "Individual name",
+          "page": 1,
+          "phrase": "name of individual",
+          "anchorBox": {
+            "x": 0.0684,
+            "y": 0.3366,
+            "width": 0.2107,
+            "height": 0.0109
+          },
+          "suggestedBox": {
+            "x": 0.0684,
+            "y": 0.3535,
+            "width": 0.72,
+            "height": 0.05
+          }
+        },
+        {
+          "fieldKey": "seller_names",
+          "label": "Individual name",
+          "page": 1,
+          "phrase": "name of individual",
+          "anchorBox": {
+            "x": 0.0684,
+            "y": 0.3366,
+            "width": 0.2107,
+            "height": 0.0109
+          },
+          "suggestedBox": {
+            "x": 0.0684,
+            "y": 0.3535,
+            "width": 0.72,
+            "height": 0.05
+          }
+        }
+      ]
+    },
+    {
+      "key": "form_631_entity_id",
+      "title": "Corporation / Entity Identification Record",
+      "documentType": "corporate_id_articles",
+      "formNumber": "631",
+      "representativePdf": "Example\\Standard forms\\1)For sale when only the seller(s) are represented by an SGA agent\\631 - Corporation_Entity Identification Record.pdf",
+      "matchedPdfCount": 11,
+      "pageCount": 4,
+      "score": 26,
+      "fieldAnchors": []
+    },
+    {
+      "key": "form_634_pep_hio",
+      "title": "PEP / HIO Checklist",
+      "documentType": "form_631_pep_checklist",
+      "formNumber": "634",
+      "representativePdf": "Example\\Standard forms\\1)For sale when only the seller(s) are represented by an SGA agent\\Form 634 - Politically Exposed Person_Head of international organization Checklist.pdf",
+      "matchedPdfCount": 11,
+      "pageCount": 2,
+      "score": 38,
+      "fieldAnchors": []
+    },
+    {
+      "key": "form_635_receipt_funds",
+      "title": "Receipt of Funds Record",
+      "documentType": "form_635_receipt_of_funds",
+      "formNumber": "635",
+      "representativePdf": "Example\\Standard forms\\10) For sale when the buyer(s) are represented by an SGA agent and the seller is self represented\\On Buyer Side\\Form 635 Receipt of Funds Record.pdf",
+      "matchedPdfCount": 4,
+      "pageCount": 4,
+      "score": 34,
+      "fieldAnchors": [
+        {
+          "fieldKey": "deposit_amount",
+          "label": "Amount received",
+          "page": 1,
+          "phrase": "amount",
+          "anchorBox": {
+            "x": 0.0818,
+            "y": 0.3388,
+            "width": 0.606,
+            "height": 0.0122
+          },
+          "suggestedBox": {
+            "x": 0.0818,
+            "y": 0.357,
+            "width": 0.72,
+            "height": 0.05
+          }
+        },
+        {
+          "fieldKey": "deposit_method",
+          "label": "Funds method/source",
+          "page": 1,
+          "phrase": "method",
+          "anchorBox": {
+            "x": 0.0817,
+            "y": 0.4182,
+            "width": 0.1387,
+            "height": 0.0122
+          },
+          "suggestedBox": {
+            "x": 0.0817,
+            "y": 0.4364,
+            "width": 0.72,
+            "height": 0.05
+          }
+        }
+      ]
+    },
+    {
+      "key": "form_641_referral",
+      "title": "Referral Agreement",
+      "documentType": "referral_agreement",
+      "formNumber": "641",
+      "representativePdf": "Example\\Standard forms\\1)For sale when only the seller(s) are represented by an SGA agent\\Form 641 Referral Agreement.pdf",
+      "matchedPdfCount": 18,
+      "pageCount": 1,
+      "score": 32,
+      "fieldAnchors": []
+    },
+    {
+      "key": "form_650_co_brokerage",
+      "title": "Co-Brokerage Agreement",
+      "documentType": "co_brokerage_agreement",
+      "formNumber": "650",
+      "representativePdf": "Example\\Standard forms\\1)For sale when only the seller(s) are represented by an SGA agent\\Form 650 Co-Brokerage Agreement - Between Multiple Listing Brokerages.pdf",
+      "matchedPdfCount": 9,
+      "pageCount": 1,
+      "score": 38,
+      "fieldAnchors": []
+    },
+    {
+      "key": "forms_271_272_593_listing",
+      "title": "Listing / Landlord Representation Agreement",
+      "documentType": "listing_agreement",
+      "formNumber": "271",
+      "representativePdf": "Example\\Standard forms\\1)For sale when only the seller(s) are represented by an SGA agent\\Form 271 - Seller Designated Representation Agreement Authority to Offer for Sale.pdf",
+      "matchedPdfCount": 4,
+      "pageCount": 4,
+      "score": 30,
+      "fieldAnchors": []
+    },
+    {
+      "key": "forms_271_272_593_listing",
+      "title": "Listing / Landlord Representation Agreement",
+      "documentType": "listing_agreement",
+      "formNumber": "272",
+      "representativePdf": "Example\\Standard forms\\5) for lease when only the landlord(s) are represented by an SGA agent\\Form 272 Listing Agrmt Landlord Designated Rep Agrmt Auth to Offer for Lease.pdf",
+      "matchedPdfCount": 4,
+      "pageCount": 4,
+      "score": 30,
+      "fieldAnchors": []
+    },
+    {
+      "key": "forms_271_272_593_listing",
+      "title": "Listing / Landlord Representation Agreement",
+      "documentType": "listing_agreement",
+      "formNumber": "593",
+      "representativePdf": "Example\\Standard forms\\1)For sale when only the seller(s) are represented by an SGA agent\\Form - 593 Listing Agmt - Commercial Seller Designated Rep Agmt Auth to Offer for Sale.pdf",
+      "matchedPdfCount": 4,
+      "pageCount": 4,
+      "score": 30,
+      "fieldAnchors": []
+    },
+    {
+      "key": "forms_325_328_multiple_rep",
+      "title": "Multiple Representation Consent",
+      "documentType": "multiple_representation_consent",
+      "formNumber": "325",
+      "representativePdf": "Example\\Standard forms\\2) For Sale when both the buyer and the seller are represented by the same SGA agent\\For Seller Side\\Form 325 Multiple Representation - Seller Acknowledgement & Consent.pdf",
+      "matchedPdfCount": 1,
+      "pageCount": 1,
+      "score": 28,
+      "fieldAnchors": []
+    },
+    {
+      "key": "forms_325_328_multiple_rep",
+      "title": "Multiple Representation Consent",
+      "documentType": "multiple_representation_consent",
+      "formNumber": "326",
+      "representativePdf": "Example\\Standard forms\\2) For Sale when both the buyer and the seller are represented by the same SGA agent\\For Buyer Side\\Form 326 Multiple Representation - Buyer Acknowledgement & Consent.pdf",
+      "matchedPdfCount": 1,
+      "pageCount": 1,
+      "score": 28,
+      "fieldAnchors": []
+    },
+    {
+      "key": "forms_325_328_multiple_rep",
+      "title": "Multiple Representation Consent",
+      "documentType": "multiple_representation_consent",
+      "formNumber": "327",
+      "representativePdf": "Example\\Standard forms\\6) For Lease when both the tenant and the landlord are represented by the same SGA agent\\On Landlord side\\Form 327 Multiple Representation, Landlord Acknowledgment & Consent Disclosure .pdf",
+      "matchedPdfCount": 1,
+      "pageCount": 1,
+      "score": 28,
+      "fieldAnchors": []
+    },
+    {
+      "key": "forms_325_328_multiple_rep",
+      "title": "Multiple Representation Consent",
+      "documentType": "multiple_representation_consent",
+      "formNumber": "328",
+      "representativePdf": "Example\\Standard forms\\6) For Lease when both the tenant and the landlord are represented by the same SGA agent\\On Tenant Side\\Form 328 Multiple Representation, Tenant Acknowledgment & Consent Disclosure.pdf",
+      "matchedPdfCount": 1,
+      "pageCount": 1,
+      "score": 28,
+      "fieldAnchors": []
+    },
+    {
+      "key": "ontario_standard_lease",
+      "title": "Ontario Residential Tenancy Agreement",
+      "documentType": "ontario_residential_tenancy_agreement",
+      "formNumber": null,
+      "representativePdf": "Example\\Standard forms\\5) for lease when only the landlord(s) are represented by an SGA agent\\Ontario Residential Tenancy Agreement - PropTx-OREA.pdf",
+      "matchedPdfCount": 4,
+      "pageCount": 14,
+      "score": 12,
+      "fieldAnchors": []
+    },
+    {
+      "key": "reco_information_guide",
+      "title": "RECO Information Guide Acknowledgement",
+      "documentType": "reco_information_guide_ack",
+      "formNumber": null,
+      "representativePdf": "Example\\Standard forms\\1)For sale when only the seller(s) are represented by an SGA agent\\Reco Information Guide .pdf",
+      "matchedPdfCount": 21,
+      "pageCount": 13,
+      "score": 4,
+      "fieldAnchors": []
+    },
+    {
+      "key": "reco_self_represented_disclosure",
+      "title": "RECO Information and Disclosure to Self-Represented Party",
+      "documentType": "reco_self_represented_disclosure",
+      "formNumber": null,
+      "representativePdf": "Example\\Standard forms\\10) For sale when the buyer(s) are represented by an SGA agent and the seller is self represented\\On Seller Side\\information and Disclosure to Self-represented Party.pdf",
+      "matchedPdfCount": 4,
+      "pageCount": 2,
+      "score": 16,
+      "fieldAnchors": []
+    }
+  ],
+  "unmatchedPdfs": []
+}
