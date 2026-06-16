@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { ALL_FIELD_KEYS, FIELD_LABELS, type DocumentType } from "@/lib/types";
+import { extractionTemplateGuide, type StandardFormMatch } from "@/lib/standard-forms";
 import { anthropic, AI_MODEL } from "./client";
 import { FieldExtractionSchema, type FieldExtraction } from "./schemas";
 
@@ -92,6 +93,7 @@ const MAX_PAGES_PER_CALL = 12;
 export async function extractFromDocument(
   docType: DocumentType,
   pageImages: { pageNumber: number; base64: string; mediaType: "image/jpeg" | "image/png" }[],
+  options: { standardForms?: StandardFormMatch[] } = {},
 ): Promise<FieldExtraction> {
   const pages = pageImages.slice(0, MAX_PAGES_PER_CALL);
 
@@ -103,11 +105,15 @@ export async function extractFromDocument(
     },
   ]);
   const hint = DOC_HINTS[docType];
+  const templateGuide = extractionTemplateGuide(options.standardForms ?? []);
   content.push({
     type: "text",
     text:
       `These pages were classified as: ${docType}. Extract all readable deal and workflow fields.` +
-      (hint ? `\n\nHint for this document type: ${hint}` : ""),
+      (hint ? `\n\nHint for this document type: ${hint}` : "") +
+      (templateGuide
+        ? `\n\nMatched standard form templates:\n${templateGuide}\nUse these regions only as layout priors. The returned source_box must still tightly cover the visible value on the actual uploaded page.`
+        : ""),
   });
 
   const response = await anthropic.messages.parse({

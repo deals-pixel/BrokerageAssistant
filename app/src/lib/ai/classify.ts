@@ -18,6 +18,8 @@ Guidance:
 - The Deal Information Sheet is the brokerage's internal one-page summary form titled "DEAL INFORMATION SHEET".
 - OREA forms show their form number bottom-left or in the header. Use this standard form registry:
 ${STANDARD_FORM_GUIDE}
+- For each page, also return standard_form_key, standard_form_number, standard_form_title, and standard_form_confidence when the visible title, form number, or signature text matches the registry. Use null for all standard-form fields when no registry form matches.
+- standard_form_key must be exactly one key from the registry above. Do not invent keys.
 - Schedule A/B pages belong to their parent document: APS and Office Schedule B pages are agreement_of_purchase_and_sale for sales, Office Schedule B Lease pages are agreement_to_lease, listing schedules are listing_agreement, buyer representation schedules are buyer_representation_agreement, and tenant representation schedules are tenant_representation_agreement.
 - Use agreement_to_lease for OREA Agreement to Lease forms. Use ontario_residential_tenancy_agreement for the Ontario Standard Lease. Use lease_agreement only when the page is a lease document but not clearly one of those two.
 - Continuation pages without their own title belong to the same document as the preceding page.

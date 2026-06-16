@@ -14,7 +14,17 @@ export type StandardFormDefinition = {
   formNumbers?: string[];
   aliases: string[];
   scenarioNumbers?: number[];
+  signatures?: string[];
   fieldRegions?: StandardFormRegion[];
+};
+
+export type StandardFormMatch = {
+  key: string;
+  documentType: DocumentType;
+  title: string;
+  formNumber?: string | null;
+  confidence: "high" | "medium" | "low";
+  source: "classifier" | "document_type";
 };
 
 const roughRegionNote =
@@ -34,6 +44,13 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
     title: "Agreement of Purchase and Sale",
     formNumbers: ["100"],
     aliases: ["Form 100", "Agreement of Purchase and Sale", "APS", "Office Schedule B"],
+    signatures: [
+      "Agreement of Purchase and Sale",
+      "Form 100",
+      "Buyer agrees to purchase",
+      "purchase price",
+      "completion date",
+    ],
     scenarioNumbers: [1, 2, 3, 4, 9, 10],
     fieldRegions: [
       {
@@ -68,6 +85,7 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
     title: "Sale Waiver / Notice / Amendment",
     formNumbers: ["120", "123", "124"],
     aliases: ["Form 120", "Form 123", "Form 124", "Amendment", "Waiver", "Notice of Fulfillment"],
+    signatures: ["Amendment", "Waiver", "Notice of Fulfillment", "Agreement of Purchase and Sale"],
     scenarioNumbers: [1, 2, 3, 4, 9, 10],
   },
   {
@@ -76,6 +94,7 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
     title: "Notice of Fulfillment of Conditions",
     formNumbers: ["124"],
     aliases: ["Form 124", "Notice of Fulfillment of Conditions"],
+    signatures: ["Notice of Fulfillment of Conditions", "Form 124"],
     scenarioNumbers: [1, 2, 3, 4, 9, 10],
   },
   {
@@ -91,6 +110,12 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
       "Seller Designated Representation Agreement",
       "Landlord Designated Representation Agreement",
     ],
+    signatures: [
+      "Designated Representation Agreement",
+      "Authority to Offer for Sale",
+      "Authority to Offer for Lease",
+      "Listing Agreement",
+    ],
     scenarioNumbers: [1, 2, 3, 4, 5, 6, 7, 8],
   },
   {
@@ -99,6 +124,7 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
     title: "Confirmation of Cooperation",
     formNumbers: ["320"],
     aliases: ["Form 320", "Confirmation of Cooperation", "Confirmation of Co-operation"],
+    signatures: ["Confirmation of Cooperation", "Confirmation of Co-operation", "Form 320"],
     scenarioNumbers: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
     fieldRegions: [
       {
@@ -128,6 +154,7 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
       "Multiple Representation",
       "Acknowledgement and Consent",
     ],
+    signatures: ["Multiple Representation", "Acknowledgement", "Consent", "Disclosure"],
     scenarioNumbers: [2, 6],
   },
   {
@@ -136,6 +163,7 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
     title: "Buyer Designated Representation Agreement",
     formNumbers: ["371"],
     aliases: ["Form 371", "Buyer Designated Representation Agreement", "Buyer Representation Agreement"],
+    signatures: ["Buyer Designated Representation Agreement", "Form 371", "Buyer Representation Agreement"],
     scenarioNumbers: [2, 4, 9, 10, 15],
     fieldRegions: [
       {
@@ -158,6 +186,7 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
     title: "Tenant Designated Representation Agreement",
     formNumbers: ["372"],
     aliases: ["Form 372", "Tenant Designated Representation Agreement", "Tenant Representation Agreement"],
+    signatures: ["Tenant Designated Representation Agreement", "Form 372", "Tenant Representation Agreement"],
     scenarioNumbers: [6, 8, 11, 12],
     fieldRegions: [
       {
@@ -174,6 +203,7 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
     title: "Agreement to Lease",
     formNumbers: ["400"],
     aliases: ["Form 400", "Agreement to Lease", "Office Schedule B Lease"],
+    signatures: ["Agreement to Lease", "Form 400", "Residential", "Tenant", "Landlord"],
     scenarioNumbers: [5, 6, 7, 8, 11, 12],
     fieldRegions: [
       {
@@ -202,6 +232,7 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
     title: "Lease Waiver / Notice / Amendment",
     formNumbers: ["403", "404", "420"],
     aliases: ["Form 403", "Form 404", "Form 420", "Lease Waiver", "Lease Notice of Fulfillment", "Lease Amendment"],
+    signatures: ["Agreement to Lease", "Waiver", "Notice of Fulfillment", "Amendment"],
     scenarioNumbers: [5, 6, 7, 8, 11, 12],
   },
   {
@@ -210,6 +241,7 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
     title: "Individual Identification Record",
     formNumbers: ["630"],
     aliases: ["Form 630", "Individual Identification Record", "FINTRAC ID"],
+    signatures: ["Individual Identification Record", "Form 630", "FINTRAC"],
     scenarioNumbers: [1, 2, 3, 4, 9, 10, 15],
     fieldRegions: [
       {
@@ -232,6 +264,7 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
     title: "Corporation / Entity Identification Record",
     formNumbers: ["631"],
     aliases: ["Form 631", "Corporation Identification Record", "Entity Identification Record"],
+    signatures: ["Corporation", "Entity Identification Record", "Form 631"],
     scenarioNumbers: [1, 2, 3, 4, 9, 10, 15],
   },
   {
@@ -240,6 +273,7 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
     title: "PEP / HIO Checklist",
     formNumbers: ["634"],
     aliases: ["Form 634", "Politically Exposed Person", "Head of International Organization", "PEP", "HIO"],
+    signatures: ["Politically Exposed Person", "Head of International Organization", "Form 634"],
     scenarioNumbers: [1, 2, 3, 4, 9, 10, 15],
   },
   {
@@ -248,6 +282,7 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
     title: "Receipt of Funds Record",
     formNumbers: ["635"],
     aliases: ["Form 635", "Receipt of Funds Record"],
+    signatures: ["Receipt of Funds Record", "Form 635", "funds received"],
     scenarioNumbers: [2, 4, 9, 10],
     fieldRegions: [
       {
@@ -270,6 +305,7 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
     title: "Referral Agreement",
     formNumbers: ["641"],
     aliases: ["Form 641", "Referral Agreement"],
+    signatures: ["Referral Agreement", "Form 641"],
     scenarioNumbers: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15],
   },
   {
@@ -278,6 +314,7 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
     title: "Co-Brokerage Agreement",
     formNumbers: ["650"],
     aliases: ["Form 650", "Co-Brokerage Agreement", "Co-brokerage Agreement"],
+    signatures: ["Co-Brokerage Agreement", "Co-brokerage Agreement", "Form 650"],
     scenarioNumbers: [1, 2, 3, 4, 5, 6, 7, 8, 14],
   },
   {
@@ -314,6 +351,43 @@ export function standardFormsForDocumentType(docType: DocumentType) {
   return STANDARD_FORMS.filter((form) => form.documentType === docType);
 }
 
+export function standardFormByKey(key: string | null | undefined) {
+  if (!key) return null;
+  return STANDARD_FORMS.find((form) => form.key === key) ?? null;
+}
+
+export function standardFormMatchFromKey(
+  key: string | null | undefined,
+  confidence: "high" | "medium" | "low" = "medium",
+): StandardFormMatch | null {
+  const form = standardFormByKey(key);
+  if (!form) return null;
+  return {
+    key: form.key,
+    documentType: form.documentType,
+    title: form.title,
+    formNumber: form.formNumbers?.[0] ?? null,
+    confidence,
+    source: "classifier",
+  };
+}
+
+export function defaultStandardFormMatchForDocumentType(
+  docType: DocumentType,
+): StandardFormMatch | null {
+  const forms = standardFormsForDocumentType(docType);
+  if (forms.length !== 1) return null;
+  const form = forms[0];
+  return {
+    key: form.key,
+    documentType: form.documentType,
+    title: form.title,
+    formNumber: form.formNumbers?.[0] ?? null,
+    confidence: "medium",
+    source: "document_type",
+  };
+}
+
 export function standardFormLabelsForDocumentTypes(docTypes: DocumentType[]) {
   return Array.from(
     new Set(
@@ -330,7 +404,10 @@ export function classificationGuideFromStandardForms() {
   return STANDARD_FORMS.map((form) => {
     const numberText = form.formNumbers?.length ? `Forms ${form.formNumbers.join(", ")}` : "No form number";
     const aliasText = form.aliases.length ? `; aliases: ${form.aliases.join(", ")}` : "";
-    return `- ${numberText}: ${form.documentType} - ${form.title}${aliasText}`;
+    const signatureText = form.signatures?.length
+      ? `; signatures: ${form.signatures.join(" | ")}`
+      : "";
+    return `- key ${form.key}; ${numberText}: ${form.documentType} - ${form.title}${aliasText}${signatureText}`;
   }).join("\n");
 }
 
@@ -338,4 +415,36 @@ export function templateRegionsForDocumentType(docType: DocumentType, fieldKey: 
   return standardFormsForDocumentType(docType).flatMap(
     (form) => form.fieldRegions?.filter((region) => region.fieldKey === fieldKey) ?? [],
   );
+}
+
+export function templateRegionsForStandardForm(
+  formKey: string | null | undefined,
+  fieldKey: string,
+) {
+  const form = standardFormByKey(formKey);
+  return form?.fieldRegions?.filter((region) => region.fieldKey === fieldKey) ?? [];
+}
+
+export function extractionTemplateGuide(matches: StandardFormMatch[]) {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const match of matches) {
+    if (seen.has(match.key)) continue;
+    seen.add(match.key);
+    const form = standardFormByKey(match.key);
+    if (!form) continue;
+    lines.push(
+      `- ${form.title}${match.formNumber ? ` (Form ${match.formNumber})` : ""}: key ${form.key}; matched with ${match.confidence} confidence.`,
+    );
+    for (const region of form.fieldRegions ?? []) {
+      const boxes = region.boxes
+        .map(
+          (box) =>
+            `${region.fieldKey} ${region.label}: x=${box.x}, y=${box.y}, width=${box.width}, height=${box.height}`,
+        )
+        .join("; ");
+      lines.push(`  Template region: ${boxes}`);
+    }
+  }
+  return lines.join("\n");
 }

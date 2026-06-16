@@ -12,7 +12,9 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
 
   const { data: pages } = await supabase
     .from("deal_pages")
-    .select("page_number, doc_type, doc_confidence")
+    .select(
+      "page_number, doc_type, doc_confidence, standard_form_key, standard_form_number, standard_form_title, standard_form_confidence",
+    )
     .eq("deal_id", id)
     .order("page_number");
 

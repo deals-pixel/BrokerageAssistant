@@ -36,7 +36,15 @@ type DealRow = {
   error_message: string | null;
 };
 
-type PageRow = { page_number: number; doc_type: string | null; doc_confidence: string | null };
+type PageRow = {
+  page_number: number;
+  doc_type: string | null;
+  doc_confidence: string | null;
+  standard_form_key?: string | null;
+  standard_form_number?: string | null;
+  standard_form_title?: string | null;
+  standard_form_confidence?: string | null;
+};
 
 type FieldRow = {
   field_key: string;
@@ -572,6 +580,11 @@ export function ReviewScreen({
                 >
                   <p className="font-medium">{group.label}</p>
                   <p className="text-xs text-muted-foreground">Pages {group.pages.join(", ")}</p>
+                  {group.standardForms.length > 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Standard: {group.standardForms.join("; ")}
+                    </p>
+                  )}
                 </button>
               ))
             ) : (
@@ -814,14 +827,21 @@ function truncateSourceValue(value: string) {
 }
 
 function groupDocuments(pages: PageRow[]) {
-  const groups = new Map<string, { key: string; label: string; pages: number[] }>();
+  const groups = new Map<
+    string,
+    { key: string; label: string; pages: number[]; standardForms: string[] }
+  >();
   for (const page of pages) {
     const key = page.doc_type ?? "unclassified";
     const label = page.doc_type
       ? (DOCUMENT_TYPES[page.doc_type as DocumentType] ?? page.doc_type)
       : "Unclassified";
-    const existing = groups.get(key) ?? { key, label, pages: [] };
+    const existing = groups.get(key) ?? { key, label, pages: [], standardForms: [] };
     existing.pages.push(page.page_number);
+    const standardFormLabel = formatStandardFormLabel(page);
+    if (standardFormLabel && !existing.standardForms.includes(standardFormLabel)) {
+      existing.standardForms.push(standardFormLabel);
+    }
     groups.set(key, existing);
   }
   return Array.from(groups.values()).map((group) => ({
@@ -859,4 +879,12 @@ function summarizeDetails(details: Record<string, unknown>) {
       return `${key}: ${String(value)}`;
     })
     .join(" | ");
+}
+
+function formatStandardFormLabel(page: PageRow) {
+  if (!page.standard_form_title && !page.standard_form_number) return "";
+  const number = page.standard_form_number ? `Form ${page.standard_form_number}` : "";
+  const title = page.standard_form_title ?? "";
+  if (number && title) return `${number} ${title}`;
+  return number || title;
 }

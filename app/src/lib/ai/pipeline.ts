@@ -3,6 +3,11 @@ import { classifyPages } from "./classify";
 import { extractFromDocument, EXTRACTABLE_DOCS } from "./extract";
 import { mergeExtractions } from "./merge";
 import { validateFields } from "./validate";
+import {
+  applyTemplateSourceFallbacks,
+  buildPageStandardFormMatches,
+  standardFormMatchesForDocument,
+} from "./template-source";
 import { buildChecklistResult } from "@/lib/checklist";
 import { syncMissingDocumentTasks } from "@/lib/workflow";
 import type { DocumentType } from "@/lib/types";
@@ -50,10 +55,19 @@ export async function processDeal(dealId: string): Promise<void> {
 
     // Step 2: classify
     const classification = await classifyPages(images);
+    const pageFormMatches = buildPageStandardFormMatches(classification.pages);
     for (const c of classification.pages) {
+      const formMatch = pageFormMatches.find((match) => match.pageNumber === c.page_number)?.match;
       await supabase
         .from("deal_pages")
-        .update({ doc_type: c.doc_type, doc_confidence: c.confidence })
+        .update({
+          doc_type: c.doc_type,
+          doc_confidence: c.confidence,
+          standard_form_key: formMatch?.key ?? null,
+          standard_form_number: formMatch?.formNumber ?? null,
+          standard_form_title: formMatch?.title ?? null,
+          standard_form_confidence: formMatch?.confidence ?? null,
+        })
         .eq("deal_id", dealId)
         .eq("page_number", c.page_number);
     }
@@ -70,12 +84,15 @@ export async function processDeal(dealId: string): Promise<void> {
 
     const extractions: { docType: DocumentType; extraction: FieldExtraction }[] = [];
     for (const [docType, docImages] of byDoc) {
-      const extraction = await extractFromDocument(docType, docImages);
+      const extraction = await extractFromDocument(docType, docImages, {
+        standardForms: standardFormMatchesForDocument(docType, pageFormMatches),
+      });
       extractions.push({ docType, extraction });
     }
 
     // Steps 4–5: merge + validate
-    let merged = mergeExtractions(extractions);
+    const templateFallbacks = applyTemplateSourceFallbacks(extractions, pageFormMatches);
+    let merged = mergeExtractions(templateFallbacks.extractions);
     merged = validateFields(merged, classification.transaction_type);
 
     // Persist fields
@@ -128,6 +145,16 @@ export async function processDeal(dealId: string): Promise<void> {
         documents: [...byDoc.keys()],
         fields: merged.length,
         scenario: checklist.scenario.key,
+        standard_forms: pageFormMatches
+          .filter((pageMatch) => pageMatch.match)
+          .map((pageMatch) => ({
+            page: pageMatch.pageNumber,
+            key: pageMatch.match?.key,
+            number: pageMatch.match?.formNumber,
+            title: pageMatch.match?.title,
+            confidence: pageMatch.match?.confidence,
+          })),
+        template_source_box_fallbacks: templateFallbacks.fallbackCount,
         missing_required: checklist.missingRequired.map((item) => item.label),
       },
     });

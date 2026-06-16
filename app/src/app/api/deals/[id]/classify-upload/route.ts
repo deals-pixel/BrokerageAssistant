@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { classifyPages } from "@/lib/ai/classify";
+import { buildPageStandardFormMatches } from "@/lib/ai/template-source";
 
 export const maxDuration = 300;
 
@@ -25,6 +26,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   const classification = await classifyPages(images);
+  const standardFormMatches = buildPageStandardFormMatches(classification.pages);
 
   const { data: existingPages, error } = await supabase
     .from("deal_pages")
@@ -46,12 +48,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     details: {
       pages: classification.pages.length,
       incoming_doc_types: incomingDocTypes,
+      standard_forms: standardFormMatches
+        .filter((pageMatch) => pageMatch.match)
+        .map((pageMatch) => ({
+          page: pageMatch.pageNumber,
+          key: pageMatch.match?.key,
+          number: pageMatch.match?.formNumber,
+          title: pageMatch.match?.title,
+          confidence: pageMatch.match?.confidence,
+        })),
       conflicts,
     },
   });
 
   return NextResponse.json({
     classification,
+    standardFormMatches,
     incomingDocTypes,
     conflicts,
   });

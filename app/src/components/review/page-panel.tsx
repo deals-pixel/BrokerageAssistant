@@ -6,7 +6,15 @@ import { DOCUMENT_TYPES, type DocumentType, type SourceBox } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-type PageRow = { page_number: number; doc_type: string | null; doc_confidence: string | null };
+type PageRow = {
+  page_number: number;
+  doc_type: string | null;
+  doc_confidence: string | null;
+  standard_form_key?: string | null;
+  standard_form_number?: string | null;
+  standard_form_title?: string | null;
+  standard_form_confidence?: string | null;
+};
 
 export function PagePanel({
   dealId,
@@ -25,6 +33,9 @@ export function PagePanel({
   const imageUrl = (page: number) => `/api/deals/${dealId}/pages/${page}/image`;
   const selectedDocType =
     selectedPage != null ? pages.find((p) => p.page_number === selectedPage)?.doc_type : null;
+  const selectedPageRow =
+    selectedPage != null ? pages.find((p) => p.page_number === selectedPage) : null;
+  const selectedFormLabel = formatStandardFormLabel(selectedPageRow);
 
   return (
     <Card className="self-start lg:sticky lg:top-4">
@@ -37,6 +48,7 @@ export function PagePanel({
                 {selectedDocType
                   ? ` - ${DOCUMENT_TYPES[selectedDocType as DocumentType] ?? selectedDocType}`
                   : ""}
+                {selectedFormLabel ? ` - ${selectedFormLabel}` : ""}
               </p>
               <div className="flex items-center gap-1">
                 <Button
@@ -131,10 +143,23 @@ export function PagePanel({
                   ? (DOCUMENT_TYPES[p.doc_type as DocumentType] ?? p.doc_type)
                   : "unclassified"}
               </p>
+              {formatStandardFormLabel(p) && (
+                <p className="truncate text-[10px] leading-tight text-muted-foreground">
+                  {formatStandardFormLabel(p)}
+                </p>
+              )}
             </button>
           ))}
         </div>
       </CardContent>
     </Card>
   );
+}
+
+function formatStandardFormLabel(page: PageRow | null | undefined) {
+  if (!page?.standard_form_title && !page?.standard_form_number) return "";
+  const number = page.standard_form_number ? `Form ${page.standard_form_number}` : "";
+  const title = page.standard_form_title ?? "";
+  if (number && title) return `${number} ${title}`;
+  return number || title;
 }

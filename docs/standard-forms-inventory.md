@@ -44,3 +44,5 @@ These mappings are now reflected in `app/src/lib/ai/classify.ts`:
 
 - The app keeps the existing `form_631_pep_checklist` key for compatibility, but the display label now reflects Form 634.
 - The standard forms are useful as classifier guidance and audit references, but they are not committed into the app bundle.
+- Reprocessing a deal now stores page-level standard form metadata on `deal_pages` when a page matches the registry. The review portal displays the matched form label in the document list and page preview.
+- Matched templates are passed into extraction as layout priors. If AI extraction reads a value but cannot return a source box, the pipeline can use the matching form's template region as a fallback highlight.
