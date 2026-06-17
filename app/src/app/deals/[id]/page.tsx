@@ -40,6 +40,11 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     .select("id, name, email, phone, brokerage")
     .order("name", { ascending: true });
 
+  const { data: requirementStatuses } = await supabase
+    .from("deal_requirement_statuses")
+    .select("requirement_id, lonewolf_status, lonewolf_uploaded_at, lonewolf_uploaded_by")
+    .eq("deal_id", id);
+
   const { data: auditLogs } = await supabase
     .from("audit_logs")
     .select("id, action, details, created_at")
@@ -63,6 +68,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       tasks={tasks ?? []}
       reminders={reminders ?? []}
       agents={agents ?? []}
+      requirementStatuses={requirementStatuses ?? []}
       auditLogs={auditLogs ?? []}
     />
   );

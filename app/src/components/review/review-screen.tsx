@@ -10,6 +10,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { ProcessDealButton } from "@/components/process-deal-button";
 import { toast } from "sonner";
@@ -21,7 +29,7 @@ import {
   type FieldSourceCandidate,
   type SourceBox,
 } from "@/lib/types";
-import type { ChecklistResult } from "@/lib/checklist";
+import type { ChecklistItem, ChecklistResult } from "@/lib/checklist";
 import { PagePanel } from "./page-panel";
 
 type DealRow = {
@@ -96,6 +104,42 @@ type AuditLogRow = {
   created_at: string;
 };
 
+type RequirementStatusRow = {
+  requirement_id: string;
+  lonewolf_status: "not_required" | "pending_upload" | "uploaded" | "unknown";
+  lonewolf_uploaded_at: string | null;
+  lonewolf_uploaded_by: string | null;
+};
+
+type PackageFilter =
+  | "all"
+  | "missing"
+  | "needs_review"
+  | "pending_lonewolf"
+  | "unprocessed"
+  | "reminder_needed";
+
+type PackageDocumentRow = {
+  id: string;
+  requirementId: string;
+  label: string;
+  typeLabel: string;
+  sourceLabel: string;
+  receivedLabel: string;
+  processedLabel: string;
+  matchedLabel: string;
+  loneWolfLabel: string;
+  reminderLabel: string;
+  pages: number[];
+  found: boolean;
+  missing: boolean;
+  needsReview: boolean;
+  pendingLoneWolf: boolean;
+  unprocessed: boolean;
+  reminderNeeded: boolean;
+  canMarkLoneWolfUploaded: boolean;
+};
+
 // Green = high confidence, yellow = needs review, red = missing (per plan).
 function fieldTone(f: FieldRow | undefined): string {
   if (!f || f.value == null || f.value === "") return "border-red-300 bg-red-50";
@@ -111,6 +155,7 @@ export function ReviewScreen({
   tasks,
   reminders,
   agents,
+  requirementStatuses,
   auditLogs,
 }: {
   deal: DealRow;
@@ -120,6 +165,7 @@ export function ReviewScreen({
   tasks: TaskRow[];
   reminders: ReminderRow[];
   agents: AgentRow[];
+  requirementStatuses: RequirementStatusRow[];
   auditLogs: AuditLogRow[];
 }) {
   const router = useRouter();
@@ -132,15 +178,39 @@ export function ReviewScreen({
   const [recipient, setRecipient] = useState("");
   const [selectedFieldKey, setSelectedFieldKey] = useState<string | null>(null);
   const [selectedSourceIndex, setSelectedSourceIndex] = useState<number | null>(null);
+  const [packageFilter, setPackageFilter] = useState<PackageFilter>("all");
+  const [workingRequirementId, setWorkingRequirementId] = useState<string | null>(null);
   const [selectedPage, setSelectedPage] = useState<number | null>(
     pages.length > 0 ? pages[0].page_number : null,
   );
 
   const fieldMap = useMemo(() => new Map(fields.map((f) => [f.field_key, f])), [fields]);
+  const requirementStatusMap = useMemo(
+    () => new Map(requirementStatuses.map((status) => [status.requirement_id, status])),
+    [requirementStatuses],
+  );
   const checklist = checklistResult.items;
   const missingRequired = checklistResult.missingRequired;
   const openTasks = tasks.filter((task) => task.status === "open");
   const documentGroups = useMemo(() => groupDocuments(pages), [pages]);
+  const packageRows = useMemo(
+    () =>
+      buildPackageDocumentRows({
+        checklist,
+        dealStatus: deal.status,
+        pages,
+        tasks,
+        reminders,
+        requirementStatuses: requirementStatusMap,
+      }),
+    [checklist, deal.status, pages, reminders, requirementStatusMap, tasks],
+  );
+  const filteredPackageRows = useMemo(
+    () => filterPackageRows(packageRows, packageFilter),
+    [packageFilter, packageRows],
+  );
+  const packageSummary = useMemo(() => summarizePackageRows(packageRows), [packageRows]);
+  const sortedAuditLogs = useMemo(() => sortAuditLogs(auditLogs), [auditLogs]);
   const latestReminder = reminders.find((reminder) => reminder.sent_at) ?? reminders[0];
   const selectedField = selectedFieldKey ? fieldMap.get(selectedFieldKey) : null;
   const selectedConflictSource =
@@ -326,6 +396,28 @@ export function ReviewScreen({
     }
   }
 
+  async function markLoneWolfUploaded(requirementId: string) {
+    setWorkingRequirementId(requirementId);
+    try {
+      const res = await fetch(
+        `/api/deals/${deal.id}/requirements/${encodeURIComponent(requirementId)}/lonewolf`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "uploaded" }),
+        },
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? "Could not mark uploaded");
+      toast.success("Marked uploaded to Lone Wolf.");
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not mark uploaded");
+    } finally {
+      setWorkingRequirementId(null);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-[1400px] space-y-4 p-6">
       {/* Header */}
@@ -371,6 +463,22 @@ export function ReviewScreen({
           </Button>
         </div>
       </header>
+
+      <PackageDocumentsPanel
+        rows={filteredPackageRows}
+        summary={packageSummary}
+        activeFilter={packageFilter}
+        onFilterChange={setPackageFilter}
+        onViewPages={(page) => {
+          setSelectedFieldKey(null);
+          setSelectedSourceIndex(null);
+          setSelectedPage(page);
+        }}
+        onMarkLoneWolfUploaded={markLoneWolfUploaded}
+        onGenerateReminder={generateReminderDraft}
+        workingRequirementId={workingRequirementId}
+        draftingReminder={draftingReminder}
+      />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_0.9fr_0.9fr]">
         <Card>
@@ -778,25 +886,222 @@ export function ReviewScreen({
         <CardHeader className="py-3">
           <CardTitle className="text-base">Activity Log</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2">
-          {auditLogs.length > 0 ? (
-            auditLogs.map((log) => (
-              <div key={log.id} className="rounded border p-2 text-sm">
-                <p className="font-medium">{formatAction(log.action)}</p>
-                <p className="text-xs text-muted-foreground">{new Date(log.created_at).toLocaleString()}</p>
-                {log.details && (
-                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                    {summarizeDetails(log.details)}
-                  </p>
-                )}
-              </div>
-            ))
+        <CardContent className="p-0">
+          {sortedAuditLogs.length > 0 ? (
+            <ol className="divide-y">
+              {sortedAuditLogs.map((log) => (
+                <li
+                  key={log.id}
+                  className="grid gap-1 px-4 py-3 text-sm md:grid-cols-[190px_1fr] md:gap-4"
+                >
+                  <time className="text-xs text-muted-foreground" dateTime={log.created_at}>
+                    {formatTimestamp(log.created_at)}
+                  </time>
+                  <div className="min-w-0">
+                    <p className="font-medium">{formatAction(log.action)}</p>
+                    {log.details && (
+                      <p className="mt-1 break-words text-xs text-muted-foreground">
+                        {summarizeDetails(log.details)}
+                      </p>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
           ) : (
-            <p className="text-sm text-muted-foreground">No activity available.</p>
+            <p className="p-4 text-sm text-muted-foreground">No activity available.</p>
           )}
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function PackageDocumentsPanel({
+  rows,
+  summary,
+  activeFilter,
+  onFilterChange,
+  onViewPages,
+  onMarkLoneWolfUploaded,
+  onGenerateReminder,
+  workingRequirementId,
+  draftingReminder,
+}: {
+  rows: PackageDocumentRow[];
+  summary: string;
+  activeFilter: PackageFilter;
+  onFilterChange: (filter: PackageFilter) => void;
+  onViewPages: (page: number) => void;
+  onMarkLoneWolfUploaded: (requirementId: string) => void;
+  onGenerateReminder: () => void;
+  workingRequirementId: string | null;
+  draftingReminder: boolean;
+}) {
+  const filters: { id: PackageFilter; label: string }[] = [
+    { id: "all", label: "All" },
+    { id: "missing", label: "Missing" },
+    { id: "needs_review", label: "Needs Review" },
+    { id: "pending_lonewolf", label: "Pending Lone Wolf Upload" },
+    { id: "unprocessed", label: "Unprocessed" },
+    { id: "reminder_needed", label: "Reminder Needed" },
+  ];
+
+  return (
+    <Card>
+      <CardHeader className="space-y-3 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">Package Documents</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {filters.map((filter) => (
+              <Button
+                key={filter.id}
+                type="button"
+                size="sm"
+                variant={activeFilter === filter.id ? "default" : "outline"}
+                onClick={() => onFilterChange(filter.id)}
+              >
+                {filter.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="min-w-[240px] px-4">Document / Requirement</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Source</TableHead>
+              <TableHead>Received</TableHead>
+              <TableHead>Processed</TableHead>
+              <TableHead>Matched</TableHead>
+              <TableHead>Lone Wolf</TableHead>
+              <TableHead>Reminder</TableHead>
+              <TableHead className="px-4 text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length > 0 ? (
+              rows.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell className="max-w-[320px] px-4 whitespace-normal">
+                    <div className="font-medium">{row.label}</div>
+                    {row.pages.length > 0 && (
+                      <button
+                        type="button"
+                        className="mt-1 text-xs text-blue-600 hover:underline"
+                        onClick={() => onViewPages(row.pages[0])}
+                      >
+                        Pages {row.pages.join(", ")}
+                      </button>
+                    )}
+                  </TableCell>
+                  <TableCell className="max-w-[190px] whitespace-normal text-xs text-muted-foreground">
+                    {row.typeLabel}
+                  </TableCell>
+                  <TableCell>{row.sourceLabel}</TableCell>
+                  <TableCell>
+                    <StatusBadge label={row.receivedLabel} tone={row.missing ? "red" : "green"} />
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge
+                      label={row.processedLabel}
+                      tone={row.unprocessed ? "amber" : row.found ? "green" : "neutral"}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge
+                      label={row.matchedLabel}
+                      tone={row.needsReview ? "amber" : row.found ? "green" : "neutral"}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge
+                      label={row.loneWolfLabel}
+                      tone={
+                        row.pendingLoneWolf
+                          ? "amber"
+                          : row.loneWolfLabel === "Uploaded"
+                            ? "green"
+                            : "neutral"
+                      }
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge
+                      label={row.reminderLabel}
+                      tone={row.reminderNeeded ? "amber" : row.reminderLabel === "Sent" ? "green" : "neutral"}
+                    />
+                  </TableCell>
+                  <TableCell className="px-4">
+                    <div className="flex justify-end gap-2">
+                      {row.canMarkLoneWolfUploaded && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => onMarkLoneWolfUploaded(row.requirementId)}
+                          disabled={workingRequirementId === row.requirementId}
+                        >
+                          Mark Uploaded
+                        </Button>
+                      )}
+                      {row.reminderNeeded && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={onGenerateReminder}
+                          disabled={draftingReminder}
+                        >
+                          Generate Reminder
+                        </Button>
+                      )}
+                      {row.needsReview && row.pages.length > 0 && (
+                        <Button size="sm" variant="outline" onClick={() => onViewPages(row.pages[0])}>
+                          Review Match
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={9} className="px-4 py-6 text-center text-muted-foreground">
+                  No documents match this filter.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function StatusBadge({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: "green" | "amber" | "red" | "neutral";
+}) {
+  const className =
+    tone === "green"
+      ? "border-green-200 bg-green-50 text-green-800"
+      : tone === "amber"
+        ? "border-amber-200 bg-amber-50 text-amber-800"
+        : tone === "red"
+          ? "border-red-200 bg-red-50 text-red-800"
+          : "border-border bg-background text-muted-foreground";
+  return (
+    <Badge variant="outline" className={className}>
+      {label}
+    </Badge>
   );
 }
 
@@ -843,6 +1148,116 @@ function truncateSourceValue(value: string) {
   return value.length > 34 ? `${value.slice(0, 31)}...` : value;
 }
 
+function buildPackageDocumentRows({
+  checklist,
+  dealStatus,
+  pages,
+  tasks,
+  reminders,
+  requirementStatuses,
+}: {
+  checklist: ChecklistItem[];
+  dealStatus: string;
+  pages: PageRow[];
+  tasks: TaskRow[];
+  reminders: ReminderRow[];
+  requirementStatuses: Map<string, RequirementStatusRow>;
+}): PackageDocumentRow[] {
+  const pageConfidenceByType = new Map<string, string | null>();
+  for (const page of pages) {
+    if (!page.doc_type) continue;
+    if (!pageConfidenceByType.has(page.doc_type)) {
+      pageConfidenceByType.set(page.doc_type, page.doc_confidence);
+    }
+  }
+
+  const hasDraftReminder = reminders.some((reminder) => reminder.status === "draft");
+  const hasSentReminder = reminders.some((reminder) => reminder.status === "sent");
+
+  return checklist.map((item) => {
+    const found = item.found;
+    const missing = item.required && !found;
+    const foundExtra = item.id.startsWith("found_");
+    const task = tasks.find((candidate) => candidate.requirement_id === item.id);
+    const requirementStatus = requirementStatuses.get(item.id);
+    const loneWolfStatus = requirementStatus?.lonewolf_status ?? defaultLoneWolfStatus(item);
+    const confidence = item.docTypes
+      .map((docType) => pageConfidenceByType.get(docType))
+      .find(Boolean);
+    const unprocessed = found && (!confidence || dealStatus === "uploaded" || dealStatus === "processing");
+    const needsReview = foundExtra || confidence === "low" || task?.status === "open";
+    const reminderNeeded = missing && (!hasDraftReminder && !hasSentReminder);
+    const reminderLabel = found
+      ? "Not Needed"
+      : hasSentReminder
+        ? "Sent"
+        : hasDraftReminder
+          ? "Drafted"
+          : task?.status === "open"
+            ? "Waiting"
+            : "Not Sent";
+
+    return {
+      id: item.id,
+      requirementId: item.id,
+      label: item.label,
+      typeLabel: item.docTypes.map((docType) => DOCUMENT_TYPES[docType] ?? docType).join(" / "),
+      sourceLabel: found ? "Package Upload" : "Requirement",
+      receivedLabel: found
+        ? `Received${item.pages.length ? ` p.${item.pages.join(", ")}` : ""}`
+        : "Missing",
+      processedLabel: found
+        ? dealStatus === "processing"
+          ? "Processing"
+          : confidence
+            ? "Processed"
+            : "Queued"
+        : "-",
+      matchedLabel: foundExtra ? "Needs Review" : found ? "Matched" : "-",
+      loneWolfLabel: found ? formatLoneWolfStatus(loneWolfStatus) : "-",
+      reminderLabel,
+      pages: item.pages,
+      found,
+      missing,
+      needsReview,
+      pendingLoneWolf: found && loneWolfStatus === "pending_upload",
+      unprocessed,
+      reminderNeeded,
+      canMarkLoneWolfUploaded: found && loneWolfStatus === "pending_upload",
+    };
+  });
+}
+
+function defaultLoneWolfStatus(item: ChecklistItem): RequirementStatusRow["lonewolf_status"] {
+  if (!item.found) return "unknown";
+  if (item.required || item.conditional) return "pending_upload";
+  return "not_required";
+}
+
+function formatLoneWolfStatus(status: RequirementStatusRow["lonewolf_status"]) {
+  if (status === "pending_upload") return "Pending Upload";
+  if (status === "not_required") return "Not Required";
+  if (status === "uploaded") return "Uploaded";
+  return "Unknown";
+}
+
+function filterPackageRows(rows: PackageDocumentRow[], filter: PackageFilter) {
+  if (filter === "missing") return rows.filter((row) => row.missing);
+  if (filter === "needs_review") return rows.filter((row) => row.needsReview);
+  if (filter === "pending_lonewolf") return rows.filter((row) => row.pendingLoneWolf);
+  if (filter === "unprocessed") return rows.filter((row) => row.unprocessed);
+  if (filter === "reminder_needed") return rows.filter((row) => row.reminderNeeded);
+  return rows;
+}
+
+function summarizePackageRows(rows: PackageDocumentRow[]) {
+  const received = rows.filter((row) => row.found).length;
+  const processed = rows.filter((row) => row.found && !row.unprocessed).length;
+  const missing = rows.filter((row) => row.missing).length;
+  const pendingLoneWolf = rows.filter((row) => row.pendingLoneWolf).length;
+  return `${received} received - ${processed} processed - ${missing} missing - ${pendingLoneWolf} pending Lone Wolf upload`;
+}
+
 function groupDocuments(pages: PageRow[]) {
   const groups = new Map<
     string,
@@ -878,6 +1293,20 @@ function relativeTime(value: string | null) {
   if (hours < 48) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   const days = Math.round(hours / 24);
   return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function sortAuditLogs(logs: AuditLogRow[]) {
+  return [...logs].sort((a, b) => {
+    const bTime = new Date(b.created_at).getTime();
+    const aTime = new Date(a.created_at).getTime();
+    return bTime - aTime;
+  });
+}
+
+function formatTimestamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown time";
+  return date.toLocaleString();
 }
 
 function formatAction(action: string) {
