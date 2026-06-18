@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import { DOCUMENT_TYPES, type DocumentType, type SourceBox } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -21,22 +21,24 @@ export function PagePanel({
   pages,
   selectedPage,
   highlight,
-  highlightLabel,
   onSelect,
 }: {
   dealId: string;
   pages: PageRow[];
   selectedPage: number | null;
   highlight?: SourceBox | null;
-  highlightLabel?: string | null;
   onSelect: (page: number) => void;
 }) {
   const [zoom, setZoom] = useState(100);
   const imageUrl = (page: number) => `/api/deals/${dealId}/pages/${page}/image`;
+  const documentSections = useMemo(() => groupPagesByDocument(pages), [pages]);
   const selectedDocType =
     selectedPage != null ? pages.find((p) => p.page_number === selectedPage)?.doc_type : null;
   const selectedPageRow =
     selectedPage != null ? pages.find((p) => p.page_number === selectedPage) : null;
+  const selectedDocLabel = selectedDocType
+    ? (DOCUMENT_TYPES[selectedDocType as DocumentType] ?? selectedDocType)
+    : "Unclassified document";
   const selectedFormLabel = formatStandardFormLabel(selectedPageRow);
 
   return (
@@ -46,10 +48,7 @@ export function PagePanel({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <p className="min-w-0 truncate text-xs text-muted-foreground">
-                Page {selectedPage}
-                {selectedDocType
-                  ? ` - ${DOCUMENT_TYPES[selectedDocType as DocumentType] ?? selectedDocType}`
-                  : ""}
+                {selectedDocLabel}
                 {selectedFormLabel ? ` - ${selectedFormLabel}` : ""}
               </p>
               <div className="flex items-center gap-1">
@@ -99,7 +98,7 @@ export function PagePanel({
                 {/* eslint-disable-next-line @next/next/no-img-element -- signed URLs expire; bypass image optimizer */}
                 <img
                   src={imageUrl(selectedPage)}
-                  alt={`Page ${selectedPage}`}
+                  alt={`${selectedDocLabel} preview`}
                   className="block w-full rounded bg-background"
                 />
                 {highlight && (
@@ -115,41 +114,38 @@ export function PagePanel({
                 )}
               </div>
             </div>
-            <p className="text-center text-xs text-muted-foreground">
-              {highlight
-                ? `Highlighted source area${highlightLabel ? ` - ${highlightLabel}` : ""}`
-                : "Click a sourced field to jump to its page"}
-            </p>
+            {!highlight && (
+              <p className="text-center text-xs text-muted-foreground">
+                Click a sourced field to jump to its document
+              </p>
+            )}
           </div>
         )}
         <div className="grid max-h-[360px] grid-cols-5 gap-2 overflow-y-auto">
-          {pages.map((p) => (
+          {documentSections.map((section) => (
             <button
-              key={p.page_number}
+              key={section.key}
               type="button"
-              onClick={() => onSelect(p.page_number)}
+              onClick={() => onSelect(section.startPage)}
               className={`rounded border p-1 text-left ${
-                selectedPage === p.page_number
+                selectedPage != null && section.pages.includes(selectedPage)
                   ? "border-primary ring-2 ring-primary/40"
                   : "border-muted"
               }`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={imageUrl(p.page_number)}
-                alt={`Page ${p.page_number}`}
+                src={imageUrl(section.startPage)}
+                alt={`${section.label} preview`}
                 loading="lazy"
                 className="aspect-[8.5/11] w-full rounded-sm object-cover"
               />
               <p className="mt-1 truncate text-[10px] leading-tight text-muted-foreground">
-                {p.page_number}.{" "}
-                {p.doc_type
-                  ? (DOCUMENT_TYPES[p.doc_type as DocumentType] ?? p.doc_type)
-                  : "unclassified"}
+                {section.label}
               </p>
-              {formatStandardFormLabel(p) && (
+              {section.formLabel && (
                 <p className="truncate text-[10px] leading-tight text-muted-foreground">
-                  {formatStandardFormLabel(p)}
+                  {section.formLabel}
                 </p>
               )}
             </button>
@@ -158,6 +154,39 @@ export function PagePanel({
       </CardContent>
     </Card>
   );
+}
+
+function groupPagesByDocument(pages: PageRow[]) {
+  const sections: {
+    key: string;
+    startPage: number;
+    pages: number[];
+    docType: string | null;
+    label: string;
+    formLabel: string;
+  }[] = [];
+
+  for (const page of pages) {
+    const label = page.doc_type
+      ? (DOCUMENT_TYPES[page.doc_type as DocumentType] ?? page.doc_type)
+      : "Unclassified document";
+    const formLabel = formatStandardFormLabel(page);
+    const previous = sections[sections.length - 1];
+    if (previous && previous.docType === page.doc_type && previous.formLabel === formLabel) {
+      previous.pages.push(page.page_number);
+      continue;
+    }
+    sections.push({
+      key: `${page.doc_type ?? "unclassified"}-${page.page_number}`,
+      startPage: page.page_number,
+      pages: [page.page_number],
+      docType: page.doc_type,
+      label,
+      formLabel,
+    });
+  }
+
+  return sections;
 }
 
 function formatStandardFormLabel(page: PageRow | null | undefined) {

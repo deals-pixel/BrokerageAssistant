@@ -131,6 +131,7 @@ type PackageDocumentRow = {
   id: string;
   requirementId: string;
   label: string;
+  documentLabel: string;
   sourceLabel: string;
   receivedLabel: string;
   processedLabel: string;
@@ -220,6 +221,7 @@ export function ReviewScreen({
   const packageSummary = useMemo(() => summarizePackageRows(packageRows), [packageRows]);
   const sortedAuditLogs = useMemo(() => sortAuditLogs(auditLogs), [auditLogs]);
   const latestReminder = reminders.find((reminder) => reminder.sent_at) ?? reminders[0];
+  const pageLabelByNumber = useMemo(() => buildPageLabelMap(pages), [pages]);
   const selectedField = selectedFieldKey ? fieldMap.get(selectedFieldKey) : null;
   const selectedConflictSource =
     selectedField && selectedSourceIndex != null
@@ -230,11 +232,6 @@ export function ReviewScreen({
     activeSource?.sourcePage === selectedPage && isSourceBox(activeSource.sourceBox)
       ? activeSource.sourceBox
       : null;
-  const activeSourceLabel =
-    activeSourceBox && selectedField
-      ? sourceBoxAuditLabel(selectedField, selectedConflictSource != null)
-      : null;
-
   const currentValue = (key: string) =>
     edited[key] !== undefined ? edited[key] : (fieldMap.get(key)?.value ?? "");
 
@@ -657,7 +654,6 @@ export function ReviewScreen({
             pages={pages}
             selectedPage={selectedPage}
             highlight={activeSourceBox}
-            highlightLabel={activeSourceLabel}
             onSelect={(page) => {
               setSelectedFieldKey(null);
               setSelectedSourceIndex(null);
@@ -678,8 +674,10 @@ export function ReviewScreen({
                   const row = fieldMap.get(f.key);
                   const inputId = `field-${f.key}`;
                   const sourceLabel = row?.source_doc_type
-                    ? DOCUMENT_TYPES[row.source_doc_type as DocumentType] ?? row.source_doc_type
-                    : null;
+                    ? documentTypeLabel(row.source_doc_type)
+                    : row?.source_page != null
+                      ? pageLabelByNumber.get(row.source_page)
+                      : null;
                   const conflictSources = validConflictSources(row?.conflict_sources);
                   const tone =
                     fieldTone(row) + (edited[f.key] !== undefined ? " ring-2 ring-blue-300" : "");
@@ -699,7 +697,7 @@ export function ReviewScreen({
                             onClick={() => jumpToFieldSource(row, f.key)}
                             title={sourceLabel ?? undefined}
                           >
-                            p.{row.source_page}
+                            {sourceLabel ?? "Source document"}
                           </button>
                         )}
                       </div>
@@ -709,7 +707,7 @@ export function ReviewScreen({
                           className={`min-h-20 ${tone}`}
                           title={
                             row?.source_page != null
-                              ? `Source: ${sourceLabel ?? "uploaded document"}, page ${row.source_page}`
+                              ? `Source: ${sourceLabel ?? "uploaded document"}`
                               : undefined
                           }
                           value={currentValue(f.key)}
@@ -724,7 +722,7 @@ export function ReviewScreen({
                           className={tone}
                           title={
                             row?.source_page != null
-                              ? `Source: ${sourceLabel ?? "uploaded document"}, page ${row.source_page}`
+                              ? `Source: ${sourceLabel ?? "uploaded document"}`
                               : undefined
                           }
                           value={currentValue(f.key)}
@@ -737,19 +735,16 @@ export function ReviewScreen({
                       {row?.notes && (
                         <p className="text-xs text-amber-700">{row.notes}</p>
                       )}
-                      {row?.source_box && (
-                        <p className="text-xs text-muted-foreground">
-                          Highlight: {sourceBoxAuditLabel(row, false)}
-                        </p>
-                      )}
                       {conflictSources.length > 1 && (
                         <div className="flex flex-wrap gap-1.5">
                           {conflictSources.map((source, index) => {
                             const active =
                               selectedFieldKey === f.key && selectedSourceIndex === index;
                             const label = source.sourceDocumentType
-                              ? DOCUMENT_TYPES[source.sourceDocumentType] ?? source.sourceDocumentType
-                              : "Source";
+                              ? documentTypeLabel(source.sourceDocumentType)
+                              : source.sourcePage != null
+                                ? pageLabelByNumber.get(source.sourcePage) ?? "Source document"
+                                : "Source document";
                             return (
                               <button
                                 key={`${source.sourceDocumentType ?? "source"}-${source.sourcePage ?? "?"}-${index}`}
@@ -760,11 +755,10 @@ export function ReviewScreen({
                                     : "border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"
                                 }`}
                                 onClick={() => jumpToConflictSource(f.key, source, index)}
-                                title={`${label}${source.sourcePage ? ` p.${source.sourcePage}` : ""}: ${source.value}`}
+                                title={`${label}: ${source.value}`}
                               >
                                 <span className="font-medium">
-                                  Source {index + 1}
-                                  {source.sourcePage ? ` p.${source.sourcePage}` : ""}
+                                  {label}
                                 </span>
                                 <span className="ml-1 text-amber-800">
                                   {truncateSourceValue(source.value)}
@@ -930,7 +924,7 @@ function PackageDocumentsPanel({
                         className="mt-1 text-xs text-blue-600 hover:underline"
                         onClick={() => onViewPages(row.pages[0])}
                       >
-                        Pages {row.pages.join(", ")}
+                        {row.documentLabel}
                       </button>
                     )}
                   </TableCell>
@@ -1216,15 +1210,27 @@ function isSourceBox(value: SourceBox | null | undefined): value is SourceBox {
   );
 }
 
-function sourceBoxAuditLabel(row: FieldRow, conflictSource: boolean) {
-  if (conflictSource) return "Conflict source";
-  return row.notes?.toLowerCase().includes("template fallback")
-    ? "Template fallback"
-    : "AI source box";
-}
-
 function truncateSourceValue(value: string) {
   return value.length > 34 ? `${value.slice(0, 31)}...` : value;
+}
+
+function documentTypeLabel(docType: string | DocumentType | null | undefined) {
+  if (!docType) return "Source document";
+  return DOCUMENT_TYPES[docType as DocumentType] ?? docType;
+}
+
+function documentTypesLabel(docTypes: DocumentType[]) {
+  if (docTypes.length === 0) return "Source document";
+  return docTypes.map((docType) => documentTypeLabel(docType)).join(" / ");
+}
+
+function buildPageLabelMap(pages: PageRow[]) {
+  return new Map(
+    pages.map((page) => [
+      page.page_number,
+      page.doc_type ? documentTypeLabel(page.doc_type) : "Unclassified document",
+    ]),
+  );
 }
 
 function buildPackageDocumentRows({
@@ -1280,10 +1286,9 @@ function buildPackageDocumentRows({
       id: item.id,
       requirementId: item.id,
       label: item.label,
+      documentLabel: documentTypesLabel(item.docTypes),
       sourceLabel: found ? "Package Upload" : "Requirement",
-      receivedLabel: found
-        ? `Received${item.pages.length ? ` p.${item.pages.join(", ")}` : ""}`
-        : "Missing",
+      receivedLabel: found ? "Received" : "Missing",
       processedLabel: found
         ? dealStatus === "processing"
           ? "Processing"
