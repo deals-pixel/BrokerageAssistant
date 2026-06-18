@@ -148,12 +148,14 @@ type PackageDocumentRow = {
   canMarkLoneWolfUploaded: boolean;
 };
 
-// Green = high confidence, yellow = needs review, red = missing (per plan).
-function fieldTone(f: FieldRow | undefined): string {
-  if (!f || f.value == null || f.value === "") return "border-red-300 bg-red-50";
-  if (f.needs_review || f.confidence !== "high") return "border-yellow-300 bg-yellow-50";
-  return "border-green-300 bg-green-50";
-}
+type FieldStatusTone = "confirmed" | "review" | "missing" | "neutral";
+
+type FieldStatus = {
+  tone: FieldStatusTone;
+  label: string;
+  detail: string;
+  className: string;
+};
 
 export function ReviewScreen({
   deal,
@@ -595,12 +597,21 @@ export function ReviewScreen({
 
         {/* Right: fields form */}
         <div className="space-y-4">
+          <Card>
+            <CardContent className="flex flex-wrap gap-x-5 gap-y-2 p-3">
+              <FieldStatusLegendItem tone="confirmed" label="Confirmed" />
+              <FieldStatusLegendItem tone="review" label="Needs review" />
+              <FieldStatusLegendItem tone="missing" label="Missing - required" />
+              <FieldStatusLegendItem tone="neutral" label="Not applicable" />
+            </CardContent>
+          </Card>
+
           {FIELD_SECTIONS.map((section) => (
             <Card key={section.title}>
-              <CardHeader className="py-3">
+              <CardHeader className="py-4">
                 <CardTitle className="text-base">{section.title}</CardTitle>
               </CardHeader>
-              <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 {section.fields.map((f) => {
                   const row = fieldMap.get(f.key);
                   const inputId = `field-${f.key}`;
@@ -610,21 +621,28 @@ export function ReviewScreen({
                       ? pageLabelByNumber.get(row.source_page)
                       : null;
                   const conflictSources = validConflictSources(row?.conflict_sources);
-                  const tone =
-                    fieldTone(row) + (edited[f.key] !== undefined ? " ring-2 ring-blue-300" : "");
+                  const fieldStatus = getFieldStatus(row, conflictSources.length);
+                  const inputClassName =
+                    fieldStatus.className +
+                    (edited[f.key] !== undefined ? " ring-2 ring-blue-300" : "");
                   return (
-                    <div key={f.key} className={`space-y-1 ${f.wide ? "md:col-span-2" : ""}`}>
-                      <div className="flex items-center justify-between">
+                    <div
+                      key={f.key}
+                      className={`rounded-md border p-3 ${fieldShellClass(fieldStatus.tone)} ${
+                        f.wide ? "md:col-span-2" : ""
+                      }`}
+                    >
+                      <div className="mb-2 flex items-start justify-between gap-3">
                         <label
                           htmlFor={inputId}
-                          className="text-xs font-medium text-muted-foreground"
+                          className="text-sm font-medium leading-tight text-foreground"
                         >
                           {f.label}
                         </label>
                         {row?.source_page != null && (
                           <button
                             type="button"
-                            className="text-xs text-blue-600 hover:underline"
+                            className="shrink-0 text-xs text-blue-600 hover:underline"
                             onClick={() => jumpToFieldSource(row, f.key)}
                             title={sourceLabel ?? undefined}
                           >
@@ -635,7 +653,7 @@ export function ReviewScreen({
                       {f.multiline ? (
                         <Textarea
                           id={inputId}
-                          className={`min-h-20 ${tone}`}
+                          className={`min-h-20 ${inputClassName}`}
                           title={
                             row?.source_page != null
                               ? `Source: ${sourceLabel ?? "uploaded document"}`
@@ -650,7 +668,7 @@ export function ReviewScreen({
                       ) : (
                         <Input
                           id={inputId}
-                          className={tone}
+                          className={inputClassName}
                           title={
                             row?.source_page != null
                               ? `Source: ${sourceLabel ?? "uploaded document"}`
@@ -663,11 +681,24 @@ export function ReviewScreen({
                           }
                         />
                       )}
+                      <div className="mt-2 flex items-start gap-2 text-xs">
+                        <FieldStatusDot tone={fieldStatus.tone} className="mt-1" />
+                        <div>
+                          <p className={fieldStatusTextClass(fieldStatus.tone)}>
+                            {fieldStatus.label}
+                          </p>
+                          <p className="text-muted-foreground">{fieldStatus.detail}</p>
+                        </div>
+                      </div>
                       {row?.notes && (
-                        <p className="text-xs text-amber-700">{row.notes}</p>
+                        <p className="mt-2 text-xs text-amber-800">{row.notes}</p>
                       )}
                       {conflictSources.length > 1 && (
-                        <div className="flex flex-wrap gap-1.5">
+                        <div className="mt-2 space-y-1">
+                          <p className="text-xs text-amber-800">
+                            {conflictSources.length} sources disagree
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
                           {conflictSources.map((source, index) => {
                             const active =
                               selectedFieldKey === f.key && selectedSourceIndex === index;
@@ -697,6 +728,7 @@ export function ReviewScreen({
                               </button>
                             );
                           })}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -997,6 +1029,70 @@ function PipelineStep({
   );
 }
 
+function getFieldStatus(row: FieldRow | undefined, conflictCount: number): FieldStatus {
+  const value = row?.value?.trim();
+  const hasValue = Boolean(value);
+  const note = row?.notes?.toLowerCase() ?? "";
+  const requiredMissing =
+    !hasValue &&
+    (row?.needs_review ||
+      note.includes("required") ||
+      note.includes("not found") ||
+      note.includes("missing"));
+
+  if (requiredMissing) {
+    return {
+      tone: "missing",
+      label: "Missing - required",
+      detail: "Required - not found in any source",
+      className: "border-red-200 bg-red-50/60 focus-visible:ring-red-200",
+    };
+  }
+
+  if (!hasValue) {
+    return {
+      tone: "neutral",
+      label: "Not applicable",
+      detail: "Not required for this transaction type",
+      className: "border-border bg-muted/30 text-muted-foreground",
+    };
+  }
+
+  if (row?.needs_review || row?.confidence !== "high" || conflictCount > 1) {
+    return {
+      tone: "review",
+      label: conflictCount > 1 ? `Conflict - ${conflictCount} sources disagree` : "Needs review",
+      detail: row?.source_doc_type
+        ? `Review source: ${documentTypeLabel(row.source_doc_type)}`
+        : "Review extracted value",
+      className: "border-amber-200 bg-amber-50/70 focus-visible:ring-amber-200",
+    };
+  }
+
+  return {
+    tone: "confirmed",
+    label: "Confirmed",
+    detail: row?.source_doc_type
+      ? `Confirmed from ${documentTypeLabel(row.source_doc_type)}`
+      : "Confirmed from source",
+    className: "border-green-200 bg-green-50/60 focus-visible:ring-green-200",
+  };
+}
+
+function fieldShellClass(tone: FieldStatusTone) {
+  if (tone === "confirmed") return "border-green-100 bg-green-50/25";
+  if (tone === "review") return "border-amber-100 bg-amber-50/30";
+  if (tone === "missing") return "border-red-100 bg-red-50/30";
+  return "border-border bg-muted/10";
+}
+
+function fieldStatusTextClass(tone: FieldStatusTone) {
+  if (tone === "confirmed") return "text-green-800";
+  if (tone === "review") return "text-amber-800";
+  if (tone === "missing") return "text-red-800";
+  return "text-muted-foreground";
+}
+
 function PackageRowActions({
   row,
   workingRequirementId,
@@ -1054,6 +1150,34 @@ function PackageRowActions({
   }
 
   return <div className="text-right text-muted-foreground">-</div>;
+}
+
+function FieldStatusLegendItem({ tone, label }: { tone: FieldStatusTone; label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-sm text-foreground">
+      <FieldStatusDot tone={tone} />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function FieldStatusDot({
+  tone,
+  className = "",
+}: {
+  tone: FieldStatusTone;
+  className?: string;
+}) {
+  const color =
+    tone === "confirmed"
+      ? "bg-green-700"
+      : tone === "review"
+        ? "bg-amber-700"
+        : tone === "missing"
+          ? "bg-red-800"
+          : "bg-muted-foreground";
+
+  return <span className={`inline-block size-2 rounded-full ${color} ${className}`} />;
 }
 
 function ReminderDialog({
