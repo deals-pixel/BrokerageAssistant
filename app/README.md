@@ -79,6 +79,8 @@ Authorization: Bearer $INBOUND_EMAIL_WEBHOOK_SECRET
 
 The webhook only stores the email and private attachments, then marks the email `routing_queued`. It intentionally does not run AI inside the webhook request. After the response is sent, it triggers the light-routing job for that email.
 
+Postmark sends attachment bytes inline as base64 inside the webhook JSON body. Keep `INBOUND_EMAIL_MAX_WEBHOOK_BYTES` aligned with the deployed platform's request-body limit. Oversized or unparseable webhook bodies are recorded in the intake queue as errors and acknowledged with `200` so Postmark does not retry the same unprocessable payload indefinitely. For the current pilot, split large scanned packages into smaller PDFs or upload them manually.
+
 The light-routing worker can also be run from a scheduler as a retry/backstop:
 
 ```text

@@ -14,8 +14,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const contentLength = parseContentLength(req.headers.get("content-length"));
+  const maxWebhookBytes = inboundWebhookMaxBytes();
+  if (contentLength && contentLength > maxWebhookBytes) {
+    return recordUnparsedInboundEmail({
+      reason: `Inbound webhook body was ${formatBytes(contentLength)}, above the ${formatBytes(maxWebhookBytes)} processing limit. Ask the sender to split the package into smaller PDFs or upload it manually.`,
+      statusCodeForProvider: 200,
+    });
+  }
+
   const payload = (await req.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!payload) return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
+  if (!payload) {
+    return recordUnparsedInboundEmail({
+      reason: "Inbound webhook JSON could not be parsed. This usually means the provider payload was truncated before it reached the app.",
+      statusCodeForProvider: 200,
+    });
+  }
 
   const supabase = createAdminClient();
   const inbound = normalizeInboundEmailPayload(payload);
@@ -187,6 +201,61 @@ function verifyInboundSecret(req: Request) {
   const bearer = auth?.startsWith("Bearer ") ? auth.slice("Bearer ".length) : null;
   const urlSecret = new URL(req.url).searchParams.get("secret");
   return headerSecret === expected || bearer === expected || urlSecret === expected;
+}
+
+async function recordUnparsedInboundEmail({
+  reason,
+  statusCodeForProvider,
+}: {
+  reason: string;
+  statusCodeForProvider: number;
+}) {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("inbound_emails")
+    .insert({
+      subject: "Unparsed inbound email",
+      received_at: new Date().toISOString(),
+      status: "error",
+      error_message: reason,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) {
+    console.error("Could not record unparsed inbound email", error);
+    return NextResponse.json(
+      { ok: false, error: "Inbound email could not be recorded" },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json(
+    {
+      ok: true,
+      status: "error",
+      inboundEmailId: data.id,
+      error: reason,
+    },
+    { status: statusCodeForProvider },
+  );
+}
+
+function inboundWebhookMaxBytes() {
+  const configured = Number(process.env.INBOUND_EMAIL_MAX_WEBHOOK_BYTES);
+  return Number.isFinite(configured) && configured > 0 ? configured : 10_000_000;
+}
+
+function parseContentLength(value: string | null) {
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function formatBytes(bytes: number) {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} bytes`;
 }
 
 async function triggerLightRouting(req: Request, inboundEmailId: string) {
