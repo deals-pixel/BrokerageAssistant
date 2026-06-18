@@ -1,4 +1,5 @@
 import { after, NextResponse } from "next/server";
+import { processInboundEmailRouting } from "@/lib/email-routing-job";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildAttachmentStoragePath,
@@ -179,7 +180,7 @@ async function storeInboundAttachments(
       .eq("id", inboundEmailId);
 
     if (storedCount > 0) {
-      await triggerLightRouting(req, inboundEmailId);
+      await triggerLightRouting(inboundEmailId);
     }
   } catch (err) {
     console.error("Inbound email attachment storage failed", err);
@@ -258,20 +259,9 @@ function formatBytes(bytes: number) {
   return `${bytes} bytes`;
 }
 
-async function triggerLightRouting(req: Request, inboundEmailId: string) {
-  const jobSecret = process.env.EMAIL_ROUTING_JOB_SECRET ?? process.env.CRON_SECRET;
-  if (!jobSecret && process.env.NODE_ENV === "production") return;
-
+async function triggerLightRouting(inboundEmailId: string) {
   try {
-    const url = new URL("/api/jobs/email-routing", req.url);
-    await fetch(url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(jobSecret ? { authorization: `Bearer ${jobSecret}` } : {}),
-      },
-      body: JSON.stringify({ inboundEmailId }),
-    });
+    await processInboundEmailRouting(inboundEmailId);
   } catch (err) {
     console.error("Email routing trigger failed", err);
   }
