@@ -61,8 +61,35 @@ npm run dev
 - Original PDFs auto-delete after `NEXT_PUBLIC_PDF_RETENTION_DAYS` (default 14). Schedule `GET /api/cron/cleanup` with header `x-cron-secret: $CRON_SECRET` (Railway cron or GitHub Action) daily.
 - Uploaded documents are only sent to the Claude API to process the package; API inputs are not used to train models.
 
+## Email Intake
+
+Inbound transaction emails should be forwarded to `deals@teamadmiral.com` and delivered by Postmark Inbound to:
+
+```text
+POST https://<app-domain>/api/inbound-email
+```
+
+Set one of these on the Postmark webhook request:
+
+```text
+x-inbound-email-secret: $INBOUND_EMAIL_WEBHOOK_SECRET
+Authorization: Bearer $INBOUND_EMAIL_WEBHOOK_SECRET
+```
+
+The webhook only stores the email and private attachments, then marks the email `routing_queued`. It intentionally does not run AI inside the webhook request.
+
+Run the light-routing worker from a scheduler:
+
+```text
+GET https://<app-domain>/api/jobs/email-routing?limit=5
+x-cron-secret: $EMAIL_ROUTING_JOB_SECRET
+```
+
+`EMAIL_ROUTING_JOB_SECRET` defaults to `CRON_SECRET` when unset. The job reads first-page PDF subsets / image attachments, runs light routing, matches to an existing deal or creates a draft deal, and leaves the transaction awaiting admin processing.
+
 ## Deploy (Railway)
 
 1. Create a Railway service from this repo (`app/` as root).
 2. Set all env vars from `.env.example`.
 3. Add a daily cron hitting `/api/cron/cleanup` with the `x-cron-secret` header.
+4. Add a frequent cron, for example every 1-5 minutes, hitting `/api/jobs/email-routing?limit=5` with the `x-cron-secret` or `x-job-secret` header.

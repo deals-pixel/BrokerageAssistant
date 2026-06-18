@@ -13,7 +13,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   const { data: pages } = await supabase
     .from("deal_pages")
     .select(
-      "page_number, doc_type, doc_confidence, standard_form_key, standard_form_number, standard_form_title, standard_form_confidence",
+      "page_number, doc_type, doc_confidence, email_attachment_id, standard_form_key, standard_form_number, standard_form_title, standard_form_confidence",
     )
     .eq("deal_id", id)
     .order("page_number");
@@ -45,6 +45,14 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     .select("requirement_id, lonewolf_status, lonewolf_uploaded_at, lonewolf_uploaded_by")
     .eq("deal_id", id);
 
+  const { data: emailAttachments } = await supabase
+    .from("email_attachments")
+    .select(
+      "id, original_filename, mime_type, file_size, status, ignore_reason, light_classification_type, light_classification_confidence, received_at, created_at",
+    )
+    .eq("deal_id", id)
+    .order("created_at", { ascending: false });
+
   const { data: auditLogs } = await supabase
     .from("audit_logs")
     .select("id, action, details, created_at")
@@ -69,6 +77,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       reminders={reminders ?? []}
       agents={agents ?? []}
       requirementStatuses={requirementStatuses ?? []}
+      emailAttachments={emailAttachments ?? []}
       auditLogs={auditLogs ?? []}
     />
   );

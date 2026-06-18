@@ -25,6 +25,15 @@ export async function proxy(request: NextRequest) {
     },
   );
 
+  const publicApiPrefixes = [
+    "/api/inbound-email",
+    "/api/jobs/email-routing",
+    "/api/cron/cleanup",
+  ];
+  if (publicApiPrefixes.some((prefix) => request.nextUrl.pathname.startsWith(prefix))) {
+    return response;
+  }
+
   // Refresh session; gate everything except /login and static assets.
   const {
     data: { user },

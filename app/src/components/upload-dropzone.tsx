@@ -8,101 +8,26 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ProcessDealButton } from "@/components/process-deal-button";
 import { toast } from "sonner";
 import type { DocumentType } from "@/lib/types";
-
-const MAX_FILE_MB = Number(process.env.NEXT_PUBLIC_MAX_FILE_MB ?? 50);
-const RETENTION_DAYS = Number(process.env.NEXT_PUBLIC_PDF_RETENTION_DAYS ?? 14);
-const RENDER_SCALE = 2.5;
-const JPEG_QUALITY = 0.92;
-const ACCEPTED_TYPES = "application/pdf,image/jpeg,.pdf,.jpg,.jpeg";
+import {
+  ACCEPTED_UPLOAD_TYPES,
+  MAX_FILE_MB,
+  RETENTION_DAYS,
+  fileKey,
+  formatPackageName,
+  formatSize,
+  isJpeg,
+  isPdf,
+  renderFilePages,
+  safeStorageFileName,
+} from "@/lib/pdf-render-client";
 
 type Phase = "idle" | "preparing" | "rendering" | "uploading";
-
-type PageUpload = {
-  blob: Blob;
-  sourceName: string;
-};
 
 type UploadDropzoneProps = {
   dealId?: string;
   compact?: boolean;
   replaceDocType?: DocumentType | "";
 };
-
-function isPdf(file: File) {
-  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-}
-
-function isJpeg(file: File) {
-  const name = file.name.toLowerCase();
-  return file.type === "image/jpeg" || name.endsWith(".jpg") || name.endsWith(".jpeg");
-}
-
-function formatPackageName(files: File[]) {
-  if (files.length === 1) return files[0].name;
-  const first = files[0].name;
-  return `${first} + ${files.length - 1} more`;
-}
-
-function formatSize(bytes: number) {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function fileKey(file: File) {
-  return `${file.name}:${file.size}:${file.lastModified}`;
-}
-
-function safeStorageFileName(name: string) {
-  const extension = name.includes(".") ? `.${name.split(".").pop()}` : "";
-  const baseName = extension ? name.slice(0, -extension.length) : name;
-  const safeBaseName =
-    baseName
-      .normalize("NFKD")
-      .replace(/[^\w.-]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 80) || "document";
-
-  return `${safeBaseName}${extension.toLowerCase().replace(/[^\w.]/g, "")}`;
-}
-
-async function renderPdfPages(
-  file: File,
-  onProgress: (message: string) => void,
-): Promise<PageUpload[]> {
-  onProgress(`Opening ${file.name}...`);
-  const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    "pdfjs-dist/build/pdf.worker.min.mjs",
-    import.meta.url,
-  ).toString();
-
-  const bytes = await file.arrayBuffer();
-  const pdf = await pdfjs.getDocument({ data: bytes }).promise;
-  const pages: PageUpload[] = [];
-
-  for (let i = 1; i <= pdf.numPages; i++) {
-    onProgress(`Rendering ${file.name}, page ${i} of ${pdf.numPages}...`);
-    const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: RENDER_SCALE });
-    const canvas = document.createElement("canvas");
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Canvas is not available");
-    await page.render({ canvas, canvasContext: ctx, viewport }).promise;
-
-    const blob = await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob(
-        (b) => (b ? resolve(b) : reject(new Error("Canvas render failed"))),
-        "image/jpeg",
-        JPEG_QUALITY,
-      ),
-    );
-    pages.push({ blob, sourceName: file.name });
-  }
-
-  return pages;
-}
 
 export function UploadDropzone({
   dealId,
@@ -231,9 +156,7 @@ export function UploadDropzone({
         if (isPdf(file) && !firstPdfPath) firstPdfPath = sourcePath;
 
         setPhase(isPdf(file) ? "rendering" : "uploading");
-        const pages = isPdf(file)
-          ? await renderPdfPages(file, setProgress)
-          : [{ blob: file, sourceName: file.name }];
+        const pages = await renderFilePages(file, setProgress);
 
         for (const pageUpload of pages) {
           const pageNumber = nextPageNumber++;
@@ -425,7 +348,7 @@ export function UploadDropzone({
               ref={inputRef}
               type="file"
               multiple
-              accept={ACCEPTED_TYPES}
+              accept={ACCEPTED_UPLOAD_TYPES}
               className="hidden"
               onChange={(e) => {
                 if (e.target.files) stageFiles(e.target.files);

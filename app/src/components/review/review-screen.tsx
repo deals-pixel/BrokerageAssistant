@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckIcon, Clock3Icon } from "lucide-react";
+import { CheckIcon, Clock3Icon, DownloadIcon, FileTextIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/table";
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { ProcessDealButton } from "@/components/process-deal-button";
+import { EmailAttachmentIngestButton } from "@/components/email-attachment-ingest-button";
 import { toast } from "sonner";
 import {
   FIELD_SECTIONS,
@@ -57,6 +58,7 @@ type PageRow = {
   page_number: number;
   doc_type: string | null;
   doc_confidence: string | null;
+  email_attachment_id?: string | null;
   standard_form_key?: string | null;
   standard_form_number?: string | null;
   standard_form_title?: string | null;
@@ -120,6 +122,19 @@ type RequirementStatusRow = {
   lonewolf_uploaded_by: string | null;
 };
 
+type EmailAttachmentRow = {
+  id: string;
+  original_filename: string | null;
+  mime_type: string | null;
+  file_size: number | null;
+  status: string;
+  ignore_reason: string | null;
+  light_classification_type: string | null;
+  light_classification_confidence: number | null;
+  received_at: string | null;
+  created_at: string;
+};
+
 type PackageFilter =
   | "all"
   | "uploaded_matched"
@@ -166,6 +181,7 @@ export function ReviewScreen({
   reminders,
   agents,
   requirementStatuses,
+  emailAttachments,
   auditLogs,
 }: {
   deal: DealRow;
@@ -176,6 +192,7 @@ export function ReviewScreen({
   reminders: ReminderRow[];
   agents: AgentRow[];
   requirementStatuses: RequirementStatusRow[];
+  emailAttachments: EmailAttachmentRow[];
   auditLogs: AuditLogRow[];
 }) {
   const router = useRouter();
@@ -219,6 +236,13 @@ export function ReviewScreen({
   const sortedAuditLogs = useMemo(() => sortAuditLogs(auditLogs), [auditLogs]);
   const latestReminder = reminders.find((reminder) => reminder.sent_at) ?? reminders[0];
   const pageLabelByNumber = useMemo(() => buildPageLabelMap(pages), [pages]);
+  const renderedEmailAttachmentIds = useMemo(
+    () =>
+      pages
+        .map((page) => page.email_attachment_id)
+        .filter((id): id is string => Boolean(id)),
+    [pages],
+  );
   const selectedField = selectedFieldKey ? fieldMap.get(selectedFieldKey) : null;
   const selectedConflictSource =
     selectedField && selectedSourceIndex != null
@@ -569,14 +593,22 @@ export function ReviewScreen({
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="py-3">
-            <CardTitle className="text-base">Update Package Documents</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <UploadDropzone dealId={deal.id} compact />
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <Card>
+            <CardHeader className="py-3">
+              <CardTitle className="text-base">Update Package Documents</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <UploadDropzone dealId={deal.id} compact />
+            </CardContent>
+          </Card>
+
+          <EmailAttachmentsPanel
+            dealId={deal.id}
+            attachments={emailAttachments}
+            renderedAttachmentIds={renderedEmailAttachmentIds}
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(560px,0.95fr)_1fr]">
@@ -931,6 +963,88 @@ function PackageDocumentsPanel({
             )}
           </TableBody>
         </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmailAttachmentsPanel({
+  dealId,
+  attachments,
+  renderedAttachmentIds,
+}: {
+  dealId: string;
+  attachments: EmailAttachmentRow[];
+  renderedAttachmentIds: string[];
+}) {
+  if (attachments.length === 0) return null;
+  const renderedSet = new Set(renderedAttachmentIds);
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-3 py-3">
+        <div>
+          <CardTitle className="text-base">Email Attachments</CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Convert received email documents into review pages before running full processing.
+          </p>
+        </div>
+        <EmailAttachmentIngestButton
+          dealId={dealId}
+          attachments={attachments}
+          renderedAttachmentIds={renderedAttachmentIds}
+        />
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {attachments.map((attachment) => {
+          const rendered = renderedSet.has(attachment.id);
+          return (
+            <div key={attachment.id} className="rounded-md border p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
+                    <p className="truncate text-sm font-medium">
+                      {attachment.original_filename ?? "Email attachment"}
+                    </p>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {emailAttachmentTypeLabel(attachment.light_classification_type)}
+                    {attachment.light_classification_confidence != null
+                      ? ` | ${Math.round(attachment.light_classification_confidence * 100)}% confidence`
+                      : ""}
+                  </p>
+                </div>
+                <Badge variant={rendered ? "default" : emailAttachmentStatusVariant(attachment.status)}>
+                  {rendered ? "Ready for process" : formatEmailAttachmentStatus(attachment.status)}
+                </Badge>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs text-muted-foreground">
+                  {attachment.received_at
+                    ? `Received ${relativeTime(attachment.received_at)}`
+                    : `Stored ${relativeTime(attachment.created_at)}`}
+                  {attachment.file_size != null ? ` | ${formatBytes(attachment.file_size)}` : ""}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  nativeButton={false}
+                  render={<a href={`/api/email-attachments/${attachment.id}/download`} />}
+                >
+                  <DownloadIcon className="size-3.5" />
+                  Download
+                </Button>
+              </div>
+              {attachment.ignore_reason && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Reason: {attachment.ignore_reason.replaceAll("_", " ")}
+                </p>
+              )}
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );
@@ -1456,6 +1570,26 @@ function formatLoneWolfStatus(status: RequirementStatusRow["lonewolf_status"]) {
   return "Unknown";
 }
 
+function emailAttachmentTypeLabel(docType: string | null) {
+  if (!docType || docType === "unknown") return "Light classification pending";
+  return documentTypeLabel(docType);
+}
+
+function formatEmailAttachmentStatus(status: string) {
+  if (status === "linked_to_transaction") return "Awaiting process";
+  if (status === "light_classified") return "Light classified";
+  return status.replaceAll("_", " ");
+}
+
+function emailAttachmentStatusVariant(
+  status: string,
+): "default" | "secondary" | "destructive" | "outline" {
+  if (status === "linked_to_transaction" || status === "light_classified") return "default";
+  if (status === "duplicate" || status === "ignored") return "secondary";
+  if (status === "failed") return "destructive";
+  return "outline";
+}
+
 function packageBucket(row: PackageDocumentRow): PackageBucket {
   if (row.found && row.needsReview) return "needs_review";
   if (row.found) return "uploaded_matched";
@@ -1544,6 +1678,14 @@ function formatTimestamp(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Unknown time";
   return date.toLocaleString();
+}
+
+function formatBytes(value: number) {
+  if (!Number.isFinite(value)) return "unknown size";
+  if (value < 1024) return `${value} B`;
+  const kb = value / 1024;
+  if (kb < 1024) return `${Math.round(kb)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
 }
 
 function formatAction(action: string) {

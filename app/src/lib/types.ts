@@ -45,6 +45,9 @@ export type FieldSourceCandidate = {
 };
 export type DealStatus =
   | "uploaded"
+  | "draft_from_email"
+  | "awaiting_match_review"
+  | "awaiting_admin_process"
   | "processing"
   | "extracted"
   | "in_review"

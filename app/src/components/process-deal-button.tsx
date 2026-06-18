@@ -23,7 +23,12 @@ export function ProcessDealButton({
   const router = useRouter();
   const [processing, setProcessing] = useState(false);
   const disabled = processing || status === "processing" || !pageCount;
-  const label = status === "processing" || processing ? "Processing..." : status === "uploaded" ? "Process" : "Re-process";
+  const label =
+    status === "processing" || processing
+      ? "Processing..."
+      : status === "uploaded" || status === "awaiting_admin_process"
+        ? "Process"
+        : "Re-process";
 
   async function process() {
     setProcessing(true);
