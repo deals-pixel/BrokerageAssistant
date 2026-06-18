@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { CheckIcon, Clock3Icon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -121,23 +122,22 @@ type RequirementStatusRow = {
 
 type PackageFilter =
   | "all"
-  | "missing"
+  | "uploaded_matched"
+  | "outstanding"
+  | "not_required"
   | "needs_review"
-  | "pending_lonewolf"
-  | "unprocessed"
-  | "reminder_needed";
+  | "pending_lonewolf";
+
+type PackageBucket = "uploaded_matched" | "needs_review" | "outstanding" | "not_required";
 
 type PackageDocumentRow = {
   id: string;
   requirementId: string;
   label: string;
   documentLabel: string;
-  sourceLabel: string;
-  receivedLabel: string;
-  processedLabel: string;
-  matchedLabel: string;
+  requirementLevel: ChecklistItem["level"];
+  condition?: string;
   loneWolfLabel: string;
-  reminderLabel: string;
   pages: number[];
   found: boolean;
   missing: boolean;
@@ -213,10 +213,6 @@ export function ReviewScreen({
         requirementStatuses: requirementStatusMap,
       }),
     [checklist, deal.status, pages, reminders, requirementStatusMap, tasks],
-  );
-  const filteredPackageRows = useMemo(
-    () => filterPackageRows(packageRows, packageFilter),
-    [packageFilter, packageRows],
   );
   const packageSummary = useMemo(() => summarizePackageRows(packageRows), [packageRows]);
   const sortedAuditLogs = useMemo(() => sortAuditLogs(auditLogs), [auditLogs]);
@@ -475,7 +471,7 @@ export function ReviewScreen({
       </header>
 
       <PackageDocumentsPanel
-        rows={filteredPackageRows}
+        rows={packageRows}
         summary={packageSummary}
         activeFilter={packageFilter}
         onFilterChange={setPackageFilter}
@@ -866,13 +862,26 @@ function PackageDocumentsPanel({
   workingRequirementId: string | null;
   draftingReminder: boolean;
 }) {
-  const filters: { id: PackageFilter; label: string }[] = [
-    { id: "all", label: "All" },
-    { id: "missing", label: "Missing" },
-    { id: "needs_review", label: "Needs Review" },
-    { id: "pending_lonewolf", label: "Pending Lone Wolf Upload" },
-    { id: "unprocessed", label: "Unprocessed" },
-    { id: "reminder_needed", label: "Reminder Needed" },
+  const filteredRows = filterPackageRows(rows, activeFilter);
+  const groups = buildPackageGroups(filteredRows);
+  const counts = packageFilterCounts(rows);
+  const filters: { id: PackageFilter; label: string; count: number }[] = [
+    { id: "all", label: "All", count: counts.all },
+    { id: "uploaded_matched", label: "Uploaded & matched", count: counts.uploadedMatched },
+    { id: "outstanding", label: "Outstanding", count: counts.outstanding },
+    { id: "not_required", label: "Not required", count: counts.notRequired },
+    ...(counts.needsReview > 0
+      ? [{ id: "needs_review" as const, label: "Needs review", count: counts.needsReview }]
+      : []),
+    ...(counts.pendingLoneWolf > 0
+      ? [
+          {
+            id: "pending_lonewolf" as const,
+            label: "Pending Lone Wolf",
+            count: counts.pendingLoneWolf,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -892,7 +901,7 @@ function PackageDocumentsPanel({
                 variant={activeFilter === filter.id ? "default" : "outline"}
                 onClick={() => onFilterChange(filter.id)}
               >
-                {filter.label}
+                {filter.label} <span className="text-xs opacity-70">{filter.count}</span>
               </Button>
             ))}
           </div>
@@ -902,100 +911,53 @@ function PackageDocumentsPanel({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="min-w-[240px] px-4">Document / Requirement</TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead>Received</TableHead>
-              <TableHead>Processed</TableHead>
-              <TableHead>Matched</TableHead>
-              <TableHead>Lone Wolf</TableHead>
-              <TableHead>Reminder</TableHead>
-              <TableHead className="px-4 text-right">Actions</TableHead>
+              <TableHead className="min-w-[320px] px-4">Document / requirement</TableHead>
+              <TableHead className="min-w-[260px]">Pipeline</TableHead>
+              <TableHead className="px-4 text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.length > 0 ? (
-              rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="max-w-[320px] px-4 whitespace-normal">
-                    <div className="font-medium">{row.label}</div>
-                    {row.pages.length > 0 && (
-                      <button
-                        type="button"
-                        className="mt-1 text-xs text-blue-600 hover:underline"
-                        onClick={() => onViewPages(row.pages[0])}
-                      >
-                        {row.documentLabel}
-                      </button>
-                    )}
-                  </TableCell>
-                  <TableCell>{row.sourceLabel}</TableCell>
-                  <TableCell>
-                    <StatusBadge label={row.receivedLabel} tone={row.missing ? "red" : "green"} />
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge
-                      label={row.processedLabel}
-                      tone={row.unprocessed ? "amber" : row.found ? "green" : "neutral"}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge
-                      label={row.matchedLabel}
-                      tone={row.needsReview ? "amber" : row.found ? "green" : "neutral"}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge
-                      label={row.loneWolfLabel}
-                      tone={
-                        row.pendingLoneWolf
-                          ? "amber"
-                          : row.loneWolfLabel === "Uploaded"
-                            ? "green"
-                            : "neutral"
-                      }
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge
-                      label={row.reminderLabel}
-                      tone={row.reminderNeeded ? "amber" : row.reminderLabel === "Sent" ? "green" : "neutral"}
-                    />
-                  </TableCell>
-                  <TableCell className="px-4">
-                    <div className="flex justify-end gap-2">
-                      {row.canMarkLoneWolfUploaded && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => onMarkLoneWolfUploaded(row.requirementId)}
-                          disabled={workingRequirementId === row.requirementId}
-                        >
-                          Mark Uploaded
-                        </Button>
-                      )}
-                      {row.reminderNeeded && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => onGenerateReminder(row)}
-                          disabled={draftingReminder}
-                        >
-                          Generate Reminder
-                        </Button>
-                      )}
-                      {row.needsReview && row.pages.length > 0 && (
-                        <Button size="sm" variant="outline" onClick={() => onViewPages(row.pages[0])}>
-                          Review Match
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
+            {filteredRows.length > 0 ? (
+              groups.flatMap((group) => [
+                <PackageGroupHeader key={`${group.id}-header`} group={group} />,
+                ...group.rows.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="px-4 whitespace-normal">
+                      <div className="font-medium leading-tight">{row.label}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        {row.pages.length > 0 ? (
+                          <button
+                            type="button"
+                            className="text-blue-600 hover:underline"
+                            onClick={() => onViewPages(row.pages[0])}
+                          >
+                            {row.documentLabel}
+                          </button>
+                        ) : (
+                          <span>{row.documentLabel}</span>
+                        )}
+                        {row.condition && <span>{row.condition}</span>}
+                      </div>
+                    </TableCell>
+                    <TableCell className="whitespace-normal">
+                      <PipelineIndicator row={row} />
+                    </TableCell>
+                    <TableCell className="px-4">
+                      <PackageRowActions
+                        row={row}
+                        workingRequirementId={workingRequirementId}
+                        draftingReminder={draftingReminder}
+                        onMarkLoneWolfUploaded={onMarkLoneWolfUploaded}
+                        onGenerateReminder={onGenerateReminder}
+                        onViewPages={onViewPages}
+                      />
+                    </TableCell>
+                  </TableRow>
+                )),
+              ])
             ) : (
               <TableRow>
-                <TableCell colSpan={8} className="px-4 py-6 text-center text-muted-foreground">
+                <TableCell colSpan={3} className="px-4 py-6 text-center text-muted-foreground">
                   No documents match this filter.
                 </TableCell>
               </TableRow>
@@ -1005,6 +967,158 @@ function PackageDocumentsPanel({
       </CardContent>
     </Card>
   );
+}
+
+type PackageGroup = {
+  id: PackageBucket;
+  label: string;
+  tone: "green" | "amber" | "red" | "neutral";
+  rows: PackageDocumentRow[];
+};
+
+function PackageGroupHeader({ group }: { group: PackageGroup }) {
+  const dotClass =
+    group.tone === "green"
+      ? "bg-green-700"
+      : group.tone === "amber"
+        ? "bg-amber-600"
+        : group.tone === "red"
+          ? "bg-red-800"
+          : "bg-muted-foreground";
+
+  return (
+    <TableRow className="bg-background hover:bg-background">
+      <TableCell colSpan={3} className="px-4 pt-5 pb-2">
+        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <span className={`size-2 rounded-full ${dotClass}`} />
+          <span>{group.label}</span>
+          <span className="text-xs font-normal text-muted-foreground">{group.rows.length}</span>
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function PipelineIndicator({ row }: { row: PackageDocumentRow }) {
+  if (packageBucket(row) === "not_required") {
+    return <span className="text-sm text-muted-foreground">Not required for this scenario</span>;
+  }
+
+  const steps = [
+    { id: "received", complete: row.found, current: false },
+    { id: "processed", complete: row.found && !row.unprocessed, current: row.found && row.unprocessed },
+    {
+      id: "matched",
+      complete: row.found && !row.unprocessed && !row.needsReview,
+      current: row.found && !row.unprocessed && row.needsReview,
+    },
+    {
+      id: "lonewolf",
+      complete: row.found && (row.loneWolfLabel === "Uploaded" || row.loneWolfLabel === "Not Required"),
+      current: row.pendingLoneWolf,
+    },
+  ];
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center">
+        {steps.map((step, index) => (
+          <PipelineStep
+            key={step.id}
+            complete={step.complete}
+            current={step.current}
+            showConnector={index < steps.length - 1}
+          />
+        ))}
+      </div>
+      <p className="text-sm text-foreground">{pipelineLabel(row)}</p>
+    </div>
+  );
+}
+
+function PipelineStep({
+  complete,
+  current,
+  showConnector,
+}: {
+  complete: boolean;
+  current: boolean;
+  showConnector: boolean;
+}) {
+  const dotClass = complete
+    ? "border-green-200 bg-green-100 text-green-800"
+    : current
+      ? "border-amber-200 bg-amber-50 text-amber-800"
+      : "border-border bg-background text-transparent";
+  const connectorClass = complete ? "bg-green-200" : "bg-border";
+
+  return (
+    <>
+      <span className={`grid size-4 place-items-center rounded-full border ${dotClass}`}>
+        {complete ? <CheckIcon className="size-3" /> : current ? <Clock3Icon className="size-3" /> : null}
+      </span>
+      {showConnector && <span className={`h-px w-5 ${connectorClass}`} />}
+    </>
+  );
+}
+
+function PackageRowActions({
+  row,
+  workingRequirementId,
+  draftingReminder,
+  onMarkLoneWolfUploaded,
+  onGenerateReminder,
+  onViewPages,
+}: {
+  row: PackageDocumentRow;
+  workingRequirementId: string | null;
+  draftingReminder: boolean;
+  onMarkLoneWolfUploaded: (requirementId: string) => void;
+  onGenerateReminder: (row: PackageDocumentRow) => void;
+  onViewPages: (page: number) => void;
+}) {
+  if (row.needsReview && row.pages.length > 0) {
+    return (
+      <div className="flex justify-end">
+        <Button size="sm" variant="outline" onClick={() => onViewPages(row.pages[0])}>
+          Review match
+        </Button>
+      </div>
+    );
+  }
+
+  if (row.canMarkLoneWolfUploaded) {
+    return (
+      <div className="flex justify-end">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onMarkLoneWolfUploaded(row.requirementId)}
+          disabled={workingRequirementId === row.requirementId}
+        >
+          Mark uploaded
+        </Button>
+      </div>
+    );
+  }
+
+  if (row.reminderNeeded) {
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onGenerateReminder(row)}
+          disabled={draftingReminder}
+        >
+          Generate reminder
+        </Button>
+        <span className="text-xs text-muted-foreground">Waiting on agent</span>
+      </div>
+    );
+  }
+
+  return <div className="text-right text-muted-foreground">-</div>;
 }
 
 function ReminderDialog({
@@ -1156,28 +1270,6 @@ function ReminderDialog({
   );
 }
 
-function StatusBadge({
-  label,
-  tone,
-}: {
-  label: string;
-  tone: "green" | "amber" | "red" | "neutral";
-}) {
-  const className =
-    tone === "green"
-      ? "border-green-200 bg-green-50 text-green-800"
-      : tone === "amber"
-        ? "border-amber-200 bg-amber-50 text-amber-800"
-        : tone === "red"
-          ? "border-red-200 bg-red-50 text-red-800"
-          : "border-border bg-background text-muted-foreground";
-  return (
-    <Badge variant="outline" className={className}>
-      {label}
-    </Badge>
-  );
-}
-
 function fieldToSourceCandidate(row: FieldRow | null | undefined): FieldSourceCandidate | null {
   if (!row || row.source_page == null) return null;
   return {
@@ -1272,33 +1364,14 @@ function buildPackageDocumentRows({
     const unprocessed = found && (!confidence || dealStatus === "uploaded" || dealStatus === "processing");
     const needsReview = foundExtra || confidence === "low" || task?.status === "open";
     const reminderNeeded = missing && (!hasDraftReminder && !hasSentReminder);
-    const reminderLabel = found
-      ? "Not Needed"
-      : hasSentReminder
-        ? "Sent"
-        : hasDraftReminder
-          ? "Drafted"
-          : task?.status === "open"
-            ? "Waiting"
-            : "Not Sent";
-
     return {
       id: item.id,
       requirementId: item.id,
       label: item.label,
       documentLabel: documentTypesLabel(item.docTypes),
-      sourceLabel: found ? "Package Upload" : "Requirement",
-      receivedLabel: found ? "Received" : "Missing",
-      processedLabel: found
-        ? dealStatus === "processing"
-          ? "Processing"
-          : confidence
-            ? "Processed"
-            : "Queued"
-        : "-",
-      matchedLabel: foundExtra ? "Needs Review" : found ? "Matched" : "-",
+      requirementLevel: item.level,
+      condition: item.condition,
       loneWolfLabel: found ? formatLoneWolfStatus(loneWolfStatus) : "-",
-      reminderLabel,
       pages: item.pages,
       found,
       missing,
@@ -1324,12 +1397,58 @@ function formatLoneWolfStatus(status: RequirementStatusRow["lonewolf_status"]) {
   return "Unknown";
 }
 
+function packageBucket(row: PackageDocumentRow): PackageBucket {
+  if (row.found && row.needsReview) return "needs_review";
+  if (row.found) return "uploaded_matched";
+  if (row.requirementLevel === "required") return "outstanding";
+  return "not_required";
+}
+
+function buildPackageGroups(rows: PackageDocumentRow[]): PackageGroup[] {
+  const definitions: Omit<PackageGroup, "rows">[] = [
+    { id: "uploaded_matched", label: "Uploaded & matched", tone: "green" },
+    { id: "needs_review", label: "Needs review", tone: "amber" },
+    { id: "outstanding", label: "Outstanding requirements", tone: "red" },
+    { id: "not_required", label: "Not required for this deal", tone: "neutral" },
+  ];
+
+  return definitions
+    .map((definition) => ({
+      ...definition,
+      rows: rows.filter((row) => packageBucket(row) === definition.id),
+    }))
+    .filter((group) => group.rows.length > 0);
+}
+
+function packageFilterCounts(rows: PackageDocumentRow[]) {
+  return {
+    all: rows.length,
+    uploadedMatched: rows.filter((row) => packageBucket(row) === "uploaded_matched").length,
+    outstanding: rows.filter((row) => packageBucket(row) === "outstanding").length,
+    notRequired: rows.filter((row) => packageBucket(row) === "not_required").length,
+    needsReview: rows.filter((row) => packageBucket(row) === "needs_review").length,
+    pendingLoneWolf: rows.filter((row) => row.pendingLoneWolf).length,
+  };
+}
+
+function pipelineLabel(row: PackageDocumentRow) {
+  if (packageBucket(row) === "not_required") return "Not required for this scenario";
+  if (!row.found) return "Not started";
+  if (row.unprocessed) return "Pending processing";
+  if (row.needsReview) return "Needs review";
+  if (row.pendingLoneWolf) return "Pending Lone Wolf upload";
+  if (row.loneWolfLabel === "Uploaded") return "Uploaded to Lone Wolf";
+  return "Matched";
+}
+
 function filterPackageRows(rows: PackageDocumentRow[], filter: PackageFilter) {
-  if (filter === "missing") return rows.filter((row) => row.missing);
-  if (filter === "needs_review") return rows.filter((row) => row.needsReview);
+  if (filter === "uploaded_matched") {
+    return rows.filter((row) => packageBucket(row) === "uploaded_matched");
+  }
+  if (filter === "outstanding") return rows.filter((row) => packageBucket(row) === "outstanding");
+  if (filter === "not_required") return rows.filter((row) => packageBucket(row) === "not_required");
+  if (filter === "needs_review") return rows.filter((row) => packageBucket(row) === "needs_review");
   if (filter === "pending_lonewolf") return rows.filter((row) => row.pendingLoneWolf);
-  if (filter === "unprocessed") return rows.filter((row) => row.unprocessed);
-  if (filter === "reminder_needed") return rows.filter((row) => row.reminderNeeded);
   return rows;
 }
 
