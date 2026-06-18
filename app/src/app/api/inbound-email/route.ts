@@ -243,7 +243,7 @@ async function recordUnparsedInboundEmail({
 
 function inboundWebhookMaxBytes() {
   const configured = Number(process.env.INBOUND_EMAIL_MAX_WEBHOOK_BYTES);
-  return Number.isFinite(configured) && configured > 0 ? configured : 10_000_000;
+  return Number.isFinite(configured) && configured > 0 ? configured : 60_000_000;
 }
 
 function parseContentLength(value: string | null) {
