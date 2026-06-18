@@ -200,7 +200,6 @@ export function ReviewScreen({
     [requirementStatuses],
   );
   const checklist = checklistResult.items;
-  const missingRequired = checklistResult.missingRequired;
   const openTasks = tasks.filter((task) => task.status === "open");
   const packageRows = useMemo(
     () =>
@@ -503,70 +502,7 @@ export function ReviewScreen({
         sendingReminderId={sendingReminderId}
       />
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <Card>
-          <CardHeader className="py-3">
-            <CardTitle className="text-base">
-              Required Documents{" "}
-              {missingRequired.length > 0 ? (
-                <span className="text-sm font-normal text-destructive">
-                  ({missingRequired.length} missing)
-                </span>
-              ) : (
-                <span className="text-sm font-normal text-green-700">(ready)</span>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="max-h-80 space-y-1 overflow-y-auto">
-            {checklist.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className="flex w-full items-start gap-2 rounded px-1 py-1 text-left text-sm hover:bg-muted"
-                onClick={() => {
-                  setSelectedFieldKey(null);
-                  setSelectedSourceIndex(null);
-                  if (item.pages[0]) setSelectedPage(item.pages[0]);
-                }}
-              >
-                <span
-                  className={
-                    item.found
-                      ? "text-green-700"
-                      : item.required
-                        ? "text-destructive"
-                        : "text-muted-foreground"
-                  }
-                >
-                  {item.found ? "Found" : "Missing"}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className={!item.found && item.required ? "font-medium" : ""}>
-                    {item.label}
-                  </span>
-                  {item.condition && (
-                    <span className="block text-xs text-muted-foreground">{item.condition}</span>
-                  )}
-                  {item.standardForms?.length ? (
-                    <span className="block text-xs text-muted-foreground">
-                      Standard: {item.standardForms.join("; ")}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {item.pages.length > 0
-                    ? `p.${item.pages.join(", ")}`
-                    : item.conditional
-                      ? "conditional"
-                      : item.required
-                        ? "required"
-                        : "optional"}
-                </span>
-              </button>
-            ))}
-          </CardContent>
-        </Card>
-
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_420px]">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between py-3">
             <CardTitle className="text-base">Tasks</CardTitle>
@@ -631,16 +567,15 @@ export function ReviewScreen({
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader className="py-3">
+            <CardTitle className="text-base">Update Package Documents</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <UploadDropzone dealId={deal.id} compact />
+          </CardContent>
+        </Card>
       </div>
-
-      <Card>
-        <CardHeader className="py-3">
-          <CardTitle className="text-base">Update Package Documents</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <UploadDropzone dealId={deal.id} compact />
-        </CardContent>
-      </Card>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(560px,0.95fr)_1fr]">
         {/* Left: page preview */}
