@@ -89,6 +89,7 @@ export default async function DashboardPage({
     )
     .in("status", [
       "routing_queued",
+      "attachments_queued",
       "routing",
       "routing_error",
       "needs_match_review",

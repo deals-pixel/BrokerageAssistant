@@ -45,13 +45,36 @@ export async function POST(req: Request) {
       message_id: inbound.messageId,
       thread_id: inbound.threadId,
       received_at: inbound.receivedAt,
-      status: "received",
+      status: "attachments_queued",
     })
     .select("id")
     .single();
   if (emailError || !email) {
     return NextResponse.json({ error: emailError?.message ?? "Could not save inbound email" }, { status: 500 });
   }
+
+  storeAttachmentsAfterResponse(req, email.id, inbound);
+
+  return NextResponse.json({
+    ok: true,
+    status: "attachments_queued",
+    inboundEmailId: email.id,
+    attachments: inbound.attachments.length,
+  });
+}
+
+function storeAttachmentsAfterResponse(req: Request, inboundEmailId: string, inbound: ReturnType<typeof normalizeInboundEmailPayload>) {
+  after(async () => {
+    await storeInboundAttachments(req, inboundEmailId, inbound);
+  });
+}
+
+async function storeInboundAttachments(
+  req: Request,
+  inboundEmailId: string,
+  inbound: ReturnType<typeof normalizeInboundEmailPayload>,
+) {
+  const supabase = createAdminClient();
 
   try {
     let storedCount = 0;
@@ -66,7 +89,7 @@ export async function POST(req: Request) {
 
       if (!filter.store) {
         await supabase.from("email_attachments").insert({
-          inbound_email_id: email.id,
+          inbound_email_id: inboundEmailId,
           original_filename: attachment.name,
           mime_type: attachment.contentType,
           file_size: fileSize,
@@ -87,7 +110,7 @@ export async function POST(req: Request) {
         .maybeSingle();
       if (existingHash.data?.id) {
         await supabase.from("email_attachments").insert({
-          inbound_email_id: email.id,
+          inbound_email_id: inboundEmailId,
           original_filename: attachment.name,
           mime_type: attachment.contentType,
           file_size: fileSize,
@@ -103,7 +126,7 @@ export async function POST(req: Request) {
       const { data: attachmentRow, error: attachmentError } = await supabase
         .from("email_attachments")
         .insert({
-          inbound_email_id: email.id,
+          inbound_email_id: inboundEmailId,
           original_filename: attachment.name,
           mime_type: attachment.contentType,
           file_size: fileSize,
@@ -116,7 +139,7 @@ export async function POST(req: Request) {
       if (attachmentError || !attachmentRow) throw new Error(attachmentError?.message ?? "Attachment insert failed");
 
       const storagePath = buildAttachmentStoragePath({
-        emailId: email.id,
+        emailId: inboundEmailId,
         attachmentId: attachmentRow.id,
         filename: attachment.name,
       });
@@ -134,37 +157,25 @@ export async function POST(req: Request) {
 
     const nextStatus = storedCount > 0 ? "routing_queued" : "ignored";
     await supabase
-      .from("inbound_emails")
-      .update({
-        status: nextStatus,
-        error_message: storedCount > 0 ? null : "No valid document attachments found",
-      })
-      .eq("id", email.id);
+        .from("inbound_emails")
+        .update({
+          status: nextStatus,
+          error_message: storedCount > 0 ? null : "No valid document attachments found",
+        })
+      .eq("id", inboundEmailId);
 
     if (storedCount > 0) {
-      triggerLightRoutingAfterResponse(req, email.id);
+      await triggerLightRouting(req, inboundEmailId);
     }
-
-    return NextResponse.json({
-      ok: true,
-      status: nextStatus,
-      inboundEmailId: email.id,
-      stored: storedCount,
-      ignored: ignoredCount,
-      duplicate: duplicateCount,
-    });
   } catch (err) {
+    console.error("Inbound email attachment storage failed", err);
     await supabase
       .from("inbound_emails")
       .update({
         status: "error",
         error_message: err instanceof Error ? err.message : String(err),
       })
-      .eq("id", email.id);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Inbound email failed", inboundEmailId: email.id },
-      { status: 500 },
-    );
+      .eq("id", inboundEmailId);
   }
 }
 
@@ -178,23 +189,21 @@ function verifyInboundSecret(req: Request) {
   return headerSecret === expected || bearer === expected || urlSecret === expected;
 }
 
-function triggerLightRoutingAfterResponse(req: Request, inboundEmailId: string) {
+async function triggerLightRouting(req: Request, inboundEmailId: string) {
   const jobSecret = process.env.EMAIL_ROUTING_JOB_SECRET ?? process.env.CRON_SECRET;
   if (!jobSecret && process.env.NODE_ENV === "production") return;
 
-  after(async () => {
-    try {
-      const url = new URL("/api/jobs/email-routing", req.url);
-      await fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(jobSecret ? { authorization: `Bearer ${jobSecret}` } : {}),
-        },
-        body: JSON.stringify({ inboundEmailId }),
-      });
-    } catch (err) {
-      console.error("Email routing trigger failed", err);
-    }
-  });
+  try {
+    const url = new URL("/api/jobs/email-routing", req.url);
+    await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(jobSecret ? { authorization: `Bearer ${jobSecret}` } : {}),
+      },
+      body: JSON.stringify({ inboundEmailId }),
+    });
+  } catch (err) {
+    console.error("Email routing trigger failed", err);
+  }
 }

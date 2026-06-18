@@ -549,7 +549,14 @@ function dialogSubmitLabel(mode: DialogMode) {
 
 function intakeStatusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
   if (status === "matched" || status === "draft_transaction_created") return "default";
-  if (status === "needs_match_review" || status === "routing" || status === "routing_queued") return "secondary";
+  if (
+    status === "needs_match_review" ||
+    status === "attachments_queued" ||
+    status === "routing" ||
+    status === "routing_queued"
+  ) {
+    return "secondary";
+  }
   if (status === "error" || status === "routing_error") return "destructive";
   return "outline";
 }
@@ -557,6 +564,7 @@ function intakeStatusVariant(status: string): "default" | "secondary" | "destruc
 function formatIntakeStatus(status: string) {
   if (status === "needs_match_review") return "Needs match review";
   if (status === "draft_transaction_created") return "Draft created";
+  if (status === "attachments_queued") return "Storing attachments";
   if (status === "routing_queued") return "Routing queued";
   if (status === "routing_error") return "Routing error";
   if (status === "ignored") return "Ignored";
