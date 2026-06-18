@@ -7,6 +7,14 @@ import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
@@ -123,7 +131,6 @@ type PackageDocumentRow = {
   id: string;
   requirementId: string;
   label: string;
-  typeLabel: string;
   sourceLabel: string;
   receivedLabel: string;
   processedLabel: string;
@@ -180,6 +187,8 @@ export function ReviewScreen({
   const [selectedSourceIndex, setSelectedSourceIndex] = useState<number | null>(null);
   const [packageFilter, setPackageFilter] = useState<PackageFilter>("all");
   const [workingRequirementId, setWorkingRequirementId] = useState<string | null>(null);
+  const [reminderDialogOpen, setReminderDialogOpen] = useState(false);
+  const [reminderContext, setReminderContext] = useState<PackageDocumentRow | null>(null);
   const [selectedPage, setSelectedPage] = useState<number | null>(
     pages.length > 0 ? pages[0].page_number : null,
   );
@@ -192,7 +201,6 @@ export function ReviewScreen({
   const checklist = checklistResult.items;
   const missingRequired = checklistResult.missingRequired;
   const openTasks = tasks.filter((task) => task.status === "open");
-  const documentGroups = useMemo(() => groupDocuments(pages), [pages]);
   const packageRows = useMemo(
     () =>
       buildPackageDocumentRows({
@@ -379,6 +387,11 @@ export function ReviewScreen({
     }
   }
 
+  function openReminderDialog(row: PackageDocumentRow) {
+    setReminderContext(row);
+    setReminderDialogOpen(true);
+  }
+
   async function markSent(reminderId: string) {
     setSendingReminderId(reminderId);
     try {
@@ -475,12 +488,29 @@ export function ReviewScreen({
           setSelectedPage(page);
         }}
         onMarkLoneWolfUploaded={markLoneWolfUploaded}
-        onGenerateReminder={generateReminderDraft}
+        onGenerateReminder={openReminderDialog}
         workingRequirementId={workingRequirementId}
         draftingReminder={draftingReminder}
       />
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_0.9fr_0.9fr]">
+      <ReminderDialog
+        open={reminderDialogOpen}
+        onOpenChange={setReminderDialogOpen}
+        context={reminderContext}
+        agents={agents}
+        reminders={reminders}
+        openTasks={openTasks}
+        selectedAgentId={selectedAgentId}
+        onSelectedAgentChange={setSelectedAgentId}
+        recipient={recipient}
+        onRecipientChange={setRecipient}
+        onGenerateDraft={generateReminderDraft}
+        draftingReminder={draftingReminder}
+        onMarkSent={markSent}
+        sendingReminderId={sendingReminderId}
+      />
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.15fr_0.85fr]">
         <Card>
           <CardHeader className="py-3">
             <CardTitle className="text-base">
@@ -608,112 +638,16 @@ export function ReviewScreen({
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="py-3">
-            <CardTitle className="text-base">Reminder Email</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid gap-2">
-              <select
-                className="h-9 rounded-md border bg-background px-3 text-sm"
-                value={selectedAgentId}
-                onChange={(event) => setSelectedAgentId(event.target.value)}
-              >
-                <option value="">Choose agent</option>
-                {agents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.name} - {agent.email}
-                  </option>
-                ))}
-              </select>
-              <Input
-                placeholder="or enter recipient email"
-                value={recipient}
-                onChange={(event) => setRecipient(event.target.value)}
-              />
-              <Button onClick={generateReminderDraft} disabled={draftingReminder || openTasks.length === 0}>
-                Generate Draft
-              </Button>
-            </div>
-            <Separator />
-            <div className="max-h-44 space-y-2 overflow-y-auto">
-              {reminders.length > 0 ? (
-                reminders.map((reminder) => (
-                  <div key={reminder.id} className="rounded border p-2 text-sm">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="font-medium">{reminder.subject}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {reminder.recipient} | {relativeTime(reminder.sent_at ?? reminder.drafted_at ?? reminder.created_at)}
-                        </p>
-                      </div>
-                      <Badge variant={reminder.status === "sent" ? "secondary" : "outline"}>
-                        {reminder.status}
-                      </Badge>
-                    </div>
-                    {reminder.status === "draft" && (
-                      <Button
-                        className="mt-2"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => markSent(reminder.id)}
-                        disabled={sendingReminderId === reminder.id}
-                      >
-                        Send
-                      </Button>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">No reminder drafts yet.</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_420px]">
-        <Card>
-          <CardHeader className="py-3">
-            <CardTitle className="text-base">Documents</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2">
-            {documentGroups.length > 0 ? (
-              documentGroups.map((group) => (
-                <button
-                  key={group.key}
-                  type="button"
-                  className="rounded border p-2 text-left text-sm hover:bg-muted"
-                  onClick={() => {
-                    setSelectedFieldKey(null);
-                    setSelectedSourceIndex(null);
-                    setSelectedPage(group.pages[0]);
-                  }}
-                >
-                  <p className="font-medium">{group.label}</p>
-                  <p className="text-xs text-muted-foreground">Pages {group.pages.join(", ")}</p>
-                  {group.standardForms.length > 0 && (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Standard: {group.standardForms.join("; ")}
-                    </p>
-                  )}
-                </button>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">No uploaded pages yet.</p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="py-3">
-            <CardTitle className="text-base">Update Package Documents</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <UploadDropzone dealId={deal.id} compact />
-          </CardContent>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader className="py-3">
+          <CardTitle className="text-base">Update Package Documents</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <UploadDropzone dealId={deal.id} compact />
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(560px,0.95fr)_1fr]">
         {/* Left: page preview */}
@@ -934,7 +868,7 @@ function PackageDocumentsPanel({
   onFilterChange: (filter: PackageFilter) => void;
   onViewPages: (page: number) => void;
   onMarkLoneWolfUploaded: (requirementId: string) => void;
-  onGenerateReminder: () => void;
+  onGenerateReminder: (row: PackageDocumentRow) => void;
   workingRequirementId: string | null;
   draftingReminder: boolean;
 }) {
@@ -975,7 +909,6 @@ function PackageDocumentsPanel({
           <TableHeader>
             <TableRow>
               <TableHead className="min-w-[240px] px-4">Document / Requirement</TableHead>
-              <TableHead>Type</TableHead>
               <TableHead>Source</TableHead>
               <TableHead>Received</TableHead>
               <TableHead>Processed</TableHead>
@@ -1000,9 +933,6 @@ function PackageDocumentsPanel({
                         Pages {row.pages.join(", ")}
                       </button>
                     )}
-                  </TableCell>
-                  <TableCell className="max-w-[190px] whitespace-normal text-xs text-muted-foreground">
-                    {row.typeLabel}
                   </TableCell>
                   <TableCell>{row.sourceLabel}</TableCell>
                   <TableCell>
@@ -1054,7 +984,7 @@ function PackageDocumentsPanel({
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={onGenerateReminder}
+                          onClick={() => onGenerateReminder(row)}
                           disabled={draftingReminder}
                         >
                           Generate Reminder
@@ -1071,7 +1001,7 @@ function PackageDocumentsPanel({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={9} className="px-4 py-6 text-center text-muted-foreground">
+                <TableCell colSpan={8} className="px-4 py-6 text-center text-muted-foreground">
                   No documents match this filter.
                 </TableCell>
               </TableRow>
@@ -1080,6 +1010,155 @@ function PackageDocumentsPanel({
         </Table>
       </CardContent>
     </Card>
+  );
+}
+
+function ReminderDialog({
+  open,
+  onOpenChange,
+  context,
+  agents,
+  reminders,
+  openTasks,
+  selectedAgentId,
+  onSelectedAgentChange,
+  recipient,
+  onRecipientChange,
+  onGenerateDraft,
+  draftingReminder,
+  onMarkSent,
+  sendingReminderId,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  context: PackageDocumentRow | null;
+  agents: AgentRow[];
+  reminders: ReminderRow[];
+  openTasks: TaskRow[];
+  selectedAgentId: string;
+  onSelectedAgentChange: (agentId: string) => void;
+  recipient: string;
+  onRecipientChange: (recipient: string) => void;
+  onGenerateDraft: () => void;
+  draftingReminder: boolean;
+  onMarkSent: (reminderId: string) => void;
+  sendingReminderId: string | null;
+}) {
+  const sortedReminders = [...reminders].sort((a, b) => {
+    const bTime = new Date(b.sent_at ?? b.drafted_at ?? b.created_at).getTime();
+    const aTime = new Date(a.sent_at ?? a.drafted_at ?? a.created_at).getTime();
+    return bTime - aTime;
+  });
+  const previewReminder =
+    sortedReminders.find((reminder) => reminder.status === "draft") ?? sortedReminders[0];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Generate Reminder</DialogTitle>
+          <DialogDescription>
+            {context
+              ? `Missing document: ${context.label}`
+              : "Create and review a reminder draft for missing documents."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+            <select
+              className="h-9 rounded-md border bg-background px-3 text-sm"
+              value={selectedAgentId}
+              onChange={(event) => onSelectedAgentChange(event.target.value)}
+            >
+              <option value="">Choose agent</option>
+              {agents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name} - {agent.email}
+                </option>
+              ))}
+            </select>
+            <Input
+              placeholder="or enter recipient email"
+              value={recipient}
+              onChange={(event) => onRecipientChange(event.target.value)}
+            />
+            <Button onClick={onGenerateDraft} disabled={draftingReminder || openTasks.length === 0}>
+              {draftingReminder ? "Drafting..." : "Generate Draft"}
+            </Button>
+          </div>
+
+          {openTasks.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No open missing-document tasks are available. Sync tasks before drafting a reminder.
+            </p>
+          )}
+
+          <div className="grid gap-3 md:grid-cols-[1fr_1.1fr]">
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Reminder History</p>
+              <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border p-2">
+                {sortedReminders.length > 0 ? (
+                  sortedReminders.map((reminder) => (
+                    <div key={reminder.id} className="rounded border bg-background p-2 text-sm">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{reminder.subject}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {reminder.recipient} |{" "}
+                            {relativeTime(
+                              reminder.sent_at ?? reminder.drafted_at ?? reminder.created_at,
+                            )}
+                          </p>
+                        </div>
+                        <Badge variant={reminder.status === "sent" ? "secondary" : "outline"}>
+                          {reminder.status}
+                        </Badge>
+                      </div>
+                      {reminder.status === "draft" && (
+                        <Button
+                          className="mt-2"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => onMarkSent(reminder.id)}
+                          disabled={sendingReminderId === reminder.id}
+                        >
+                          {sendingReminderId === reminder.id ? "Sending..." : "Send"}
+                        </Button>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <p className="p-2 text-sm text-muted-foreground">
+                    No reminder drafts yet. Generate a draft to preview it here.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Draft Preview</p>
+              {previewReminder ? (
+                <div className="space-y-2">
+                  <Input value={previewReminder.subject} readOnly />
+                  <Textarea className="min-h-52" value={previewReminder.body} readOnly />
+                </div>
+              ) : (
+                <div className="flex min-h-52 items-center rounded-md border p-4 text-sm text-muted-foreground">
+                  No draft selected.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1201,7 +1280,6 @@ function buildPackageDocumentRows({
       id: item.id,
       requirementId: item.id,
       label: item.label,
-      typeLabel: item.docTypes.map((docType) => DOCUMENT_TYPES[docType] ?? docType).join(" / "),
       sourceLabel: found ? "Package Upload" : "Requirement",
       receivedLabel: found
         ? `Received${item.pages.length ? ` p.${item.pages.join(", ")}` : ""}`
@@ -1258,30 +1336,6 @@ function summarizePackageRows(rows: PackageDocumentRow[]) {
   return `${received} received - ${processed} processed - ${missing} missing - ${pendingLoneWolf} pending Lone Wolf upload`;
 }
 
-function groupDocuments(pages: PageRow[]) {
-  const groups = new Map<
-    string,
-    { key: string; label: string; pages: number[]; standardForms: string[] }
-  >();
-  for (const page of pages) {
-    const key = page.doc_type ?? "unclassified";
-    const label = page.doc_type
-      ? (DOCUMENT_TYPES[page.doc_type as DocumentType] ?? page.doc_type)
-      : "Unclassified";
-    const existing = groups.get(key) ?? { key, label, pages: [], standardForms: [] };
-    existing.pages.push(page.page_number);
-    const standardFormLabel = formatStandardFormLabel(page);
-    if (standardFormLabel && !existing.standardForms.includes(standardFormLabel)) {
-      existing.standardForms.push(standardFormLabel);
-    }
-    groups.set(key, existing);
-  }
-  return Array.from(groups.values()).map((group) => ({
-    ...group,
-    pages: group.pages.sort((a, b) => a - b),
-  }));
-}
-
 function relativeTime(value: string | null) {
   if (!value) return "not sent";
   const date = new Date(value);
@@ -1325,12 +1379,4 @@ function summarizeDetails(details: Record<string, unknown>) {
       return `${key}: ${String(value)}`;
     })
     .join(" | ");
-}
-
-function formatStandardFormLabel(page: PageRow) {
-  if (!page.standard_form_title && !page.standard_form_number) return "";
-  const number = page.standard_form_number ? `Form ${page.standard_form_number}` : "";
-  const title = page.standard_form_title ?? "";
-  if (number && title) return `${number} ${title}`;
-  return number || title;
 }
