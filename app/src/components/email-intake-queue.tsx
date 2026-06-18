@@ -3,7 +3,17 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, CheckCircle2, FilePlus2, Link2, RotateCcw, Search, Trash2 } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  FilePlus2,
+  Inbox,
+  Link2,
+  Mail,
+  RotateCcw,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { EmailAttachmentIngestButton } from "@/components/email-attachment-ingest-button";
 import { ProcessDealButton } from "@/components/process-deal-button";
@@ -105,8 +115,6 @@ export function EmailIntakeQueue({
     [dealOptions, dialog?.selectedDealId],
   );
 
-  if (emails.length === 0) return null;
-
   function openDialog(mode: DialogMode, email: IntakeEmailRow) {
     const suggestedLink = bestLink(email);
     const suggestedDeal = linkedDealFromRelation(suggestedLink?.deals);
@@ -177,179 +185,184 @@ export function EmailIntakeQueue({
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+          <QueueStat label="Waiting" value={emails.length} />
           <QueueStat label="Needs review" value={emails.filter((email) => email.status === "needs_match_review").length} />
           <QueueStat label="Drafts" value={emails.filter((email) => email.status === "draft_transaction_created").length} />
           <QueueStat label="Errors" value={emails.filter((email) => email.status === "routing_error" || email.status === "error").length} />
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Email</TableHead>
-              <TableHead>Routing</TableHead>
-              <TableHead>Attachments</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="min-w-72 text-right">Workflow</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {emails.map((email) => {
-              const primaryLink = bestLink(email);
-              const linkedDeal = linkedDealFromRelation(primaryLink?.deals);
-              const isConfirmed = Boolean(
-                linkedDeal &&
-                  (email.status === "matched" ||
-                    email.status === "draft_transaction_created" ||
-                    primaryLink?.match_status === "auto_matched" ||
-                    primaryLink?.match_status === "manually_confirmed"),
-              );
-              const needsReview = email.status === "needs_match_review" || primaryLink?.match_status === "needs_review";
-              const renderedAttachmentIds = linkedDeal ? renderedAttachmentIdsByDeal[linkedDeal.id] ?? [] : [];
+      {emails.length === 0 ? (
+        <EmailIntakeEmptyState />
+      ) : (
+        <div className="overflow-hidden rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Email</TableHead>
+                <TableHead>Routing</TableHead>
+                <TableHead>Attachments</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="min-w-72 text-right">Workflow</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {emails.map((email) => {
+                const primaryLink = bestLink(email);
+                const linkedDeal = linkedDealFromRelation(primaryLink?.deals);
+                const isConfirmed = Boolean(
+                  linkedDeal &&
+                    (email.status === "matched" ||
+                      email.status === "draft_transaction_created" ||
+                      primaryLink?.match_status === "auto_matched" ||
+                      primaryLink?.match_status === "manually_confirmed"),
+                );
+                const needsReview = email.status === "needs_match_review" || primaryLink?.match_status === "needs_review";
+                const renderedAttachmentIds = linkedDeal ? renderedAttachmentIdsByDeal[linkedDeal.id] ?? [] : [];
 
-              return (
-                <TableRow key={email.id}>
-                  <TableCell className="min-w-72 align-top">
-                    <div className="font-medium">{email.subject || "No subject"}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {email.from_name || email.from_email || "Unknown sender"}
-                      {email.received_at ? ` | ${new Date(email.received_at).toLocaleString()}` : ""}
-                    </div>
-                    {email.error_message && (
-                      <div className="mt-1 flex items-center gap-1 text-xs text-destructive">
-                        <AlertCircle className="size-3" />
-                        <span>{email.error_message}</span>
+                return (
+                  <TableRow key={email.id}>
+                    <TableCell className="min-w-72 align-top">
+                      <div className="font-medium">{email.subject || "No subject"}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {email.from_name || email.from_email || "Unknown sender"}
+                        {email.received_at ? ` | ${new Date(email.received_at).toLocaleString()}` : ""}
                       </div>
-                    )}
-                  </TableCell>
-                  <TableCell className="max-w-80 align-top">
-                    {linkedDeal ? (
-                      <div className="space-y-1">
-                        <Link href={`/deals/${linkedDeal.id}`} className="font-medium hover:underline">
-                          {linkedDeal.property_address ?? linkedDeal.file_name}
-                        </Link>
-                        <div className="text-xs text-muted-foreground">
-                          Match {primaryLink?.match_score ?? 0}% - {formatMatchStatus(primaryLink?.match_status)}
+                      {email.error_message && (
+                        <div className="mt-1 flex items-center gap-1 text-xs text-destructive">
+                          <AlertCircle className="size-3" />
+                          <span>{email.error_message}</span>
                         </div>
-                        {primaryLink?.match_reason && (
-                          <div className="text-xs text-muted-foreground">{primaryLink.match_reason}</div>
-                        )}
+                      )}
+                    </TableCell>
+                    <TableCell className="max-w-80 align-top">
+                      {linkedDeal ? (
+                        <div className="space-y-1">
+                          <Link href={`/deals/${linkedDeal.id}`} className="font-medium hover:underline">
+                            {linkedDeal.property_address ?? linkedDeal.file_name}
+                          </Link>
+                          <div className="text-xs text-muted-foreground">
+                            Match {primaryLink?.match_score ?? 0}% - {formatMatchStatus(primaryLink?.match_status)}
+                          </div>
+                          {primaryLink?.match_reason && (
+                            <div className="text-xs text-muted-foreground">{primaryLink.match_reason}</div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <span className="text-sm text-muted-foreground">
+                            {routingAddress(email.routing_json) || "No confident match"}
+                          </span>
+                          {routingSummary(email.routing_json) && (
+                            <div className="text-xs text-muted-foreground">{routingSummary(email.routing_json)}</div>
+                          )}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="text-sm">{email.email_attachments?.length ?? 0} attachments</div>
+                      <div className="text-xs text-muted-foreground">
+                        {attachmentStatusSummary(email.email_attachments ?? [])}
                       </div>
-                    ) : (
-                      <div className="space-y-1">
-                        <span className="text-sm text-muted-foreground">
-                          {routingAddress(email.routing_json) || "No confident match"}
-                        </span>
-                        {routingSummary(email.routing_json) && (
-                          <div className="text-xs text-muted-foreground">{routingSummary(email.routing_json)}</div>
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <Badge variant={intakeStatusVariant(email.status)}>{formatIntakeStatus(email.status)}</Badge>
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {needsReview && linkedDeal && (
+                          <>
+                            <Button size="sm" onClick={() => openDialog("link", email)} disabled={workingId === email.id}>
+                              <CheckCircle2 className="size-4" />
+                              Confirm
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => openDialog("link", email)}
+                              disabled={workingId === email.id}
+                            >
+                              <Search className="size-4" />
+                              Change
+                            </Button>
+                          </>
                         )}
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell className="align-top">
-                    <div className="text-sm">{email.email_attachments?.length ?? 0} attachments</div>
-                    <div className="text-xs text-muted-foreground">
-                      {attachmentStatusSummary(email.email_attachments ?? [])}
-                    </div>
-                  </TableCell>
-                  <TableCell className="align-top">
-                    <Badge variant={intakeStatusVariant(email.status)}>{formatIntakeStatus(email.status)}</Badge>
-                  </TableCell>
-                  <TableCell className="align-top">
-                    <div className="flex flex-wrap justify-end gap-2">
-                      {needsReview && linkedDeal && (
-                        <>
-                          <Button size="sm" onClick={() => openDialog("link", email)} disabled={workingId === email.id}>
-                            <CheckCircle2 className="size-4" />
-                            Confirm
-                          </Button>
+                        {!isConfirmed && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant={needsReview ? "outline" : "default"}
+                              onClick={() => openDialog("link", email)}
+                              disabled={workingId === email.id || dealOptions.length === 0}
+                            >
+                              <Link2 className="size-4" />
+                              Link
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => openDialog("create", email)}
+                              disabled={workingId === email.id}
+                            >
+                              <FilePlus2 className="size-4" />
+                              Create draft
+                            </Button>
+                          </>
+                        )}
+                        {isConfirmed && linkedDeal && (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              nativeButton={false}
+                              render={<Link href={`/deals/${linkedDeal.id}`} />}
+                            >
+                              Review
+                            </Button>
+                            <EmailAttachmentIngestButton
+                              dealId={linkedDeal.id}
+                              attachments={email.email_attachments}
+                              renderedAttachmentIds={renderedAttachmentIds}
+                            />
+                            <ProcessDealButton
+                              dealId={linkedDeal.id}
+                              status={linkedDeal.status}
+                              pageCount={linkedDeal.page_count}
+                              variant="default"
+                            />
+                          </>
+                        )}
+                        {(email.status === "routing_error" || email.status === "error") && (
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => openDialog("link", email)}
+                            onClick={() => retryRouting(email)}
                             disabled={workingId === email.id}
                           >
-                            <Search className="size-4" />
-                            Change
+                            <RotateCcw className="size-4" />
+                            Retry
                           </Button>
-                        </>
-                      )}
-                      {!isConfirmed && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant={needsReview ? "outline" : "default"}
-                            onClick={() => openDialog("link", email)}
-                            disabled={workingId === email.id || dealOptions.length === 0}
-                          >
-                            <Link2 className="size-4" />
-                            Link
-                          </Button>
+                        )}
+                        {email.status !== "ignored" && (
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => openDialog("create", email)}
+                            onClick={() => openDialog("ignore", email)}
                             disabled={workingId === email.id}
                           >
-                            <FilePlus2 className="size-4" />
-                            Create draft
+                            <Trash2 className="size-4" />
+                            Ignore
                           </Button>
-                        </>
-                      )}
-                      {isConfirmed && linkedDeal && (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            nativeButton={false}
-                            render={<Link href={`/deals/${linkedDeal.id}`} />}
-                          >
-                            Review
-                          </Button>
-                          <EmailAttachmentIngestButton
-                            dealId={linkedDeal.id}
-                            attachments={email.email_attachments}
-                            renderedAttachmentIds={renderedAttachmentIds}
-                          />
-                          <ProcessDealButton
-                            dealId={linkedDeal.id}
-                            status={linkedDeal.status}
-                            pageCount={linkedDeal.page_count}
-                            variant="default"
-                          />
-                        </>
-                      )}
-                      {(email.status === "routing_error" || email.status === "error") && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => retryRouting(email)}
-                          disabled={workingId === email.id}
-                        >
-                          <RotateCcw className="size-4" />
-                          Retry
-                        </Button>
-                      )}
-                      {email.status !== "ignored" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openDialog("ignore", email)}
-                          disabled={workingId === email.id}
-                        >
-                          <Trash2 className="size-4" />
-                          Ignore
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       <Dialog open={Boolean(dialog)} onOpenChange={(open) => !open && setDialog(null)}>
         <DialogContent className="sm:max-w-lg">
@@ -477,6 +490,48 @@ function QueueStat({ label, value }: { label: string; value: number }) {
     <span className="rounded-full border px-2 py-1">
       {label}: <span className="font-medium text-foreground">{value}</span>
     </span>
+  );
+}
+
+function EmailIntakeEmptyState() {
+  return (
+    <div className="rounded-lg border bg-muted/20 p-5">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.85fr)]">
+        <div className="flex gap-4">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background">
+            <Inbox className="size-5" />
+          </div>
+          <div className="space-y-2">
+            <div>
+              <h3 className="font-medium">No forwarded packages waiting</h3>
+              <p className="text-sm text-muted-foreground">
+                New emails forwarded into the intake address will appear here for match review before full processing.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <Badge variant="outline">Email received</Badge>
+              <Badge variant="outline">Light routed</Badge>
+              <Badge variant="outline">Admin approved</Badge>
+              <Badge variant="outline">Ready to process</Badge>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border bg-background p-4">
+          <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+            <Mail className="size-4" />
+            Intake address
+          </div>
+          <div className="rounded-md border bg-muted/30 px-3 py-2 font-mono text-sm">
+            deals@teamadmiral.com
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Forward transaction emails here. The system stores attachments, runs light routing, and waits for admin
+            approval before full AI processing.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 
