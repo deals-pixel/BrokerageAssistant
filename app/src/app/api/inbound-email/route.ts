@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildAttachmentStoragePath,
@@ -141,6 +141,10 @@ export async function POST(req: Request) {
       })
       .eq("id", email.id);
 
+    if (storedCount > 0) {
+      triggerLightRoutingAfterResponse(req, email.id);
+    }
+
     return NextResponse.json({
       ok: true,
       status: nextStatus,
@@ -172,4 +176,25 @@ function verifyInboundSecret(req: Request) {
   const bearer = auth?.startsWith("Bearer ") ? auth.slice("Bearer ".length) : null;
   const urlSecret = new URL(req.url).searchParams.get("secret");
   return headerSecret === expected || bearer === expected || urlSecret === expected;
+}
+
+function triggerLightRoutingAfterResponse(req: Request, inboundEmailId: string) {
+  const jobSecret = process.env.EMAIL_ROUTING_JOB_SECRET ?? process.env.CRON_SECRET;
+  if (!jobSecret && process.env.NODE_ENV === "production") return;
+
+  after(async () => {
+    try {
+      const url = new URL("/api/jobs/email-routing", req.url);
+      await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(jobSecret ? { authorization: `Bearer ${jobSecret}` } : {}),
+        },
+        body: JSON.stringify({ inboundEmailId }),
+      });
+    } catch (err) {
+      console.error("Email routing trigger failed", err);
+    }
+  });
 }
