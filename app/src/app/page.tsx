@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { buildChecklistResult, type ChecklistItem } from "@/lib/checklist";
+import { DashboardAutoRefresh } from "@/components/dashboard-auto-refresh";
 import { createClient } from "@/lib/supabase/server";
 import {
   EmailIntakeQueue,
@@ -141,6 +142,8 @@ export default async function DashboardPage({
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-6">
+      <DashboardAutoRefresh />
+
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Broker Dashboard</h1>
