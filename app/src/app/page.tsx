@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { buildChecklistResult, type ChecklistItem } from "@/lib/checklist";
 import { createClient } from "@/lib/supabase/server";
+import {
+  EmailIntakeQueue,
+  type IntakeDealOption,
+  type IntakeEmailRow,
+} from "@/components/email-intake-queue";
 import { ProcessDealButton } from "@/components/process-deal-button";
 import { SignOutButton } from "@/components/sign-out-button";
 import { UploadDropzone } from "@/components/upload-dropzone";
@@ -48,31 +53,6 @@ type DealRow = {
   deal_fields: { field_key: string; value: string | null }[];
 };
 
-type IntakeEmailRow = {
-  id: string;
-  from_email: string | null;
-  from_name: string | null;
-  subject: string | null;
-  status: string;
-  received_at: string | null;
-  routing_json: Record<string, unknown> | null;
-  email_attachments: { id: string; status: string; original_filename: string | null }[];
-  deal_email_links: {
-    deal_id: string;
-    match_score: number | null;
-    match_status: string;
-    deals: IntakeLinkedDeal | IntakeLinkedDeal[] | null;
-  }[];
-};
-
-type IntakeLinkedDeal = {
-  id: string;
-  property_address: string | null;
-  file_name: string;
-  status: string;
-  page_count: number | null;
-};
-
 type DashboardDeal = DealRow & {
   scenarioLabel: string;
   scenarioShortLabel: string;
@@ -105,7 +85,7 @@ export default async function DashboardPage({
   const { data: intakeData } = await supabase
     .from("inbound_emails")
     .select(
-      "id, from_email, from_name, subject, status, received_at, routing_json, email_attachments(id, status, original_filename), deal_email_links(deal_id, match_score, match_status, deals(id, property_address, file_name, status, page_count))",
+      "id, from_email, from_name, subject, status, received_at, routing_json, error_message, email_attachments(id, status, original_filename, mime_type, file_size, light_classification_type, light_classification_confidence, received_at), deal_email_links(deal_id, match_score, match_reason, match_status, deals(id, property_address, file_name, status, page_count))",
     )
     .in("status", [
       "routing_queued",
@@ -122,6 +102,39 @@ export default async function DashboardPage({
 
   const deals = ((data ?? []) as DealRow[]).map(toDashboardDeal);
   const intakeEmails = (intakeData ?? []) as IntakeEmailRow[];
+  const linkedDealIds = Array.from(
+    new Set(
+      intakeEmails
+        .flatMap((email) => email.deal_email_links ?? [])
+        .map((link) => link.deal_id)
+        .filter(Boolean),
+    ),
+  );
+  const { data: renderedPages } =
+    linkedDealIds.length > 0
+      ? await supabase
+          .from("deal_pages")
+          .select("deal_id, email_attachment_id")
+          .in("deal_id", linkedDealIds)
+          .not("email_attachment_id", "is", null)
+      : { data: [] };
+  const renderedAttachmentIdsByDeal = ((renderedPages ?? []) as {
+    deal_id: string;
+    email_attachment_id: string | null;
+  }[]).reduce<Record<string, string[]>>((acc, page) => {
+    if (!page.email_attachment_id) return acc;
+    acc[page.deal_id] = acc[page.deal_id] ?? [];
+    acc[page.deal_id].push(page.email_attachment_id);
+    return acc;
+  }, {});
+  const dealOptions = deals.map<IntakeDealOption>((deal) => ({
+    id: deal.id,
+    label: deal.property_address ?? deal.file_name,
+    status: deal.status,
+    transactionType: deal.transaction_type,
+    transactionCode: deal.transaction_code,
+    createdAt: deal.created_at,
+  }));
   const filteredDeals = deals.filter((deal) => matchesFilter(deal, activeFilter));
   const metrics = buildMetrics(deals);
 
@@ -150,7 +163,11 @@ export default async function DashboardPage({
 
       <UploadDropzone />
 
-      <EmailIntakeQueue emails={intakeEmails} />
+      <EmailIntakeQueue
+        emails={intakeEmails}
+        dealOptions={dealOptions}
+        renderedAttachmentIdsByDeal={renderedAttachmentIdsByDeal}
+      />
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -331,144 +348,12 @@ function isClosingThisWeek(date: Date | null) {
   return date >= start && date <= end;
 }
 
-function EmailIntakeQueue({ emails }: { emails: IntakeEmailRow[] }) {
-  if (emails.length === 0) return null;
-
-  return (
-    <section className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-medium">Email Intake Queue</h2>
-          <p className="text-sm text-muted-foreground">Forwarded packages from deals@teamadmiral.com.</p>
-        </div>
-      </div>
-      <div className="overflow-hidden rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Email</TableHead>
-              <TableHead>Routing</TableHead>
-              <TableHead>Attachments</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Action</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {emails.map((email) => {
-              const primaryLink = email.deal_email_links?.[0];
-              const linkedDeal = linkedDealFromRelation(primaryLink?.deals);
-              return (
-                <TableRow key={email.id}>
-                  <TableCell className="min-w-72">
-                    <div className="font-medium">{email.subject || "No subject"}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {email.from_name || email.from_email || "Unknown sender"}
-                      {email.received_at ? ` | ${new Date(email.received_at).toLocaleString()}` : ""}
-                    </div>
-                  </TableCell>
-                  <TableCell className="max-w-72">
-                    {linkedDeal ? (
-                      <div>
-                        <Link href={`/deals/${linkedDeal.id}`} className="font-medium hover:underline">
-                          {linkedDeal.property_address ?? linkedDeal.file_name}
-                        </Link>
-                        <div className="text-xs text-muted-foreground">
-                          Match {primaryLink.match_score ?? 0}% - {primaryLink.match_status}
-                        </div>
-                      </div>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">
-                        {routingAddress(email.routing_json) || "No confident match"}
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="text-sm">{email.email_attachments?.length ?? 0} attachments</div>
-                    <div className="text-xs text-muted-foreground">
-                      {attachmentStatusSummary(email.email_attachments ?? [])}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={intakeStatusVariant(email.status)}>{formatIntakeStatus(email.status)}</Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {linkedDeal ? (
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          nativeButton={false}
-                          render={<Link href={`/deals/${linkedDeal.id}`} />}
-                        >
-                          Review
-                        </Button>
-                        <ProcessDealButton
-                          dealId={linkedDeal.id}
-                          status={linkedDeal.status}
-                          pageCount={linkedDeal.page_count}
-                          variant="default"
-                        />
-                      </div>
-                    ) : (
-                      <Button variant="outline" size="sm" disabled>
-                        Review match
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
-    </section>
-  );
-}
-
-function linkedDealFromRelation(value: IntakeLinkedDeal | IntakeLinkedDeal[] | null | undefined) {
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value ?? null;
-}
-
 function FilterButton({ active, href, label }: { active: boolean; href: string; label: string }) {
   return (
     <Button variant={active ? "default" : "outline"} size="sm" nativeButton={false} render={<Link href={href} />}>
       {label}
     </Button>
   );
-}
-
-function intakeStatusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
-  if (status === "matched" || status === "draft_transaction_created") return "default";
-  if (status === "needs_match_review" || status === "routing" || status === "routing_queued") return "secondary";
-  if (status === "error" || status === "routing_error") return "destructive";
-  return "outline";
-}
-
-function formatIntakeStatus(status: string) {
-  if (status === "needs_match_review") return "Needs match review";
-  if (status === "draft_transaction_created") return "Draft created";
-  if (status === "routing_queued") return "Routing queued";
-  if (status === "routing_error") return "Routing error";
-  if (status === "ignored") return "Ignored";
-  return status.replaceAll("_", " ");
-}
-
-function attachmentStatusSummary(attachments: IntakeEmailRow["email_attachments"]) {
-  if (attachments.length === 0) return "No stored attachments";
-  const linked = attachments.filter((item) => item.status === "linked_to_transaction").length;
-  const duplicate = attachments.filter((item) => item.status === "duplicate").length;
-  const ignored = attachments.filter((item) => item.status === "ignored").length;
-  const parts = [];
-  if (linked) parts.push(`${linked} linked`);
-  if (duplicate) parts.push(`${duplicate} duplicate`);
-  if (ignored) parts.push(`${ignored} ignored`);
-  return parts.length ? parts.join(" | ") : "Stored for review";
-}
-
-function routingAddress(routing: Record<string, unknown> | null) {
-  const value = routing?.property_address;
-  return typeof value === "string" ? value : "";
 }
 
 function MetricCard({
