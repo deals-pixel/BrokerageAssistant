@@ -166,10 +166,10 @@ export function EmailIntakeQueue({
     setWorkingId(email.id);
     try {
       await postAction(`/api/inbound-emails/${email.id}/reroute`, {});
-      toast.success("Routing refreshed.");
+      toast.success("Routing completed.");
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not reroute email");
+      toast.error(err instanceof Error ? err.message : "Could not route email");
     } finally {
       setWorkingId(null);
     }
@@ -181,7 +181,7 @@ export function EmailIntakeQueue({
         <div>
           <h2 className="text-lg font-medium">Email Intake Queue</h2>
           <p className="text-sm text-muted-foreground">
-            Review forwarded packages, confirm matches, create drafts, then prepare documents for processing.
+            Review stored packages, run light routing when appropriate, then prepare approved documents for processing.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -218,6 +218,7 @@ export function EmailIntakeQueue({
                       primaryLink?.match_status === "manually_confirmed"),
                 );
                 const needsReview = email.status === "needs_match_review" || primaryLink?.match_status === "needs_review";
+                const isPendingRouting = email.status === "routing_queued";
                 const renderedAttachmentIds = linkedDeal ? renderedAttachmentIdsByDeal[linkedDeal.id] ?? [] : [];
 
                 return (
@@ -287,6 +288,16 @@ export function EmailIntakeQueue({
                             </Button>
                           </>
                         )}
+                        {isPendingRouting && (
+                          <Button
+                            size="sm"
+                            onClick={() => retryRouting(email)}
+                            disabled={workingId === email.id}
+                          >
+                            <Search className="size-4" />
+                            Route
+                          </Button>
+                        )}
                         {!isConfirmed && (
                           <>
                             <Button
@@ -340,7 +351,7 @@ export function EmailIntakeQueue({
                             disabled={workingId === email.id}
                           >
                             <RotateCcw className="size-4" />
-                            Retry
+                            Route again
                           </Button>
                         )}
                         {email.status !== "ignored" && (
@@ -565,7 +576,7 @@ function formatIntakeStatus(status: string) {
   if (status === "needs_match_review") return "Needs match review";
   if (status === "draft_transaction_created") return "Draft created";
   if (status === "attachments_queued") return "Storing attachments";
-  if (status === "routing_queued") return "Routing queued";
+  if (status === "routing_queued") return "Ready to route";
   if (status === "routing_error") return "Routing error";
   if (status === "ignored") return "Ignored";
   return status.replaceAll("_", " ");
@@ -590,7 +601,7 @@ function attachmentStatusSummary(attachments: EmailAttachmentForQueue[]) {
   if (classified) parts.push(`${classified} classified`);
   if (duplicate) parts.push(`${duplicate} duplicate`);
   if (ignored) parts.push(`${ignored} ignored`);
-  return parts.length ? parts.join(" | ") : "Stored for review";
+  return parts.length ? parts.join(" | ") : "Stored, not routed";
 }
 
 function routingAddress(routing: Record<string, unknown> | null) {

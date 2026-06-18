@@ -1,5 +1,4 @@
 import { after, NextResponse } from "next/server";
-import { processInboundEmailRouting } from "@/lib/email-routing-job";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildAttachmentStoragePath,
@@ -179,9 +178,8 @@ async function storeInboundAttachments(
         })
       .eq("id", inboundEmailId);
 
-    if (storedCount > 0) {
-      await triggerLightRouting(inboundEmailId);
-    }
+    // Routing is intentionally admin-triggered to avoid spending AI or creating draft
+    // transactions for every forwarded mailbox item.
   } catch (err) {
     console.error("Inbound email attachment storage failed", err);
     await supabase
@@ -257,12 +255,4 @@ function formatBytes(bytes: number) {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${bytes} bytes`;
-}
-
-async function triggerLightRouting(inboundEmailId: string) {
-  try {
-    await processInboundEmailRouting(inboundEmailId);
-  } catch (err) {
-    console.error("Email routing trigger failed", err);
-  }
 }

@@ -77,11 +77,11 @@ Authorization: Bearer $INBOUND_EMAIL_WEBHOOK_SECRET
 ?secret=$INBOUND_EMAIL_WEBHOOK_SECRET
 ```
 
-The webhook only stores the email and private attachments, then marks the email `routing_queued`. It intentionally does not run AI inside the webhook request. After the response is sent, it triggers the light-routing job for that email.
+The webhook only stores the email and private attachments, then marks the email `routing_queued`. It intentionally does not run AI routing or full processing inside the webhook request. Admins choose which received emails should be routed from the dashboard.
 
 Postmark sends attachment bytes inline as base64 inside the webhook JSON body. Next's proxy body limit is raised to `60mb`, and `INBOUND_EMAIL_MAX_WEBHOOK_BYTES` should stay aligned with that deployed limit. A 35 MB package is roughly a 47 MB JSON body after base64 expansion. Oversized or unparseable webhook bodies are recorded in the intake queue as errors and acknowledged with `200` so Postmark does not retry the same unprocessable payload indefinitely. For very large scanned bundles, splitting packages into smaller PDFs is still more reliable and cheaper to route.
 
-The light-routing worker can also be run from a scheduler as a retry/backstop:
+The light-routing worker can also be run from a scheduler as a retry/backstop, but bulk routing is disabled unless `EMAIL_ROUTING_BULK_ENABLED=true`:
 
 ```text
 GET https://<app-domain>/api/jobs/email-routing?limit=5

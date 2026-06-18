@@ -10,6 +10,9 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const limit = Math.min(Number(url.searchParams.get("limit") ?? 5), 20);
+  if (!bulkEmailRoutingEnabled()) {
+    return NextResponse.json({ ok: true, processed: 0, results: [], disabled: true });
+  }
   const results = await processQueuedInboundEmails(limit);
   return NextResponse.json({ ok: true, processed: results.length, results });
 }
@@ -26,6 +29,9 @@ export async function POST(req: Request) {
   }
 
   const limit = Math.min(Number(body?.limit ?? 5), 20);
+  if (!bulkEmailRoutingEnabled()) {
+    return NextResponse.json({ ok: true, processed: 0, results: [], disabled: true });
+  }
   const results = await processQueuedInboundEmails(limit);
   return NextResponse.json({ ok: true, processed: results.length, results });
 }
@@ -38,4 +44,8 @@ function verifyJobSecret(req: Request) {
   const bearer = auth?.startsWith("Bearer ") ? auth.slice("Bearer ".length) : null;
   const urlSecret = new URL(req.url).searchParams.get("secret");
   return headerSecret === expected || bearer === expected || urlSecret === expected;
+}
+
+function bulkEmailRoutingEnabled() {
+  return process.env.EMAIL_ROUTING_BULK_ENABLED === "true";
 }
