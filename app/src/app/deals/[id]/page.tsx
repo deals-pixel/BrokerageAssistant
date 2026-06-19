@@ -3,8 +3,15 @@ import { createClient } from "@/lib/supabase/server";
 import { buildChecklistResult } from "@/lib/checklist";
 import { ReviewScreen } from "@/components/review/review-screen";
 
-export default async function DealPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function DealPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{ reminder?: string }>;
+}) {
   const { id } = await params;
+  const query = await searchParams;
   const supabase = await createClient();
 
   const { data: deal } = await supabase.from("deals").select("*").eq("id", id).single();
@@ -79,6 +86,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       requirementStatuses={requirementStatuses ?? []}
       emailAttachments={emailAttachments ?? []}
       auditLogs={auditLogs ?? []}
+      initialReminderOpen={query?.reminder === "1"}
     />
   );
 }

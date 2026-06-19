@@ -63,11 +63,27 @@ npm run dev
 
 ## Email Intake
 
-Inbound transaction emails should be forwarded to `deals@teamadmiral.com` and delivered by Postmark Inbound to:
+Inbound transaction emails should be sent or forwarded to `deals@intake.teamadmiral.com` and delivered by Postmark Inbound to:
 
 ```text
 POST https://<app-domain>/api/inbound-email
 ```
+
+For the custom inbound subdomain, configure DNS and Postmark like this:
+
+```text
+DNS record:
+Type: MX
+Name/Host: intake
+Priority: 10
+Value/Target: inbound.postmarkapp.com
+
+Postmark Inbound Message Stream:
+Inbound Domain: intake.teamadmiral.com
+Webhook URL: https://<app-domain>/api/inbound-email
+```
+
+The visible intake address defaults to `deals@intake.teamadmiral.com`. Override it with `NEXT_PUBLIC_INTAKE_EMAIL_ADDRESS` if the mailbox changes.
 
 Set one of these on the Postmark webhook request:
 

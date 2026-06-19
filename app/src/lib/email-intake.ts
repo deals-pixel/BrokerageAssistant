@@ -1,7 +1,6 @@
 import crypto from "node:crypto";
+export { INTAKE_ADDRESS } from "@/lib/intake-address";
 import { type DocumentType, type TransactionType } from "@/lib/types";
-
-export const INTAKE_ADDRESS = "deals@teamadmiral.com";
 
 export type InboundAttachmentInput = {
   name: string;

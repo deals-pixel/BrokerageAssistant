@@ -453,6 +453,19 @@ function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
     return null;
   }
 
+  if (deal.complianceStatus === "Incomplete") {
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        nativeButton={false}
+        render={<Link href={`/deals/${deal.id}?reminder=1`} />}
+      >
+        Remind
+      </Button>
+    );
+  }
+
   return (
     <ProcessDealButton
       dealId={deal.id}

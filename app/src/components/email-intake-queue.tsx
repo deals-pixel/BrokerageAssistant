@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { EmailAttachmentIngestButton } from "@/components/email-attachment-ingest-button";
 import { ProcessDealButton } from "@/components/process-deal-button";
 import { shortDealTitle, shortDocumentLabel } from "@/lib/display";
+import { INTAKE_ADDRESS } from "@/lib/intake-address";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -945,7 +946,7 @@ function EmailIntakeEmptyState() {
             Intake address
           </div>
           <div className="rounded-md border bg-muted/30 px-3 py-2 font-mono text-sm">
-            deals@teamadmiral.com
+            {INTAKE_ADDRESS}
           </div>
           <p className="mt-3 text-xs text-muted-foreground">
             Forward transaction emails here. The system stores attachments, runs light routing, and waits for admin

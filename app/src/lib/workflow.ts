@@ -110,7 +110,7 @@ export async function createReminderDraft(
   dealId: string,
   input: ReminderDraftInput,
 ) {
-  const [{ data: deal, error: dealError }, { data: tasks, error: tasksError }] =
+  const [{ data: deal, error: dealError }, { data: initialTasks, error: tasksError }] =
     await Promise.all([
       supabase
         .from("deals")
@@ -127,6 +127,20 @@ export async function createReminderDraft(
 
   if (dealError || !deal) throw new Error(dealError?.message ?? "Deal not found");
   if (tasksError) throw new Error(tasksError.message);
+
+  let tasks = initialTasks ?? [];
+  if (tasks.length === 0) {
+    await syncMissingDocumentTasks(supabase, dealId, input.createdBy);
+    const { data: syncedTasks, error: syncedTasksError } = await supabase
+      .from("deal_tasks")
+      .select("id, title, document_type, status")
+      .eq("deal_id", dealId)
+      .eq("status", "open")
+      .order("created_at", { ascending: true });
+    if (syncedTasksError) throw new Error(syncedTasksError.message);
+    tasks = syncedTasks ?? [];
+  }
+
   if (!tasks || tasks.length === 0) throw new Error("There are no open missing-document tasks.");
 
   let recipient = input.recipient?.trim() ?? "";

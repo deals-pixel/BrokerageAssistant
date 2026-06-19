@@ -183,6 +183,7 @@ export function ReviewScreen({
   requirementStatuses,
   emailAttachments,
   auditLogs,
+  initialReminderOpen = false,
 }: {
   deal: DealRow;
   pages: PageRow[];
@@ -194,6 +195,7 @@ export function ReviewScreen({
   requirementStatuses: RequirementStatusRow[];
   emailAttachments: EmailAttachmentRow[];
   auditLogs: AuditLogRow[];
+  initialReminderOpen?: boolean;
 }) {
   const router = useRouter();
   const [edited, setEdited] = useState<Record<string, string>>({});
@@ -207,7 +209,7 @@ export function ReviewScreen({
   const [selectedSourceIndex, setSelectedSourceIndex] = useState<number | null>(null);
   const [packageFilter, setPackageFilter] = useState<PackageFilter>("all");
   const [workingRequirementId, setWorkingRequirementId] = useState<string | null>(null);
-  const [reminderDialogOpen, setReminderDialogOpen] = useState(false);
+  const [reminderDialogOpen, setReminderDialogOpen] = useState(initialReminderOpen);
   const [reminderContext, setReminderContext] = useState<PackageDocumentRow | null>(null);
   const [selectedPage, setSelectedPage] = useState<number | null>(
     pages.length > 0 ? pages[0].page_number : null,
@@ -664,23 +666,13 @@ export function ReviewScreen({
                         f.wide ? "md:col-span-2" : ""
                       }`}
                     >
-                      <div className="mb-2 flex items-start justify-between gap-3">
+                      <div className="mb-2">
                         <label
                           htmlFor={inputId}
                           className="text-sm font-medium leading-tight text-foreground"
                         >
                           {f.label}
                         </label>
-                        {row?.source_page != null && (
-                          <button
-                            type="button"
-                            className="shrink-0 text-xs text-blue-600 hover:underline"
-                            onClick={() => jumpToFieldSource(row, f.key)}
-                            title={sourceLabel ?? undefined}
-                          >
-                            {sourceLabel ?? "Source document"}
-                          </button>
-                        )}
                       </div>
                       {f.multiline ? (
                         <Textarea
