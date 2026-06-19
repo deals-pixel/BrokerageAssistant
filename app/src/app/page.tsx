@@ -325,8 +325,8 @@ const BOARD_COLUMNS: {
 
 function StatusBoard({ deals }: { deals: DashboardDeal[] }) {
   return (
-    <div className="overflow-x-auto pb-2">
-      <div className="grid min-w-[76rem] grid-cols-5 gap-3">
+    <div className="min-w-0">
+      <div className="grid min-w-0 grid-cols-5 gap-2">
         {BOARD_COLUMNS.map((column) => {
           const columnDeals = deals.filter((deal) => deal.complianceStatus === column.status);
           const averageCompletion = columnDeals.length
@@ -334,15 +334,16 @@ function StatusBoard({ deals }: { deals: DashboardDeal[] }) {
             : 0;
           return (
             <div key={column.status} className={`min-h-64 min-w-0 rounded-lg p-2 ${column.className}`}>
-              <div className="mb-2 flex min-w-0 items-center justify-between gap-2 px-1 text-sm">
+              <div className="mb-2 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 px-1 text-sm">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <span className={`size-2 shrink-0 rounded-full ${column.dotClassName}`} />
                   <span className={`truncate rounded-md px-1.5 py-0.5 font-medium ${column.headerPillClassName}`}>
                     {column.label}
                   </span>
                 </div>
-                <div className={`flex shrink-0 items-center gap-2 tabular-nums ${column.textClassName}`}>
-                  <span>{columnDeals.length} deals</span>
+                <div className={`flex shrink-0 items-center gap-1 tabular-nums ${column.textClassName}`}>
+                  <span>{columnDeals.length}</span>
+                  <span>deals</span>
                   <span>{averageCompletion}%</span>
                 </div>
               </div>
@@ -372,8 +373,8 @@ function TransactionCard({
   column: (typeof BOARD_COLUMNS)[number];
 }) {
   return (
-    <div className={`min-w-0 overflow-hidden rounded-lg border bg-background p-3 ${column.cardClassName}`}>
-      <div className="min-w-0 space-y-3">
+    <div className={`min-w-0 overflow-hidden rounded-lg border bg-background p-2.5 ${column.cardClassName}`}>
+      <div className="min-w-0 space-y-2.5">
         <div className="min-w-0">
           <div className="flex min-w-0 items-start gap-2">
             <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
@@ -381,7 +382,7 @@ function TransactionCard({
               {deal.property_address ?? deal.file_name}
             </Link>
           </div>
-          <div className="mt-3 text-xs text-muted-foreground">
+          <div className="mt-2 truncate text-xs text-muted-foreground">
             {deal.transaction_type} · {deal.scenarioShortLabel}
           </div>
         </div>
@@ -408,7 +409,7 @@ function TransactionCard({
 function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
   if (deal.complianceStatus === "Draft") {
     return (
-      <span className="max-w-32 text-right text-xs leading-snug text-muted-foreground">
+      <span className="max-w-24 text-right text-xs leading-snug text-muted-foreground">
         Prepare from Email Queue
       </span>
     );
@@ -560,16 +561,15 @@ function MissingBadges({ deal, limit }: { deal: DashboardDeal; limit: number }) 
   }
 
   return (
-    <div className="flex min-w-0 max-w-full flex-wrap gap-1 overflow-hidden">
+    <div className="flex min-w-0 max-w-full flex-col items-start gap-1 overflow-hidden">
       {deal.missingRequired.slice(0, limit).map((item) => (
-        <Badge
+        <span
           key={item.id}
-          variant="outline"
           title={item.label}
-          className="min-w-0 max-w-full shrink truncate bg-background text-xs"
+          className="block max-w-full truncate rounded-4xl border border-border bg-background px-2 py-0.5 text-xs font-medium leading-4 text-foreground"
         >
           {item.label}
-        </Badge>
+        </span>
       ))}
       {deal.missingRequired.length > limit && (
         <Badge variant="outline" className="bg-background text-xs">
