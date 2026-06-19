@@ -20,7 +20,7 @@ export default async function DealPage({
   const { data: pages } = await supabase
     .from("deal_pages")
     .select(
-      "page_number, doc_type, doc_confidence, email_attachment_id, standard_form_key, standard_form_number, standard_form_title, standard_form_confidence",
+      "page_number, doc_type, doc_confidence, email_attachment_id, standard_form_key, standard_form_number, standard_form_title, standard_form_confidence, classification_reviewed_at, classification_reviewed_by",
     )
     .eq("deal_id", id)
     .order("page_number");

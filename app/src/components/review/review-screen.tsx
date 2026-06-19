@@ -63,6 +63,8 @@ type PageRow = {
   standard_form_number?: string | null;
   standard_form_title?: string | null;
   standard_form_confidence?: string | null;
+  classification_reviewed_at?: string | null;
+  classification_reviewed_by?: string | null;
 };
 
 type FieldRow = {
@@ -162,6 +164,7 @@ type PackageDocumentRow = {
   unprocessed: boolean;
   reminderNeeded: boolean;
   canMarkLoneWolfUploaded: boolean;
+  classificationReviewed: boolean;
 };
 
 type FieldStatusTone = "confirmed" | "review" | "missing" | "neutral";
@@ -447,6 +450,8 @@ export function ReviewScreen({
           standard_form_number: null,
           standard_form_title: null,
           standard_form_confidence: null,
+          classification_reviewed_at: new Date().toISOString(),
+          classification_reviewed_by: user?.id ?? null,
         })
         .eq("deal_id", deal.id)
         .in("page_number", classificationReviewRow.pages);
@@ -1740,7 +1745,9 @@ function buildPackageDocumentRows({
   requirementStatuses: Map<string, RequirementStatusRow>;
 }): PackageDocumentRow[] {
   const pageConfidenceByType = new Map<string, string | null>();
+  const reviewedPages = new Set<number>();
   for (const page of pages) {
+    if (page.classification_reviewed_at) reviewedPages.add(page.page_number);
     if (!page.doc_type) continue;
     if (!pageConfidenceByType.has(page.doc_type)) {
       pageConfidenceByType.set(page.doc_type, page.doc_confidence);
@@ -1760,8 +1767,9 @@ function buildPackageDocumentRows({
     const confidence = item.docTypes
       .map((docType) => pageConfidenceByType.get(docType))
       .find(Boolean);
+    const classificationReviewed = item.pages.some((pageNumber) => reviewedPages.has(pageNumber));
     const unprocessed = found && (!confidence || dealStatus === "uploaded" || dealStatus === "processing");
-    const needsReview = foundExtra || confidence === "low" || task?.status === "open";
+    const needsReview = (!classificationReviewed && (foundExtra || confidence === "low")) || task?.status === "open";
     const reminderNeeded = missing && (!hasDraftReminder && !hasSentReminder);
     return {
       id: item.id,
@@ -1780,6 +1788,7 @@ function buildPackageDocumentRows({
       unprocessed,
       reminderNeeded,
       canMarkLoneWolfUploaded: found && loneWolfStatus === "pending_upload",
+      classificationReviewed,
     };
   });
 }

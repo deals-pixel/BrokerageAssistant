@@ -67,6 +67,8 @@ export async function processDeal(dealId: string): Promise<void> {
           standard_form_number: formMatch?.formNumber ?? null,
           standard_form_title: formMatch?.title ?? null,
           standard_form_confidence: formMatch?.confidence ?? null,
+          classification_reviewed_at: null,
+          classification_reviewed_by: null,
         })
         .eq("deal_id", dealId)
         .eq("page_number", c.page_number);
