@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckIcon, Clock3Icon, DownloadIcon, FileTextIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, CheckIcon, Clock3Icon, DownloadIcon, FileTextIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1559,7 +1559,13 @@ function ClassificationReviewDialog({
   const activePage = selectedPage != null
     ? rowPages.find((page) => page.page_number === selectedPage) ?? rowPages[0]
     : rowPages[0];
+  const activePageIndex = activePage
+    ? rowPages.findIndex((page) => page.page_number === activePage.page_number)
+    : -1;
+  const canGoPrevious = activePageIndex > 0;
+  const canGoNext = activePageIndex >= 0 && activePageIndex < rowPages.length - 1;
   const docOptions = Object.entries(DOCUMENT_TYPES).sort((a, b) => a[1].localeCompare(b[1]));
+  const pageRangeLabel = formatPageRange(row?.pages ?? []);
 
   return (
     <Dialog open={Boolean(row)} onOpenChange={onOpenChange}>
@@ -1587,17 +1593,35 @@ function ClassificationReviewDialog({
                   </p>
                 </div>
                 {rowPages.length > 1 && (
-                  <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                    {rowPages.map((page) => (
-                      <Button
-                        key={page.page_number}
-                        size="sm"
-                        variant={activePage?.page_number === page.page_number ? "default" : "outline"}
-                        onClick={() => onSelectedPageChange(page.page_number)}
-                      >
-                        p.{page.page_number}
-                      </Button>
-                    ))}
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="outline"
+                      title="Previous page"
+                      onClick={() => {
+                        if (canGoPrevious) onSelectedPageChange(rowPages[activePageIndex - 1].page_number);
+                      }}
+                      disabled={!canGoPrevious}
+                    >
+                      <ChevronLeftIcon />
+                    </Button>
+                    <span className="min-w-24 text-center text-xs text-muted-foreground">
+                      {pageRangeLabel}
+                      {activePageIndex >= 0 ? ` | ${activePageIndex + 1}/${rowPages.length}` : ""}
+                    </span>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="outline"
+                      title="Next page"
+                      onClick={() => {
+                        if (canGoNext) onSelectedPageChange(rowPages[activePageIndex + 1].page_number);
+                      }}
+                      disabled={!canGoNext}
+                    >
+                      <ChevronRightIcon />
+                    </Button>
                   </div>
                 )}
               </div>
@@ -1623,9 +1647,7 @@ function ClassificationReviewDialog({
                   Current document label: {row.documentLabel}
                 </p>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  This override updates all matched pages in this row:
-                  {" "}
-                  {row.pages.map((page) => `p.${page}`).join(", ")}
+                  This override updates all matched pages in this row: {pageRangeLabel}
                 </p>
               </div>
 
@@ -1707,6 +1729,12 @@ function isSourceBox(value: SourceBox | null | undefined): value is SourceBox {
 
 function truncateSourceValue(value: string) {
   return value.length > 34 ? `${value.slice(0, 31)}...` : value;
+}
+
+function formatPageRange(pages: number[]) {
+  if (pages.length === 0) return "No pages";
+  if (pages.length === 1) return `p.${pages[0]}`;
+  return `p.${pages[0]}-${pages[pages.length - 1]}`;
 }
 
 function documentTypeLabel(docType: string | DocumentType | null | undefined) {
