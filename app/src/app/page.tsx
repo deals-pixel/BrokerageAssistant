@@ -325,39 +325,41 @@ const BOARD_COLUMNS: {
 
 function StatusBoard({ deals }: { deals: DashboardDeal[] }) {
   return (
-    <div className="grid gap-3 lg:grid-cols-3 2xl:grid-cols-5">
-      {BOARD_COLUMNS.map((column) => {
-        const columnDeals = deals.filter((deal) => deal.complianceStatus === column.status);
-        const averageCompletion = columnDeals.length
-          ? Math.round(columnDeals.reduce((sum, deal) => sum + deal.completionPct, 0) / columnDeals.length)
-          : 0;
-        return (
-          <div key={column.status} className={`min-h-64 rounded-lg p-2 ${column.className}`}>
-            <div className="mb-2 flex items-center justify-between gap-2 px-1 text-sm">
-              <div className="flex min-w-0 items-center gap-1.5">
-                <span className={`size-2 rounded-full ${column.dotClassName}`} />
-                <span className={`rounded-md px-1.5 py-0.5 font-medium ${column.headerPillClassName}`}>
-                  {column.label}
-                </span>
-              </div>
-              <div className={`flex shrink-0 items-center gap-2 tabular-nums ${column.textClassName}`}>
-                <span>{columnDeals.length} deals</span>
-                <span>{averageCompletion}%</span>
-              </div>
-            </div>
-            <div className="space-y-2">
-              {columnDeals.map((deal) => (
-                <TransactionCard key={deal.id} deal={deal} column={column} />
-              ))}
-              {columnDeals.length === 0 && (
-                <div className="rounded-lg border border-dashed bg-background/65 p-4 text-sm text-muted-foreground">
-                  No transactions in this status.
+    <div className="overflow-x-auto pb-2">
+      <div className="grid min-w-[76rem] grid-cols-5 gap-3">
+        {BOARD_COLUMNS.map((column) => {
+          const columnDeals = deals.filter((deal) => deal.complianceStatus === column.status);
+          const averageCompletion = columnDeals.length
+            ? Math.round(columnDeals.reduce((sum, deal) => sum + deal.completionPct, 0) / columnDeals.length)
+            : 0;
+          return (
+            <div key={column.status} className={`min-h-64 min-w-0 rounded-lg p-2 ${column.className}`}>
+              <div className="mb-2 flex min-w-0 items-center justify-between gap-2 px-1 text-sm">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span className={`size-2 shrink-0 rounded-full ${column.dotClassName}`} />
+                  <span className={`truncate rounded-md px-1.5 py-0.5 font-medium ${column.headerPillClassName}`}>
+                    {column.label}
+                  </span>
                 </div>
-              )}
+                <div className={`flex shrink-0 items-center gap-2 tabular-nums ${column.textClassName}`}>
+                  <span>{columnDeals.length} deals</span>
+                  <span>{averageCompletion}%</span>
+                </div>
+              </div>
+              <div className="min-w-0 space-y-2">
+                {columnDeals.map((deal) => (
+                  <TransactionCard key={deal.id} deal={deal} column={column} />
+                ))}
+                {columnDeals.length === 0 && (
+                  <div className="rounded-lg border border-dashed bg-background/65 p-4 text-sm text-muted-foreground">
+                    No transactions in this status.
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -370,12 +372,12 @@ function TransactionCard({
   column: (typeof BOARD_COLUMNS)[number];
 }) {
   return (
-    <div className={`rounded-lg border bg-background p-3 ${column.cardClassName}`}>
-      <div className="space-y-3">
-        <div>
-          <div className="flex items-start gap-2">
+    <div className={`min-w-0 overflow-hidden rounded-lg border bg-background p-3 ${column.cardClassName}`}>
+      <div className="min-w-0 space-y-3">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-start gap-2">
             <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-            <Link href={`/deals/${deal.id}`} className="font-semibold leading-snug hover:underline">
+            <Link href={`/deals/${deal.id}`} className="min-w-0 break-words font-semibold leading-snug hover:underline">
               {deal.property_address ?? deal.file_name}
             </Link>
           </div>
@@ -383,7 +385,7 @@ function TransactionCard({
             {deal.transaction_type} · {deal.scenarioShortLabel}
           </div>
         </div>
-        <div className="flex flex-wrap gap-1">
+        <div className="flex min-w-0 flex-wrap gap-1">
           <span className={`rounded px-1.5 py-0.5 text-xs ${column.headerPillClassName}`}>
             {deal.complianceStatus}
           </span>
@@ -392,8 +394,8 @@ function TransactionCard({
         </div>
         <MissingBadges deal={deal} limit={2} />
         <CompletionMeter deal={deal} />
-        <div className="flex items-center justify-between gap-2 pt-1">
-          <div className="text-xs text-foreground/80">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 pt-1">
+          <div className="min-w-0 text-xs text-foreground/80">
             {deal.closingDate ? `Closing ${deal.closingDate.toLocaleDateString()}` : "No closing date"}
           </div>
           <DashboardDealAction deal={deal} />
@@ -550,17 +552,22 @@ function RecordsTable({ deals }: { deals: DashboardDeal[] }) {
 
 function MissingBadges({ deal, limit }: { deal: DashboardDeal; limit: number }) {
   if (!deal.canAuditChecklist) {
-    return <span className="text-sm text-muted-foreground">Not processed yet</span>;
+    return <span className="min-w-0 truncate text-sm text-muted-foreground">Not processed yet</span>;
   }
 
   if (deal.missingRequired.length === 0) {
-    return <span className="text-sm text-muted-foreground">No missing requirements</span>;
+    return <span className="min-w-0 truncate text-sm text-muted-foreground">No missing requirements</span>;
   }
 
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex min-w-0 max-w-full flex-wrap gap-1 overflow-hidden">
       {deal.missingRequired.slice(0, limit).map((item) => (
-        <Badge key={item.id} variant="outline" className="bg-background text-xs">
+        <Badge
+          key={item.id}
+          variant="outline"
+          title={item.label}
+          className="min-w-0 max-w-full shrink truncate bg-background text-xs"
+        >
           {item.label}
         </Badge>
       ))}
@@ -576,16 +583,16 @@ function MissingBadges({ deal, limit }: { deal: DashboardDeal; limit: number }) 
 function CompletionMeter({ deal }: { deal: DashboardDeal }) {
   if (!deal.canAuditChecklist) {
     return (
-      <div className="flex min-w-28 items-center gap-2">
-        <div className="h-2 flex-1 rounded-full bg-muted" />
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="h-2 min-w-0 flex-1 rounded-full bg-muted" />
         <span className="w-16 text-right text-sm text-muted-foreground">Pending</span>
       </div>
     );
   }
 
   return (
-    <div className="flex min-w-28 items-center gap-2">
-      <div className="h-2 flex-1 rounded-full bg-muted">
+    <div className="flex min-w-0 items-center gap-2">
+      <div className="h-2 min-w-0 flex-1 rounded-full bg-muted">
         <div className="h-2 rounded-full bg-primary" style={{ width: `${deal.completionPct}%` }} />
       </div>
       <span className="w-10 text-right text-sm tabular-nums">{deal.completionPct}%</span>
