@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner";
 import { EmailAttachmentIngestButton } from "@/components/email-attachment-ingest-button";
 import { ProcessDealButton } from "@/components/process-deal-button";
+import { shortDealTitle, shortDocumentLabel } from "@/lib/display";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -208,15 +209,21 @@ export function DealIntakeWorkflow({
         const needsReview = email.status === "needs_match_review" || primaryLink?.match_status === "needs_review";
         const isPendingRouting = email.status === "routing_queued";
         const isWorking = workingId === email.id;
+        const dealTitle = shortDealTitle(linkedDeal.property_address, linkedDeal.file_name);
+        const routeMeta = primaryLink
+          ? `${primaryLink.match_score ?? 0}% | ${formatMatchStatus(primaryLink.match_status)}`
+          : routingSummary(email.routing_json) || "No match signal";
+        const signal = primaryLink?.match_reason || routingSummary(email.routing_json);
+        const nextStep = intakeNextStep(email, isConfirmed, needsReview, renderedAttachmentIds);
 
         return (
-          <div key={email.id} className="min-w-0 space-y-2 rounded-md border bg-background/80 p-2">
+          <div key={email.id} className="min-w-0 space-y-2 rounded-md border bg-background/80 p-2.5">
             <div className="flex min-w-0 items-start justify-between gap-2">
               <div className="min-w-0">
-                <div className="truncate text-[12px] font-medium leading-4">{email.subject || "No subject"}</div>
-                <div className="truncate text-[11px] leading-4 text-muted-foreground">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Email</div>
+                <div className="truncate text-[12px] font-semibold leading-4">{email.subject || "No subject"}</div>
+                <div className="truncate text-[11px] leading-4 text-muted-foreground" title={email.from_email ?? undefined}>
                   {email.from_name || email.from_email || "Unknown sender"}
-                  {email.received_at ? ` | ${new Date(email.received_at).toLocaleString()}` : ""}
                 </div>
               </div>
               <Badge variant={intakeStatusVariant(email.status)} className="h-5 shrink-0 px-1.5 text-[11px]">
@@ -224,135 +231,131 @@ export function DealIntakeWorkflow({
               </Badge>
             </div>
 
-            <div className="grid min-w-0 gap-1 text-[11px] leading-4 text-muted-foreground sm:grid-cols-2">
-              <div className="min-w-0">
-                <span className="font-medium text-foreground/80">Routing: </span>
-                {linkedDeal ? (
-                  <span className="break-words">
-                    {linkedDeal.property_address ?? linkedDeal.file_name}
-                    {primaryLink ? ` | ${primaryLink.match_score ?? 0}% ${formatMatchStatus(primaryLink.match_status)}` : ""}
-                  </span>
-                ) : (
-                  <span>{routingAddress(email.routing_json) || "No confident match"}</span>
-                )}
-              </div>
-              <div className="min-w-0">
-                <span className="font-medium text-foreground/80">Attachments: </span>
-                <span>
-                  {email.email_attachments?.length ?? 0} | {attachmentStatusSummary(email.email_attachments ?? [])}
-                </span>
-              </div>
-              {primaryLink?.match_reason && (
-                <div className="min-w-0 break-words sm:col-span-2">{primaryLink.match_reason}</div>
-              )}
-              {!primaryLink?.match_reason && routingSummary(email.routing_json) && (
-                <div className="min-w-0 break-words sm:col-span-2">{routingSummary(email.routing_json)}</div>
+            <div className="grid min-w-0 gap-1.5 text-[11px] leading-4 sm:grid-cols-3">
+              <IntakeInfo label="Route" value={dealTitle || routingAddress(email.routing_json) || "No confident match"} meta={routeMeta} />
+              <IntakeInfo label="Files" value={attachmentWorkflowSummary(email.email_attachments ?? [])} />
+              <IntakeInfo
+                label="Received"
+                value={email.received_at ? new Date(email.received_at).toLocaleDateString() : "Unknown"}
+                meta={email.received_at ? new Date(email.received_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
+              />
+              {signal && (
+                <div className="min-w-0 rounded-md bg-muted/35 px-2 py-1 sm:col-span-3">
+                  <span className="font-medium text-foreground/80">Signal: </span>
+                  <span className="text-muted-foreground">{signal}</span>
+                </div>
               )}
               {email.error_message && (
-                <div className="flex min-w-0 items-center gap-1 text-destructive sm:col-span-2">
+                <div className="flex min-w-0 items-center gap-1 text-destructive sm:col-span-3">
                   <AlertCircle className="size-3 shrink-0" />
                   <span className="break-words">{email.error_message}</span>
                 </div>
               )}
             </div>
 
-            <div className="flex min-w-0 flex-wrap gap-1.5">
-              {needsReview && linkedDeal && (
-                <>
-                  <Button size="sm" className="h-7 px-2 text-xs" onClick={() => openDialog("link", email)} disabled={isWorking}>
-                    <CheckCircle2 className="size-3.5" />
-                    Confirm
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => openDialog("link", email)}
-                    disabled={isWorking}
-                  >
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-t pt-2">
+              <div className="min-w-0 text-[11px] leading-4">
+                <span className="font-medium text-foreground/80">Next: </span>
+                <span className="text-muted-foreground">{nextStep}</span>
+              </div>
+              <div className="flex min-w-0 flex-wrap justify-end gap-1.5">
+                {needsReview && linkedDeal && (
+                  <>
+                    <Button size="sm" className="h-7 px-2 text-xs" onClick={() => openDialog("link", email)} disabled={isWorking}>
+                      <CheckCircle2 className="size-3.5" />
+                      Confirm
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => openDialog("link", email)}
+                      disabled={isWorking}
+                    >
+                      <Search className="size-3.5" />
+                      Change
+                    </Button>
+                  </>
+                )}
+                {isPendingRouting && (
+                  <Button size="sm" className="h-7 px-2 text-xs" onClick={() => retryRouting(email)} disabled={isWorking}>
                     <Search className="size-3.5" />
-                    Change
+                    Route
                   </Button>
-                </>
-              )}
-              {isPendingRouting && (
-                <Button size="sm" className="h-7 px-2 text-xs" onClick={() => retryRouting(email)} disabled={isWorking}>
-                  <Search className="size-3.5" />
-                  Route
-                </Button>
-              )}
-              {!isConfirmed && (
-                <>
-                  <Button
-                    size="sm"
-                    variant={needsReview ? "outline" : "default"}
-                    className="h-7 px-2 text-xs"
-                    onClick={() => openDialog("link", email)}
-                    disabled={isWorking || dealOptions.length === 0}
-                  >
-                    <Link2 className="size-3.5" />
-                    Link
-                  </Button>
+                )}
+                {!isConfirmed && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant={needsReview ? "outline" : "default"}
+                      className="h-7 px-2 text-xs"
+                      onClick={() => openDialog("link", email)}
+                      disabled={isWorking || dealOptions.length === 0}
+                    >
+                      <Link2 className="size-3.5" />
+                      Link
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => openDialog("create", email)}
+                      disabled={isWorking}
+                    >
+                      <FilePlus2 className="size-3.5" />
+                      Create draft
+                    </Button>
+                  </>
+                )}
+                {isConfirmed && linkedDeal && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      nativeButton={false}
+                      render={<Link href={`/deals/${linkedDeal.id}`} />}
+                    >
+                      Review
+                    </Button>
+                    <EmailAttachmentIngestButton
+                      dealId={linkedDeal.id}
+                      attachments={email.email_attachments}
+                      renderedAttachmentIds={renderedAttachmentIds}
+                    />
+                    <ProcessDealButton
+                      dealId={linkedDeal.id}
+                      status={linkedDeal.status}
+                      pageCount={linkedDeal.page_count}
+                      variant="default"
+                    />
+                  </>
+                )}
+                {(email.status === "routing_error" || email.status === "error") && (
                   <Button
                     size="sm"
                     variant="outline"
                     className="h-7 px-2 text-xs"
-                    onClick={() => openDialog("create", email)}
+                    onClick={() => retryRouting(email)}
                     disabled={isWorking}
                   >
-                    <FilePlus2 className="size-3.5" />
-                    Create draft
+                    <RotateCcw className="size-3.5" />
+                    Route again
                   </Button>
-                </>
-              )}
-              {isConfirmed && linkedDeal && (
-                <>
+                )}
+                {email.status !== "ignored" && (
                   <Button
-                    variant="outline"
                     size="sm"
+                    variant="outline"
                     className="h-7 px-2 text-xs"
-                    nativeButton={false}
-                    render={<Link href={`/deals/${linkedDeal.id}`} />}
+                    onClick={() => openDialog("ignore", email)}
+                    disabled={isWorking}
                   >
-                    Review
+                    <Trash2 className="size-3.5" />
+                    Ignore
                   </Button>
-                  <EmailAttachmentIngestButton
-                    dealId={linkedDeal.id}
-                    attachments={email.email_attachments}
-                    renderedAttachmentIds={renderedAttachmentIds}
-                  />
-                  <ProcessDealButton
-                    dealId={linkedDeal.id}
-                    status={linkedDeal.status}
-                    pageCount={linkedDeal.page_count}
-                    variant="default"
-                  />
-                </>
-              )}
-              {(email.status === "routing_error" || email.status === "error") && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-xs"
-                  onClick={() => retryRouting(email)}
-                  disabled={isWorking}
-                >
-                  <RotateCcw className="size-3.5" />
-                  Route again
-                </Button>
-              )}
-              {email.status !== "ignored" && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-xs"
-                  onClick={() => openDialog("ignore", email)}
-                  disabled={isWorking}
-                >
-                  <Trash2 className="size-3.5" />
-                  Ignore
-                </Button>
-              )}
+                )}
+              </div>
             </div>
           </div>
         );
@@ -448,6 +451,62 @@ export function DealIntakeWorkflow({
       </Dialog>
     </div>
   );
+}
+
+function IntakeInfo({
+  label,
+  value,
+  meta,
+}: {
+  label: string;
+  value: string;
+  meta?: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-md bg-muted/35 px-2 py-1">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="truncate text-[11px] font-medium leading-4 text-foreground" title={value}>
+        {value}
+      </div>
+      {meta && <div className="truncate text-[10px] leading-3 text-muted-foreground">{meta}</div>}
+    </div>
+  );
+}
+
+function attachmentWorkflowSummary(attachments: EmailAttachmentForQueue[]) {
+  if (attachments.length === 0) return "No files";
+  const labels = Array.from(
+    new Set(
+      attachments
+        .map((attachment) => shortDocumentLabel(attachment.light_classification_type))
+        .filter((label) => label && label !== "Unknown"),
+    ),
+  );
+  const fileText = `${attachments.length} file${attachments.length === 1 ? "" : "s"}`;
+  if (labels.length === 0) return `${fileText} | ${attachmentStatusSummary(attachments)}`;
+  const visible = labels.slice(0, 2).join(", ");
+  return labels.length > 2 ? `${fileText} | ${visible} +${labels.length - 2}` : `${fileText} | ${visible}`;
+}
+
+function intakeNextStep(
+  email: IntakeEmailRow,
+  isConfirmed: boolean,
+  needsReview: boolean,
+  renderedAttachmentIds: string[],
+) {
+  if (email.status === "routing_error" || email.status === "error") return "Routing failed; route again or ignore.";
+  if (email.status === "routing_queued") return "Run light routing before matching.";
+  if (needsReview) return "Confirm the suggested match or change it.";
+  if (!isConfirmed) return "Link this email or create a draft deal.";
+
+  const pendingAttachments = (email.email_attachments ?? []).filter(
+    (attachment) =>
+      attachment.status !== "ignored" &&
+      attachment.status !== "duplicate" &&
+      !renderedAttachmentIds.includes(attachment.id),
+  );
+  if (pendingAttachments.length > 0) return "Prepare email files for processing.";
+  return "Run full processing when ready.";
 }
 
 export function EmailIntakeQueue({

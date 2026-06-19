@@ -4,6 +4,7 @@ import { CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LayoutLis
 import { buildChecklistResult, type ChecklistItem } from "@/lib/checklist";
 import { DashboardAutoRefresh } from "@/components/dashboard-auto-refresh";
 import { createClient } from "@/lib/supabase/server";
+import { shortDealTitle, shortDocumentLabel } from "@/lib/display";
 import {
   DealIntakeWorkflow,
   type IntakeDealOption,
@@ -401,11 +402,11 @@ function TransactionCard({
               href={`/deals/${deal.id}`}
               className="min-w-0 break-words text-sm font-semibold leading-snug hover:underline"
             >
-              {deal.property_address ?? deal.file_name}
+              {shortDealTitle(deal.property_address, deal.file_name)}
             </Link>
           </div>
           <div className="mt-1.5 truncate text-[11px] leading-4 text-muted-foreground">
-            {deal.transaction_type} · {deal.scenarioShortLabel}
+            {deal.transaction_type} | {deal.scenarioShortLabel}
           </div>
         </div>
         <div className="flex min-w-0 flex-wrap gap-1">
@@ -525,10 +526,10 @@ function TimeList({
               >
                 <div className="min-w-0">
                   <Link href={`/deals/${deal.id}`} className="font-medium hover:underline">
-                    {deal.property_address ?? deal.file_name}
+                    {shortDealTitle(deal.property_address, deal.file_name)}
                   </Link>
                   <div className="text-xs text-muted-foreground">
-                    {deal.transaction_type} · {deal.scenarioShortLabel}
+                    {deal.transaction_type} | {deal.scenarioShortLabel}
                   </div>
                   {group.kind === "intake" && (
                     <div className="mt-2">
@@ -592,11 +593,11 @@ function RecordsTable({ deals }: { deals: DashboardDeal[] }) {
             <TableRow key={deal.id}>
               <TableCell className="min-w-56">
                 <Link href={`/deals/${deal.id}`} className="font-medium hover:underline">
-                  {deal.property_address ?? deal.file_name}
+                  {shortDealTitle(deal.property_address, deal.file_name)}
                 </Link>
                 <div className="text-xs text-muted-foreground">
                   {deal.page_count ?? 0} pages
-                  {deal.closingDate ? ` · Closing ${deal.closingDate.toLocaleDateString()}` : ""}
+                  {deal.closingDate ? ` | Closing ${deal.closingDate.toLocaleDateString()}` : ""}
                 </div>
               </TableCell>
               <TableCell className="capitalize">{deal.transaction_type}</TableCell>
@@ -647,7 +648,7 @@ function MissingBadges({ deal, limit }: { deal: DashboardDeal; limit: number }) 
           title={item.label}
           className="block max-w-full truncate rounded-4xl border border-border bg-background px-1.5 py-0.5 text-[11px] font-medium leading-4 text-foreground"
         >
-          {item.label}
+          {shortDocumentLabel(item.label)}
         </span>
       ))}
       {deal.missingRequired.length > limit && (
