@@ -5,7 +5,7 @@ import { buildChecklistResult, type ChecklistItem } from "@/lib/checklist";
 import { DashboardAutoRefresh } from "@/components/dashboard-auto-refresh";
 import { createClient } from "@/lib/supabase/server";
 import {
-  EmailIntakeQueue,
+  DealIntakeWorkflow,
   type IntakeDealOption,
   type IntakeEmailRow,
 } from "@/components/email-intake-queue";
@@ -68,6 +68,8 @@ type DashboardDeal = DealRow & {
   missingRequired: ChecklistItem[];
   closingDate: Date | null;
   canAuditChecklist: boolean;
+  intakeEmails: IntakeEmailRow[];
+  renderedAttachmentIds: string[];
 };
 
 export default async function DashboardPage({
@@ -110,7 +112,7 @@ export default async function DashboardPage({
     .order("received_at", { ascending: false })
     .limit(25);
 
-  const deals = ((data ?? []) as DealRow[]).map(toDashboardDeal);
+  const baseDeals = ((data ?? []) as DealRow[]).map(toDashboardDeal);
   const intakeEmails = (intakeData ?? []) as IntakeEmailRow[];
   const linkedDealIds = Array.from(
     new Set(
@@ -137,6 +139,19 @@ export default async function DashboardPage({
     acc[page.deal_id].push(page.email_attachment_id);
     return acc;
   }, {});
+  const intakeEmailsByDealId = intakeEmails.reduce<Record<string, IntakeEmailRow[]>>((acc, email) => {
+    for (const link of email.deal_email_links ?? []) {
+      if (!link.deal_id) continue;
+      acc[link.deal_id] = acc[link.deal_id] ?? [];
+      acc[link.deal_id].push(email);
+    }
+    return acc;
+  }, {});
+  const deals = baseDeals.map((deal) => ({
+    ...deal,
+    intakeEmails: intakeEmailsByDealId[deal.id] ?? [],
+    renderedAttachmentIds: renderedAttachmentIdsByDeal[deal.id] ?? [],
+  }));
   const dealOptions = deals.map<IntakeDealOption>((deal) => ({
     id: deal.id,
     label: deal.property_address ?? deal.file_name,
@@ -174,12 +189,6 @@ export default async function DashboardPage({
       </section>
 
       <UploadDropzone />
-
-      <EmailIntakeQueue
-        emails={intakeEmails}
-        dealOptions={dealOptions}
-        renderedAttachmentIdsByDeal={renderedAttachmentIdsByDeal}
-      />
 
       <section className="space-y-4 rounded-xl border bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -247,8 +256,8 @@ export default async function DashboardPage({
           />
         </div>
 
-        {activeView === "status" && <StatusBoard deals={filteredDeals} />}
-        {activeView === "time" && <TimeList deals={filteredDeals} />}
+        {activeView === "status" && <StatusBoard deals={filteredDeals} dealOptions={dealOptions} />}
+        {activeView === "time" && <TimeList deals={filteredDeals} dealOptions={dealOptions} />}
         {activeView === "table" && <RecordsTable deals={filteredDeals} />}
       </section>
     </div>
@@ -323,7 +332,13 @@ const BOARD_COLUMNS: {
   },
 ];
 
-function StatusBoard({ deals }: { deals: DashboardDeal[] }) {
+function StatusBoard({
+  deals,
+  dealOptions,
+}: {
+  deals: DashboardDeal[];
+  dealOptions: IntakeDealOption[];
+}) {
   return (
     <div className="min-w-0">
       <div className="grid min-w-0 grid-cols-5 gap-2">
@@ -349,7 +364,7 @@ function StatusBoard({ deals }: { deals: DashboardDeal[] }) {
               </div>
               <div className="min-w-0 space-y-2">
                 {columnDeals.map((deal) => (
-                  <TransactionCard key={deal.id} deal={deal} column={column} />
+                  <TransactionCard key={deal.id} deal={deal} column={column} dealOptions={dealOptions} />
                 ))}
                 {columnDeals.length === 0 && (
                   <div className="rounded-lg border border-dashed bg-background/65 p-4 text-sm text-muted-foreground">
@@ -368,10 +383,14 @@ function StatusBoard({ deals }: { deals: DashboardDeal[] }) {
 function TransactionCard({
   deal,
   column,
+  dealOptions,
 }: {
   deal: DashboardDeal;
   column: (typeof BOARD_COLUMNS)[number];
+  dealOptions: IntakeDealOption[];
 }) {
+  const isIntake = isIntakeDeal(deal);
+
   return (
     <div className={`min-w-0 overflow-hidden rounded-lg border bg-background p-2 ${column.cardClassName}`}>
       <div className="min-w-0 space-y-2">
@@ -404,14 +423,25 @@ function TransactionCard({
             </Badge>
           )}
         </div>
-        <MissingBadges deal={deal} limit={2} />
-        <CompletionMeter deal={deal} />
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 pt-0.5">
-          <div className="min-w-0 text-[11px] leading-4 text-foreground/80">
-            {deal.closingDate ? `Closing ${deal.closingDate.toLocaleDateString()}` : "No closing date"}
-          </div>
-          <DashboardDealAction deal={deal} />
-        </div>
+        {isIntake ? (
+          <DealIntakeWorkflow
+            deal={deal}
+            emails={deal.intakeEmails}
+            dealOptions={dealOptions}
+            renderedAttachmentIds={deal.renderedAttachmentIds}
+          />
+        ) : (
+          <>
+            <MissingBadges deal={deal} limit={2} />
+            <CompletionMeter deal={deal} />
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 pt-0.5">
+              <div className="min-w-0 text-[11px] leading-4 text-foreground/80">
+                {deal.closingDate ? `Closing ${deal.closingDate.toLocaleDateString()}` : "No closing date"}
+              </div>
+              <DashboardDealAction deal={deal} />
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -419,11 +449,7 @@ function TransactionCard({
 
 function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
   if (deal.complianceStatus === "Draft") {
-    return (
-      <span className="max-w-24 text-right text-[11px] leading-tight text-muted-foreground">
-        Prepare from Email Queue
-      </span>
-    );
+    return null;
   }
 
   return (
@@ -436,7 +462,13 @@ function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
   );
 }
 
-function TimeList({ deals }: { deals: DashboardDeal[] }) {
+function TimeList({
+  deals,
+  dealOptions,
+}: {
+  deals: DashboardDeal[];
+  dealOptions: IntakeDealOption[];
+}) {
   const intakeDeals = deals.filter(isIntakeDeal);
   const dateTrackedDeals = deals.filter((deal) => !isIntakeDeal(deal));
   const groups = [
@@ -444,11 +476,13 @@ function TimeList({ deals }: { deals: DashboardDeal[] }) {
       label: "Waiting to Process",
       icon: <FileText className="size-4" />,
       deals: intakeDeals,
+      kind: "intake" as const,
     },
     {
       label: "Closing This Week",
       icon: <CalendarClock className="size-4" />,
       deals: sortByClosingDate(dateTrackedDeals.filter((deal) => isClosingThisWeek(deal.closingDate))),
+      kind: "date" as const,
     },
     {
       label: "Upcoming",
@@ -456,11 +490,13 @@ function TimeList({ deals }: { deals: DashboardDeal[] }) {
       deals: sortByClosingDate(
         dateTrackedDeals.filter((deal) => deal.closingDate && !isClosingThisWeek(deal.closingDate)),
       ),
+      kind: "date" as const,
     },
     {
       label: "No Closing Date",
       icon: <CalendarClock className="size-4" />,
       deals: dateTrackedDeals.filter((deal) => !deal.closingDate),
+      kind: "date" as const,
     },
   ].filter((group) => group.deals.length > 0);
 
@@ -481,7 +517,11 @@ function TimeList({ deals }: { deals: DashboardDeal[] }) {
             {group.deals.map((deal) => (
               <div
                 key={deal.id}
-                className="grid gap-3 border-b p-3 last:border-b-0 md:grid-cols-[minmax(0,1.5fr)_8rem_9rem_minmax(12rem,1fr)_9rem]"
+                className={
+                  group.kind === "intake"
+                    ? "grid gap-3 border-b p-3 last:border-b-0 md:grid-cols-[minmax(0,0.85fr)_minmax(0,2fr)]"
+                    : "grid gap-3 border-b p-3 last:border-b-0 md:grid-cols-[minmax(0,1.5fr)_8rem_9rem_minmax(12rem,1fr)_9rem]"
+                }
               >
                 <div className="min-w-0">
                   <Link href={`/deals/${deal.id}`} className="font-medium hover:underline">
@@ -490,21 +530,39 @@ function TimeList({ deals }: { deals: DashboardDeal[] }) {
                   <div className="text-xs text-muted-foreground">
                     {deal.transaction_type} · {deal.scenarioShortLabel}
                   </div>
+                  {group.kind === "intake" && (
+                    <div className="mt-2">
+                      <Badge variant={STATUS_VARIANT[deal.complianceStatus] ?? "outline"}>
+                        {deal.complianceStatus}
+                      </Badge>
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">Closing</div>
-                  <div className="text-sm">{deal.closingDate ? deal.closingDate.toLocaleDateString() : "None"}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">Status</div>
-                  <Badge variant={STATUS_VARIANT[deal.complianceStatus] ?? "outline"}>
-                    {deal.complianceStatus}
-                  </Badge>
-                </div>
-                <MissingBadges deal={deal} limit={3} />
-                <div className="flex items-center justify-end">
-                  <DashboardDealAction deal={deal} />
-                </div>
+                {group.kind === "intake" ? (
+                  <DealIntakeWorkflow
+                    deal={deal}
+                    emails={deal.intakeEmails}
+                    dealOptions={dealOptions}
+                    renderedAttachmentIds={deal.renderedAttachmentIds}
+                  />
+                ) : (
+                  <>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Closing</div>
+                      <div className="text-sm">{deal.closingDate ? deal.closingDate.toLocaleDateString() : "None"}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Status</div>
+                      <Badge variant={STATUS_VARIANT[deal.complianceStatus] ?? "outline"}>
+                        {deal.complianceStatus}
+                      </Badge>
+                    </div>
+                    <MissingBadges deal={deal} limit={3} />
+                    <div className="flex items-center justify-end">
+                      <DashboardDealAction deal={deal} />
+                    </div>
+                  </>
+                )}
               </div>
             ))}
           </div>
@@ -668,6 +726,8 @@ function toDashboardDeal(deal: DealRow): DashboardDeal {
     missingRequired: canAuditChecklist ? checklist.missingRequired : [],
     closingDate: parseDate(fieldValue(deal.deal_fields, "closing_date")),
     canAuditChecklist,
+    intakeEmails: [],
+    renderedAttachmentIds: [],
   };
 }
 

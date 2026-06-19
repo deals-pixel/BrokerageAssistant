@@ -98,6 +98,358 @@ type DialogState = {
   reason: string;
 };
 
+type IntakeWorkflowDeal = {
+  id: string;
+  property_address: string | null;
+  file_name: string;
+  status: string;
+  page_count: number | null;
+};
+
+export function DealIntakeWorkflow({
+  deal,
+  emails,
+  dealOptions,
+  renderedAttachmentIds,
+}: {
+  deal: IntakeWorkflowDeal;
+  emails: IntakeEmailRow[];
+  dealOptions: IntakeDealOption[];
+  renderedAttachmentIds: string[];
+}) {
+  const router = useRouter();
+  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [workingId, setWorkingId] = useState<string | null>(null);
+  const selectedDeal = useMemo(
+    () => dealOptions.find((item) => item.id === dialog?.selectedDealId) ?? null,
+    [dealOptions, dialog?.selectedDealId],
+  );
+
+  function openDialog(mode: DialogMode, email: IntakeEmailRow) {
+    const suggestedLink = bestLink(email);
+    const suggestedDeal = linkedDealFromRelation(suggestedLink?.deals);
+    setDialog({
+      mode,
+      email,
+      selectedDealId: suggestedDeal?.id ?? deal.id ?? dealOptions[0]?.id ?? "",
+      propertyAddress: routingAddress(email.routing_json) || deal.property_address || "",
+      transactionType: routingTransactionType(email.routing_json),
+      reason: "",
+    });
+  }
+
+  async function submitDialog() {
+    if (!dialog) return;
+    setWorkingId(dialog.email.id);
+    try {
+      if (dialog.mode === "link") {
+        if (!dialog.selectedDealId) throw new Error("Choose a transaction to link.");
+        await postAction(`/api/inbound-emails/${dialog.email.id}/link`, {
+          dealId: dialog.selectedDealId,
+          matchReason: "Admin linked email from transaction card",
+        });
+        toast.success("Email linked to transaction.");
+      }
+      if (dialog.mode === "create") {
+        await postAction(`/api/inbound-emails/${dialog.email.id}/create-draft`, {
+          propertyAddress: dialog.propertyAddress,
+          transactionType: dialog.transactionType,
+        });
+        toast.success("Draft transaction created.");
+      }
+      if (dialog.mode === "ignore") {
+        await postAction(`/api/inbound-emails/${dialog.email.id}/ignore`, {
+          reason: dialog.reason,
+        });
+        toast.success("Email ignored.");
+      }
+      setDialog(null);
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Action failed");
+    } finally {
+      setWorkingId(null);
+    }
+  }
+
+  async function retryRouting(email: IntakeEmailRow) {
+    setWorkingId(email.id);
+    try {
+      await postAction(`/api/inbound-emails/${email.id}/reroute`, {});
+      toast.success("Routing completed.");
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not route email");
+    } finally {
+      setWorkingId(null);
+    }
+  }
+
+  if (emails.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed bg-muted/20 p-2 text-[11px] leading-4 text-muted-foreground">
+        No linked intake email. Review the draft deal or link a stored email from intake history.
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-w-0 space-y-2">
+      {emails.map((email) => {
+        const primaryLink = bestLink(email);
+        const linkedDeal = linkedDealFromRelation(primaryLink?.deals) ?? deal;
+        const isConfirmed = Boolean(
+          linkedDeal &&
+            (email.status === "matched" ||
+              email.status === "draft_transaction_created" ||
+              primaryLink?.match_status === "auto_matched" ||
+              primaryLink?.match_status === "manually_confirmed"),
+        );
+        const needsReview = email.status === "needs_match_review" || primaryLink?.match_status === "needs_review";
+        const isPendingRouting = email.status === "routing_queued";
+        const isWorking = workingId === email.id;
+
+        return (
+          <div key={email.id} className="min-w-0 space-y-2 rounded-md border bg-background/80 p-2">
+            <div className="flex min-w-0 items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-[12px] font-medium leading-4">{email.subject || "No subject"}</div>
+                <div className="truncate text-[11px] leading-4 text-muted-foreground">
+                  {email.from_name || email.from_email || "Unknown sender"}
+                  {email.received_at ? ` | ${new Date(email.received_at).toLocaleString()}` : ""}
+                </div>
+              </div>
+              <Badge variant={intakeStatusVariant(email.status)} className="h-5 shrink-0 px-1.5 text-[11px]">
+                {formatIntakeStatus(email.status)}
+              </Badge>
+            </div>
+
+            <div className="grid min-w-0 gap-1 text-[11px] leading-4 text-muted-foreground sm:grid-cols-2">
+              <div className="min-w-0">
+                <span className="font-medium text-foreground/80">Routing: </span>
+                {linkedDeal ? (
+                  <span className="break-words">
+                    {linkedDeal.property_address ?? linkedDeal.file_name}
+                    {primaryLink ? ` | ${primaryLink.match_score ?? 0}% ${formatMatchStatus(primaryLink.match_status)}` : ""}
+                  </span>
+                ) : (
+                  <span>{routingAddress(email.routing_json) || "No confident match"}</span>
+                )}
+              </div>
+              <div className="min-w-0">
+                <span className="font-medium text-foreground/80">Attachments: </span>
+                <span>
+                  {email.email_attachments?.length ?? 0} | {attachmentStatusSummary(email.email_attachments ?? [])}
+                </span>
+              </div>
+              {primaryLink?.match_reason && (
+                <div className="min-w-0 break-words sm:col-span-2">{primaryLink.match_reason}</div>
+              )}
+              {!primaryLink?.match_reason && routingSummary(email.routing_json) && (
+                <div className="min-w-0 break-words sm:col-span-2">{routingSummary(email.routing_json)}</div>
+              )}
+              {email.error_message && (
+                <div className="flex min-w-0 items-center gap-1 text-destructive sm:col-span-2">
+                  <AlertCircle className="size-3 shrink-0" />
+                  <span className="break-words">{email.error_message}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex min-w-0 flex-wrap gap-1.5">
+              {needsReview && linkedDeal && (
+                <>
+                  <Button size="sm" className="h-7 px-2 text-xs" onClick={() => openDialog("link", email)} disabled={isWorking}>
+                    <CheckCircle2 className="size-3.5" />
+                    Confirm
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => openDialog("link", email)}
+                    disabled={isWorking}
+                  >
+                    <Search className="size-3.5" />
+                    Change
+                  </Button>
+                </>
+              )}
+              {isPendingRouting && (
+                <Button size="sm" className="h-7 px-2 text-xs" onClick={() => retryRouting(email)} disabled={isWorking}>
+                  <Search className="size-3.5" />
+                  Route
+                </Button>
+              )}
+              {!isConfirmed && (
+                <>
+                  <Button
+                    size="sm"
+                    variant={needsReview ? "outline" : "default"}
+                    className="h-7 px-2 text-xs"
+                    onClick={() => openDialog("link", email)}
+                    disabled={isWorking || dealOptions.length === 0}
+                  >
+                    <Link2 className="size-3.5" />
+                    Link
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => openDialog("create", email)}
+                    disabled={isWorking}
+                  >
+                    <FilePlus2 className="size-3.5" />
+                    Create draft
+                  </Button>
+                </>
+              )}
+              {isConfirmed && linkedDeal && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    nativeButton={false}
+                    render={<Link href={`/deals/${linkedDeal.id}`} />}
+                  >
+                    Review
+                  </Button>
+                  <EmailAttachmentIngestButton
+                    dealId={linkedDeal.id}
+                    attachments={email.email_attachments}
+                    renderedAttachmentIds={renderedAttachmentIds}
+                  />
+                  <ProcessDealButton
+                    dealId={linkedDeal.id}
+                    status={linkedDeal.status}
+                    pageCount={linkedDeal.page_count}
+                    variant="default"
+                  />
+                </>
+              )}
+              {(email.status === "routing_error" || email.status === "error") && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => retryRouting(email)}
+                  disabled={isWorking}
+                >
+                  <RotateCcw className="size-3.5" />
+                  Route again
+                </Button>
+              )}
+              {email.status !== "ignored" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => openDialog("ignore", email)}
+                  disabled={isWorking}
+                >
+                  <Trash2 className="size-3.5" />
+                  Ignore
+                </Button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      <Dialog open={Boolean(dialog)} onOpenChange={(open) => !open && setDialog(null)}>
+        <DialogContent className="sm:max-w-lg">
+          {dialog && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{dialogTitle(dialog.mode)}</DialogTitle>
+                <DialogDescription>{dialog.email.subject || "No subject"}</DialogDescription>
+              </DialogHeader>
+
+              {dialog.mode === "link" && (
+                <div className="space-y-3">
+                  <Label htmlFor={`intake-deal-search-${dialog.email.id}`}>Transaction</Label>
+                  <select
+                    id={`intake-deal-search-${dialog.email.id}`}
+                    value={dialog.selectedDealId}
+                    onChange={(event) => setDialog({ ...dialog, selectedDealId: event.target.value })}
+                    className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
+                  >
+                    {dealOptions.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedDeal && (
+                    <p className="text-xs text-muted-foreground">
+                      {selectedDeal.transactionCode ? `${selectedDeal.transactionCode} | ` : ""}
+                      {selectedDeal.transactionType} | {selectedDeal.status}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {dialog.mode === "create" && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label htmlFor={`draft-address-${dialog.email.id}`}>Property address</Label>
+                    <Input
+                      id={`draft-address-${dialog.email.id}`}
+                      value={dialog.propertyAddress}
+                      onChange={(event) => setDialog({ ...dialog, propertyAddress: event.target.value })}
+                      placeholder="Unknown"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={`draft-type-${dialog.email.id}`}>Transaction type</Label>
+                    <select
+                      id={`draft-type-${dialog.email.id}`}
+                      value={dialog.transactionType}
+                      onChange={(event) => setDialog({ ...dialog, transactionType: event.target.value })}
+                      className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
+                    >
+                      <option value="unknown">Unknown</option>
+                      <option value="sale">Sale</option>
+                      <option value="purchase">Purchase</option>
+                      <option value="lease">Lease</option>
+                      <option value="referral">Referral</option>
+                      <option value="co_brokerage">Co-brokerage</option>
+                      <option value="preconstruction">Pre-construction</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {dialog.mode === "ignore" && (
+                <div className="space-y-2">
+                  <Label htmlFor={`ignore-reason-${dialog.email.id}`}>Reason</Label>
+                  <Textarea
+                    id={`ignore-reason-${dialog.email.id}`}
+                    value={dialog.reason}
+                    onChange={(event) => setDialog({ ...dialog, reason: event.target.value })}
+                    placeholder="Duplicate, spam, wrong brokerage, or not a transaction package"
+                  />
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDialog(null)}>
+                  Cancel
+                </Button>
+                <Button onClick={submitDialog} disabled={workingId === dialog.email.id}>
+                  {workingId === dialog.email.id ? "Saving..." : dialogSubmitLabel(dialog.mode)}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 export function EmailIntakeQueue({
   emails,
   dealOptions,
