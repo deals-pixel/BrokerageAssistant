@@ -437,20 +437,30 @@ function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
 }
 
 function TimeList({ deals }: { deals: DashboardDeal[] }) {
+  const intakeDeals = deals.filter(isIntakeDeal);
+  const dateTrackedDeals = deals.filter((deal) => !isIntakeDeal(deal));
   const groups = [
     {
+      label: "Waiting to Process",
+      icon: <FileText className="size-4" />,
+      deals: intakeDeals,
+    },
+    {
       label: "Closing This Week",
-      deals: sortByClosingDate(deals.filter((deal) => isClosingThisWeek(deal.closingDate))),
+      icon: <CalendarClock className="size-4" />,
+      deals: sortByClosingDate(dateTrackedDeals.filter((deal) => isClosingThisWeek(deal.closingDate))),
     },
     {
       label: "Upcoming",
+      icon: <CalendarClock className="size-4" />,
       deals: sortByClosingDate(
-        deals.filter((deal) => deal.closingDate && !isClosingThisWeek(deal.closingDate)),
+        dateTrackedDeals.filter((deal) => deal.closingDate && !isClosingThisWeek(deal.closingDate)),
       ),
     },
     {
       label: "No Closing Date",
-      deals: deals.filter((deal) => !deal.closingDate),
+      icon: <CalendarClock className="size-4" />,
+      deals: dateTrackedDeals.filter((deal) => !deal.closingDate),
     },
   ].filter((group) => group.deals.length > 0);
 
@@ -463,7 +473,7 @@ function TimeList({ deals }: { deals: DashboardDeal[] }) {
       {groups.map((group) => (
         <div key={group.label} className="space-y-2">
           <div className="flex items-center gap-2 text-sm font-semibold">
-            <CalendarClock className="size-4" />
+            {group.icon}
             {group.label}
             <Badge variant="outline">{group.deals.length}</Badge>
           </div>
@@ -664,9 +674,7 @@ function toDashboardDeal(deal: DealRow): DashboardDeal {
 function buildMetrics(deals: DashboardDeal[]) {
   return {
     activeTransactions: deals.filter((deal) => deal.complianceStatus !== "Submitted").length,
-    intakeTransactions: deals.filter(
-      (deal) => deal.complianceStatus === "Draft" || deal.complianceStatus === "Needs Processing",
-    ).length,
+    intakeTransactions: deals.filter(isIntakeDeal).length,
     incompleteTransactions: deals.filter((deal) => deal.complianceStatus === "Incomplete").length,
     missingFintrac: countDealsMissing(deals, "form_630_individual_identification"),
     missingDeposits: countDealsMissing(deals, "deposit_proof"),
@@ -721,14 +729,16 @@ function dashboardHref({ view, filter }: { view: ViewKey; filter: FilterKey }) {
 
 function matchesFilter(deal: DashboardDeal, filter: FilterKey) {
   if (filter === "all") return true;
-  if (filter === "intake") {
-    return deal.complianceStatus === "Draft" || deal.complianceStatus === "Needs Processing";
-  }
+  if (filter === "intake") return isIntakeDeal(deal);
   if (filter === "incomplete") return deal.complianceStatus === "Incomplete";
   if (filter === "ready") return deal.complianceStatus === "Ready";
   if (filter === "submitted") return deal.complianceStatus === "Submitted";
   if (filter === "closing_week") return isClosingThisWeek(deal.closingDate);
   return true;
+}
+
+function isIntakeDeal(deal: DashboardDeal) {
+  return deal.complianceStatus === "Draft" || deal.complianceStatus === "Needs Processing";
 }
 
 function isClosingThisWeek(date: Date | null) {
