@@ -50,7 +50,7 @@ export function PagePanel({
     <Card className="self-start lg:sticky lg:top-4">
       <CardContent className="space-y-3 p-3">
         {documentSections.length > 0 && (
-          <div className="flex gap-1 overflow-x-auto border-b pb-2" role="tablist" aria-label="Document preview tabs">
+          <div className="flex flex-wrap gap-1 border-b pb-2" role="tablist" aria-label="Document preview tabs">
             {documentSections.map((section) => {
               const selected = selectedPage != null && section.pages.includes(selectedPage);
               return (
@@ -61,7 +61,7 @@ export function PagePanel({
                   aria-selected={selected}
                   title={section.formLabel ? `${section.label} - ${section.formLabel}` : section.label}
                   onClick={() => onSelect(section.startPage)}
-                  className={`shrink-0 rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors ${
+                  className={`min-w-24 max-w-40 rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors ${
                     selected
                       ? "border-primary bg-primary text-primary-foreground"
                       : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground"

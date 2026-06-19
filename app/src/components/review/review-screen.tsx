@@ -742,7 +742,7 @@ export function ReviewScreen({
                       ? pageLabelByNumber.get(row.source_page)
                       : null;
                   const conflictSources = validConflictSources(row?.conflict_sources);
-                  const fieldStatus = getFieldStatus(row, conflictSources.length);
+                  const fieldStatus = getFieldStatus(f.key, row, conflictSources.length, fieldMap);
                   const inputClassName =
                     fieldStatus.className +
                     (edited[f.key] !== undefined ? " ring-2 ring-blue-300" : "");
@@ -1228,13 +1228,19 @@ function PipelineStep({
   );
 }
 
-function getFieldStatus(row: FieldRow | undefined, conflictCount: number): FieldStatus {
+function getFieldStatus(
+  fieldKey: string,
+  row: FieldRow | undefined,
+  conflictCount: number,
+  fieldMap: Map<string, FieldRow>,
+): FieldStatus {
   const value = row?.value?.trim();
   const hasValue = Boolean(value);
   const note = row?.notes?.toLowerCase() ?? "";
   const requiredMissing =
     !hasValue &&
-    (row?.needs_review ||
+    (isRequiredReviewField(fieldKey, fieldMap) ||
+      row?.needs_review ||
       note.includes("required") ||
       note.includes("not found") ||
       note.includes("missing"));
@@ -1276,6 +1282,39 @@ function getFieldStatus(row: FieldRow | undefined, conflictCount: number): Field
       : "Confirmed from source",
     className: "border-green-200 bg-green-50/60 focus-visible:ring-green-200",
   };
+}
+
+const ALWAYS_REQUIRED_REVIEW_FIELDS = new Set([
+  "agent_name",
+  "property_address",
+  "closing_date",
+  "sale_price",
+  "transaction_type",
+  "representation_side",
+  "seller_representation",
+  "buyer_representation",
+  "seller_names",
+  "buyer_names",
+]);
+
+function isRequiredReviewField(fieldKey: string, fieldMap: Map<string, FieldRow>) {
+  if (ALWAYS_REQUIRED_REVIEW_FIELDS.has(fieldKey)) return true;
+
+  if (fieldKey === "deposit_held_by" || fieldKey === "deposit_method" || fieldKey === "deposit_amount") {
+    return hasFieldValue(fieldMap, "deposit_held_by") ||
+      hasFieldValue(fieldMap, "deposit_method") ||
+      hasFieldValue(fieldMap, "deposit_amount");
+  }
+
+  if (fieldKey === "lease_start_date") {
+    return fieldMap.get("transaction_type")?.value?.toLowerCase() === "lease";
+  }
+
+  return false;
+}
+
+function hasFieldValue(fieldMap: Map<string, FieldRow>, fieldKey: string) {
+  return Boolean(fieldMap.get(fieldKey)?.value?.trim());
 }
 
 function fieldShellClass(tone: FieldStatusTone) {
