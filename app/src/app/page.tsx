@@ -26,6 +26,8 @@ import {
 import type { TransactionType } from "@/lib/types";
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+  Draft: "outline",
+  "Needs Processing": "secondary",
   Incomplete: "destructive",
   Ready: "default",
   Submitted: "secondary",
@@ -37,7 +39,8 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   error: "destructive",
 };
 
-type FilterKey = "all" | "incomplete" | "ready" | "submitted" | "closing_week";
+type ComplianceStatus = "Draft" | "Needs Processing" | "Incomplete" | "Ready" | "Submitted";
+type FilterKey = "all" | "intake" | "incomplete" | "ready" | "submitted" | "closing_week";
 type ViewKey = "status" | "time" | "table";
 
 type DealRow = {
@@ -60,10 +63,11 @@ type DealRow = {
 type DashboardDeal = DealRow & {
   scenarioLabel: string;
   scenarioShortLabel: string;
-  complianceStatus: "Incomplete" | "Ready" | "Submitted";
+  complianceStatus: ComplianceStatus;
   completionPct: number;
   missingRequired: ChecklistItem[];
   closingDate: Date | null;
+  canAuditChecklist: boolean;
 };
 
 export default async function DashboardPage({
@@ -217,6 +221,11 @@ export default async function DashboardPage({
             label={`All ${deals.length}`}
           />
           <FilterButton
+            active={activeFilter === "intake"}
+            href={dashboardHref({ view: activeView, filter: "intake" })}
+            label={`Intake ${metrics.intakeTransactions}`}
+          />
+          <FilterButton
             active={activeFilter === "incomplete"}
             href={dashboardHref({ view: activeView, filter: "incomplete" })}
             label={`Incomplete ${metrics.incompleteTransactions}`}
@@ -247,7 +256,7 @@ export default async function DashboardPage({
 }
 
 const BOARD_COLUMNS: {
-  status: DashboardDeal["complianceStatus"];
+  status: ComplianceStatus;
   label: string;
   helper: string;
   icon: ReactNode;
@@ -257,6 +266,28 @@ const BOARD_COLUMNS: {
   headerPillClassName: string;
   cardClassName: string;
 }[] = [
+  {
+    status: "Draft",
+    label: "Draft",
+    helper: "Email received",
+    icon: <FileText className="size-3.5" />,
+    className: "bg-[#f7f7f5]",
+    dotClassName: "bg-[#8a8780]",
+    textClassName: "text-[#69655d]",
+    headerPillClassName: "bg-[#e9e6df] text-[#56524b]",
+    cardClassName: "border-[#dad7d0] shadow-[0_1px_2px_rgba(52,48,41,0.05)]",
+  },
+  {
+    status: "Needs Processing",
+    label: "Needs Processing",
+    helper: "Prepared, not parsed",
+    icon: <CalendarClock className="size-3.5" />,
+    className: "bg-[#f5f8fc]",
+    dotClassName: "bg-[#5a9bdd]",
+    textClassName: "text-[#2f6fa8]",
+    headerPillClassName: "bg-[#dbeafa] text-[#255f95]",
+    cardClassName: "border-[#c6d9ef] shadow-[0_1px_2px_rgba(31,75,119,0.05)]",
+  },
   {
     status: "Incomplete",
     label: "Incomplete",
@@ -294,7 +325,7 @@ const BOARD_COLUMNS: {
 
 function StatusBoard({ deals }: { deals: DashboardDeal[] }) {
   return (
-    <div className="grid gap-3 lg:grid-cols-3">
+    <div className="grid gap-3 lg:grid-cols-3 2xl:grid-cols-5">
       {BOARD_COLUMNS.map((column) => {
         const columnDeals = deals.filter((deal) => deal.complianceStatus === column.status);
         const averageCompletion = columnDeals.length
@@ -365,15 +396,29 @@ function TransactionCard({
           <div className="text-xs text-foreground/80">
             {deal.closingDate ? `Closing ${deal.closingDate.toLocaleDateString()}` : "No closing date"}
           </div>
-          <ProcessDealButton
-            dealId={deal.id}
-            status={deal.status}
-            pageCount={deal.page_count}
-            variant={deal.status === "uploaded" ? "default" : "outline"}
-          />
+          <DashboardDealAction deal={deal} />
         </div>
       </div>
     </div>
+  );
+}
+
+function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
+  if (deal.complianceStatus === "Draft") {
+    return (
+      <span className="max-w-32 text-right text-xs leading-snug text-muted-foreground">
+        Prepare from Email Queue
+      </span>
+    );
+  }
+
+  return (
+    <ProcessDealButton
+      dealId={deal.id}
+      status={deal.status}
+      pageCount={deal.page_count}
+      variant={deal.complianceStatus === "Needs Processing" ? "default" : "outline"}
+    />
   );
 }
 
@@ -434,12 +479,7 @@ function TimeList({ deals }: { deals: DashboardDeal[] }) {
                 </div>
                 <MissingBadges deal={deal} limit={3} />
                 <div className="flex items-center justify-end">
-                  <ProcessDealButton
-                    dealId={deal.id}
-                    status={deal.status}
-                    pageCount={deal.page_count}
-                    variant={deal.status === "uploaded" ? "default" : "outline"}
-                  />
+                  <DashboardDealAction deal={deal} />
                 </div>
               </div>
             ))}
@@ -491,12 +531,7 @@ function RecordsTable({ deals }: { deals: DashboardDeal[] }) {
                 <CompletionMeter deal={deal} />
               </TableCell>
               <TableCell className="text-right">
-                <ProcessDealButton
-                  dealId={deal.id}
-                  status={deal.status}
-                  pageCount={deal.page_count}
-                  variant={deal.status === "uploaded" ? "default" : "outline"}
-                />
+                <DashboardDealAction deal={deal} />
               </TableCell>
             </TableRow>
           ))}
@@ -514,6 +549,10 @@ function RecordsTable({ deals }: { deals: DashboardDeal[] }) {
 }
 
 function MissingBadges({ deal, limit }: { deal: DashboardDeal; limit: number }) {
+  if (!deal.canAuditChecklist) {
+    return <span className="text-sm text-muted-foreground">Not processed yet</span>;
+  }
+
   if (deal.missingRequired.length === 0) {
     return <span className="text-sm text-muted-foreground">No missing requirements</span>;
   }
@@ -535,6 +574,15 @@ function MissingBadges({ deal, limit }: { deal: DashboardDeal; limit: number }) 
 }
 
 function CompletionMeter({ deal }: { deal: DashboardDeal }) {
+  if (!deal.canAuditChecklist) {
+    return (
+      <div className="flex min-w-28 items-center gap-2">
+        <div className="h-2 flex-1 rounded-full bg-muted" />
+        <span className="w-16 text-right text-sm text-muted-foreground">Pending</span>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-w-28 items-center gap-2">
       <div className="h-2 flex-1 rounded-full bg-muted">
@@ -561,26 +609,46 @@ function toDashboardDeal(deal: DealRow): DashboardDeal {
     deal.deal_fields ?? [],
   );
   const submitted = Boolean(deal.submitted_at) || deal.status === "exported";
-  const complianceStatus = submitted
+  const pageCount = deal.page_count ?? 0;
+  const isEmailDraft = deal.status === "draft_from_email" || (deal.source === "email" && pageCount === 0);
+  const needsProcessing =
+    !isEmailDraft &&
+    (deal.status === "uploaded" || deal.status === "awaiting_admin_process" || deal.status === "processing");
+  const canAuditChecklist = !isEmailDraft && !needsProcessing;
+  const complianceStatus: ComplianceStatus = submitted
     ? "Submitted"
-    : checklist.missingRequired.length === 0 && deal.status !== "uploaded" && deal.status !== "processing"
-      ? "Ready"
-      : "Incomplete";
+    : isEmailDraft
+      ? "Draft"
+      : needsProcessing
+        ? "Needs Processing"
+        : checklist.missingRequired.length === 0
+          ? "Ready"
+          : "Incomplete";
+  const scenarioLabel = isEmailDraft
+    ? "Email draft"
+    : needsProcessing
+      ? "Ready to process"
+      : deal.scenario_label ?? checklist.scenario.label;
+  const scenarioShortLabel = isEmailDraft ? "Email draft" : needsProcessing ? "Ready to process" : checklist.scenario.shortLabel;
 
   return {
     ...deal,
-    scenarioLabel: deal.scenario_label ?? checklist.scenario.label,
-    scenarioShortLabel: checklist.scenario.shortLabel,
+    scenarioLabel,
+    scenarioShortLabel,
     complianceStatus,
-    completionPct: checklist.completionPct,
-    missingRequired: checklist.missingRequired,
+    completionPct: canAuditChecklist ? checklist.completionPct : 0,
+    missingRequired: canAuditChecklist ? checklist.missingRequired : [],
     closingDate: parseDate(fieldValue(deal.deal_fields, "closing_date")),
+    canAuditChecklist,
   };
 }
 
 function buildMetrics(deals: DashboardDeal[]) {
   return {
     activeTransactions: deals.filter((deal) => deal.complianceStatus !== "Submitted").length,
+    intakeTransactions: deals.filter(
+      (deal) => deal.complianceStatus === "Draft" || deal.complianceStatus === "Needs Processing",
+    ).length,
     incompleteTransactions: deals.filter((deal) => deal.complianceStatus === "Incomplete").length,
     missingFintrac: countDealsMissing(deals, "form_630_individual_identification"),
     missingDeposits: countDealsMissing(deals, "deposit_proof"),
@@ -608,7 +676,13 @@ function parseDate(value: string | null) {
 }
 
 function parseFilter(value: string | undefined): FilterKey {
-  if (value === "incomplete" || value === "ready" || value === "submitted" || value === "closing_week") {
+  if (
+    value === "intake" ||
+    value === "incomplete" ||
+    value === "ready" ||
+    value === "submitted" ||
+    value === "closing_week"
+  ) {
     return value;
   }
   return "all";
@@ -629,6 +703,9 @@ function dashboardHref({ view, filter }: { view: ViewKey; filter: FilterKey }) {
 
 function matchesFilter(deal: DashboardDeal, filter: FilterKey) {
   if (filter === "all") return true;
+  if (filter === "intake") {
+    return deal.complianceStatus === "Draft" || deal.complianceStatus === "Needs Processing";
+  }
   if (filter === "incomplete") return deal.complianceStatus === "Incomplete";
   if (filter === "ready") return deal.complianceStatus === "Ready";
   if (filter === "submitted") return deal.complianceStatus === "Submitted";
