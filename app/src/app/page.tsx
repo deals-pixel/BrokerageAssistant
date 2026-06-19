@@ -334,7 +334,7 @@ function StatusBoard({ deals }: { deals: DashboardDeal[] }) {
             : 0;
           return (
             <div key={column.status} className={`min-h-64 min-w-0 rounded-lg p-2 ${column.className}`}>
-              <div className="mb-2 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 px-1 text-sm">
+              <div className="mb-2 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 px-1 text-xs">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <span className={`size-2 shrink-0 rounded-full ${column.dotClassName}`} />
                   <span className={`truncate rounded-md px-1.5 py-0.5 font-medium ${column.headerPillClassName}`}>
@@ -373,30 +373,41 @@ function TransactionCard({
   column: (typeof BOARD_COLUMNS)[number];
 }) {
   return (
-    <div className={`min-w-0 overflow-hidden rounded-lg border bg-background p-2.5 ${column.cardClassName}`}>
-      <div className="min-w-0 space-y-2.5">
+    <div className={`min-w-0 overflow-hidden rounded-lg border bg-background p-2 ${column.cardClassName}`}>
+      <div className="min-w-0 space-y-2">
         <div className="min-w-0">
-          <div className="flex min-w-0 items-start gap-2">
-            <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-            <Link href={`/deals/${deal.id}`} className="min-w-0 break-words font-semibold leading-snug hover:underline">
+          <div className="flex min-w-0 items-start gap-1.5">
+            <FileText className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+            <Link
+              href={`/deals/${deal.id}`}
+              className="min-w-0 break-words text-sm font-semibold leading-snug hover:underline"
+            >
               {deal.property_address ?? deal.file_name}
             </Link>
           </div>
-          <div className="mt-2 truncate text-xs text-muted-foreground">
+          <div className="mt-1.5 truncate text-[11px] leading-4 text-muted-foreground">
             {deal.transaction_type} · {deal.scenarioShortLabel}
           </div>
         </div>
         <div className="flex min-w-0 flex-wrap gap-1">
-          <span className={`rounded px-1.5 py-0.5 text-xs ${column.headerPillClassName}`}>
+          <span className={`rounded px-1.5 py-0.5 text-[11px] leading-4 ${column.headerPillClassName}`}>
             {deal.complianceStatus}
           </span>
-          {deal.source === "email" && <Badge variant="outline">Email</Badge>}
-          {deal.transaction_code && <Badge variant="outline">{deal.transaction_code}</Badge>}
+          {deal.source === "email" && (
+            <Badge variant="outline" className="h-4 px-1.5 text-[11px] leading-4">
+              Email
+            </Badge>
+          )}
+          {deal.transaction_code && (
+            <Badge variant="outline" className="h-4 max-w-full truncate px-1.5 text-[11px] leading-4">
+              {deal.transaction_code}
+            </Badge>
+          )}
         </div>
         <MissingBadges deal={deal} limit={2} />
         <CompletionMeter deal={deal} />
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 pt-1">
-          <div className="min-w-0 text-xs text-foreground/80">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 pt-0.5">
+          <div className="min-w-0 text-[11px] leading-4 text-foreground/80">
             {deal.closingDate ? `Closing ${deal.closingDate.toLocaleDateString()}` : "No closing date"}
           </div>
           <DashboardDealAction deal={deal} />
@@ -409,7 +420,7 @@ function TransactionCard({
 function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
   if (deal.complianceStatus === "Draft") {
     return (
-      <span className="max-w-24 text-right text-xs leading-snug text-muted-foreground">
+      <span className="max-w-24 text-right text-[11px] leading-tight text-muted-foreground">
         Prepare from Email Queue
       </span>
     );
@@ -553,11 +564,11 @@ function RecordsTable({ deals }: { deals: DashboardDeal[] }) {
 
 function MissingBadges({ deal, limit }: { deal: DashboardDeal; limit: number }) {
   if (!deal.canAuditChecklist) {
-    return <span className="min-w-0 truncate text-sm text-muted-foreground">Not processed yet</span>;
+    return <span className="min-w-0 truncate text-[11px] leading-4 text-muted-foreground">Not processed yet</span>;
   }
 
   if (deal.missingRequired.length === 0) {
-    return <span className="min-w-0 truncate text-sm text-muted-foreground">No missing requirements</span>;
+    return <span className="min-w-0 truncate text-[11px] leading-4 text-muted-foreground">No missing requirements</span>;
   }
 
   return (
@@ -566,13 +577,13 @@ function MissingBadges({ deal, limit }: { deal: DashboardDeal; limit: number }) 
         <span
           key={item.id}
           title={item.label}
-          className="block max-w-full truncate rounded-4xl border border-border bg-background px-2 py-0.5 text-xs font-medium leading-4 text-foreground"
+          className="block max-w-full truncate rounded-4xl border border-border bg-background px-1.5 py-0.5 text-[11px] font-medium leading-4 text-foreground"
         >
           {item.label}
         </span>
       ))}
       {deal.missingRequired.length > limit && (
-        <Badge variant="outline" className="bg-background text-xs">
+        <Badge variant="outline" className="h-4 bg-background px-1.5 text-[11px] leading-4">
           +{deal.missingRequired.length - limit}
         </Badge>
       )}
@@ -585,7 +596,7 @@ function CompletionMeter({ deal }: { deal: DashboardDeal }) {
     return (
       <div className="flex min-w-0 items-center gap-2">
         <div className="h-2 min-w-0 flex-1 rounded-full bg-muted" />
-        <span className="w-16 text-right text-sm text-muted-foreground">Pending</span>
+        <span className="w-14 text-right text-[11px] leading-4 text-muted-foreground">Pending</span>
       </div>
     );
   }
@@ -595,7 +606,7 @@ function CompletionMeter({ deal }: { deal: DashboardDeal }) {
       <div className="h-2 min-w-0 flex-1 rounded-full bg-muted">
         <div className="h-2 rounded-full bg-primary" style={{ width: `${deal.completionPct}%` }} />
       </div>
-      <span className="w-10 text-right text-sm tabular-nums">{deal.completionPct}%</span>
+      <span className="w-9 text-right text-[11px] leading-4 tabular-nums">{deal.completionPct}%</span>
     </div>
   );
 }
