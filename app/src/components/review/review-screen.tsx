@@ -150,6 +150,7 @@ type PackageDocumentRow = {
   requirementId: string;
   label: string;
   documentLabel: string;
+  docTypes: DocumentType[];
   requirementLevel: ChecklistItem["level"];
   condition?: string;
   loneWolfLabel: string;
@@ -211,6 +212,10 @@ export function ReviewScreen({
   const [workingRequirementId, setWorkingRequirementId] = useState<string | null>(null);
   const [reminderDialogOpen, setReminderDialogOpen] = useState(initialReminderOpen);
   const [reminderContext, setReminderContext] = useState<PackageDocumentRow | null>(null);
+  const [classificationReviewRow, setClassificationReviewRow] = useState<PackageDocumentRow | null>(null);
+  const [classificationReviewPage, setClassificationReviewPage] = useState<number | null>(null);
+  const [overrideDocType, setOverrideDocType] = useState<DocumentType>("other");
+  const [savingClassification, setSavingClassification] = useState(false);
   const [selectedPage, setSelectedPage] = useState<number | null>(
     pages.length > 0 ? pages[0].page_number : null,
   );
@@ -412,6 +417,67 @@ export function ReviewScreen({
     setReminderDialogOpen(true);
   }
 
+  function openClassificationReview(row: PackageDocumentRow) {
+    const firstPage = row.pages[0] ?? null;
+    const currentPage = firstPage != null ? pages.find((page) => page.page_number === firstPage) : null;
+    setClassificationReviewRow(row);
+    setClassificationReviewPage(firstPage);
+    setOverrideDocType((currentPage?.doc_type as DocumentType | null) ?? row.docTypes[0] ?? "other");
+    if (firstPage != null) {
+      setSelectedFieldKey(null);
+      setSelectedSourceIndex(null);
+      setSelectedPage(firstPage);
+    }
+  }
+
+  async function saveClassificationOverride() {
+    if (!classificationReviewRow || classificationReviewRow.pages.length === 0) return;
+    setSavingClassification(true);
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const { error } = await supabase
+        .from("deal_pages")
+        .update({
+          doc_type: overrideDocType,
+          doc_confidence: "high",
+          standard_form_key: null,
+          standard_form_number: null,
+          standard_form_title: null,
+          standard_form_confidence: null,
+        })
+        .eq("deal_id", deal.id)
+        .in("page_number", classificationReviewRow.pages);
+      if (error) throw new Error(error.message);
+
+      await supabase.from("audit_logs").insert({
+        user_id: user?.id,
+        deal_id: deal.id,
+        action: "document_classification_overridden",
+        details: {
+          requirement_id: classificationReviewRow.requirementId,
+          pages: classificationReviewRow.pages,
+          override_doc_type: overrideDocType,
+        },
+      });
+
+      const syncRes = await fetch(`/api/deals/${deal.id}/tasks/sync`, { method: "POST" });
+      if (!syncRes.ok) {
+        const body = await syncRes.json().catch(() => null);
+        throw new Error(body?.error ?? "Classification saved, but tasks could not be synced");
+      }
+      toast.success("Document classification updated.");
+      setClassificationReviewRow(null);
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update classification");
+    } finally {
+      setSavingClassification(false);
+    }
+  }
+
   async function markSent(reminderId: string) {
     setSendingReminderId(reminderId);
     try {
@@ -509,6 +575,7 @@ export function ReviewScreen({
         }}
         onMarkLoneWolfUploaded={markLoneWolfUploaded}
         onGenerateReminder={openReminderDialog}
+        onReviewMatch={openClassificationReview}
         workingRequirementId={workingRequirementId}
         draftingReminder={draftingReminder}
       />
@@ -528,6 +595,26 @@ export function ReviewScreen({
         draftingReminder={draftingReminder}
         onMarkSent={markSent}
         sendingReminderId={sendingReminderId}
+      />
+
+      <ClassificationReviewDialog
+        dealId={deal.id}
+        row={classificationReviewRow}
+        pages={pages}
+        selectedPage={classificationReviewPage}
+        selectedDocType={overrideDocType}
+        saving={savingClassification}
+        onOpenChange={(open) => {
+          if (!open) setClassificationReviewRow(null);
+        }}
+        onSelectedPageChange={(page) => {
+          setClassificationReviewPage(page);
+          setSelectedFieldKey(null);
+          setSelectedSourceIndex(null);
+          setSelectedPage(page);
+        }}
+        onSelectedDocTypeChange={setOverrideDocType}
+        onSave={saveClassificationOverride}
       />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_420px]">
@@ -840,6 +927,7 @@ function PackageDocumentsPanel({
   onViewPages,
   onMarkLoneWolfUploaded,
   onGenerateReminder,
+  onReviewMatch,
   workingRequirementId,
   draftingReminder,
 }: {
@@ -850,6 +938,7 @@ function PackageDocumentsPanel({
   onViewPages: (page: number) => void;
   onMarkLoneWolfUploaded: (requirementId: string) => void;
   onGenerateReminder: (row: PackageDocumentRow) => void;
+  onReviewMatch: (row: PackageDocumentRow) => void;
   workingRequirementId: string | null;
   draftingReminder: boolean;
 }) {
@@ -940,7 +1029,7 @@ function PackageDocumentsPanel({
                         draftingReminder={draftingReminder}
                         onMarkLoneWolfUploaded={onMarkLoneWolfUploaded}
                         onGenerateReminder={onGenerateReminder}
-                        onViewPages={onViewPages}
+                        onReviewMatch={onReviewMatch}
                       />
                     </TableCell>
                   </TableRow>
@@ -1205,19 +1294,19 @@ function PackageRowActions({
   draftingReminder,
   onMarkLoneWolfUploaded,
   onGenerateReminder,
-  onViewPages,
+  onReviewMatch,
 }: {
   row: PackageDocumentRow;
   workingRequirementId: string | null;
   draftingReminder: boolean;
   onMarkLoneWolfUploaded: (requirementId: string) => void;
   onGenerateReminder: (row: PackageDocumentRow) => void;
-  onViewPages: (page: number) => void;
+  onReviewMatch: (row: PackageDocumentRow) => void;
 }) {
   if (row.needsReview && row.pages.length > 0) {
     return (
       <div className="flex justify-end">
-        <Button size="sm" variant="outline" onClick={() => onViewPages(row.pages[0])}>
+        <Button size="sm" variant="outline" onClick={() => onReviewMatch(row)}>
           Review match
         </Button>
       </div>
@@ -1435,6 +1524,151 @@ function ReminderDialog({
   );
 }
 
+function ClassificationReviewDialog({
+  dealId,
+  row,
+  pages,
+  selectedPage,
+  selectedDocType,
+  saving,
+  onOpenChange,
+  onSelectedPageChange,
+  onSelectedDocTypeChange,
+  onSave,
+}: {
+  dealId: string;
+  row: PackageDocumentRow | null;
+  pages: PageRow[];
+  selectedPage: number | null;
+  selectedDocType: DocumentType;
+  saving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelectedPageChange: (page: number) => void;
+  onSelectedDocTypeChange: (docType: DocumentType) => void;
+  onSave: () => void;
+}) {
+  const rowPages = row
+    ? row.pages
+        .map((pageNumber) => pages.find((page) => page.page_number === pageNumber))
+        .filter((page): page is PageRow => Boolean(page))
+    : [];
+  const activePage = selectedPage != null
+    ? rowPages.find((page) => page.page_number === selectedPage) ?? rowPages[0]
+    : rowPages[0];
+  const docOptions = Object.entries(DOCUMENT_TYPES).sort((a, b) => a[1].localeCompare(b[1]));
+
+  return (
+    <Dialog open={Boolean(row)} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-5xl">
+        <DialogHeader>
+          <DialogTitle>Review Document Match</DialogTitle>
+          <DialogDescription>
+            {row
+              ? `Audit the matched pages for ${row.label}, then confirm or override the classification.`
+              : "Audit the matched document classification."}
+          </DialogDescription>
+        </DialogHeader>
+
+        {row && (
+          <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="min-h-0 rounded-md border bg-muted/20">
+              <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {activePage ? `Page ${activePage.page_number}` : "No page selected"}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    Current: {documentTypeLabel(activePage?.doc_type)}
+                    {activePage?.doc_confidence ? ` | ${activePage.doc_confidence} confidence` : ""}
+                  </p>
+                </div>
+                {rowPages.length > 1 && (
+                  <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                    {rowPages.map((page) => (
+                      <Button
+                        key={page.page_number}
+                        size="sm"
+                        variant={activePage?.page_number === page.page_number ? "default" : "outline"}
+                        onClick={() => onSelectedPageChange(page.page_number)}
+                      >
+                        p.{page.page_number}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="max-h-[62vh] overflow-auto p-3">
+                {activePage ? (
+                  <img
+                    src={`/api/deals/${dealId}/pages/${activePage.page_number}/image`}
+                    alt={`Page ${activePage.page_number}`}
+                    className="mx-auto max-h-none w-full max-w-3xl rounded border bg-white"
+                  />
+                ) : (
+                  <div className="flex min-h-80 items-center justify-center text-sm text-muted-foreground">
+                    No rendered page is available for this match.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-md border p-3">
+                <p className="text-sm font-medium">{row.label}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Current document label: {row.documentLabel}
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  This override updates all matched pages in this row:
+                  {" "}
+                  {row.pages.map((page) => `p.${page}`).join(", ")}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="classification-override" className="text-sm font-medium">
+                  Classification override
+                </label>
+                <select
+                  id="classification-override"
+                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                  value={selectedDocType}
+                  onChange={(event) => onSelectedDocTypeChange(event.target.value as DocumentType)}
+                >
+                  {docOptions.map(([key, label]) => (
+                    <option key={key} value={key}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Saving marks this match as high confidence and clears stale standard-form metadata.
+                </p>
+              </div>
+
+              {activePage?.standard_form_title || activePage?.standard_form_number ? (
+                <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">Current form signal</p>
+                  <p>{[activePage.standard_form_number, activePage.standard_form_title].filter(Boolean).join(" | ")}</p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={onSave} disabled={saving || !row || row.pages.length === 0}>
+            {saving ? "Saving..." : "Save override"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function fieldToSourceCandidate(row: FieldRow | null | undefined): FieldSourceCandidate | null {
   if (!row || row.source_page == null) return null;
   return {
@@ -1534,6 +1768,7 @@ function buildPackageDocumentRows({
       requirementId: item.id,
       label: item.label,
       documentLabel: documentTypesLabel(item.docTypes),
+      docTypes: item.docTypes,
       requirementLevel: item.level,
       condition: item.condition,
       loneWolfLabel: found ? formatLoneWolfStatus(loneWolfStatus) : "-",
