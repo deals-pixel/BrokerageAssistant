@@ -10,7 +10,6 @@ import {
   Inbox,
   Link2,
   Mail,
-  RotateCcw,
   Search,
   Trash2,
 } from "lucide-react";
@@ -174,19 +173,6 @@ export function DealIntakeWorkflow({
     }
   }
 
-  async function retryRouting(email: IntakeEmailRow) {
-    setWorkingId(email.id);
-    try {
-      await postAction(`/api/inbound-emails/${email.id}/reroute`, {});
-      toast.success("Routing completed.");
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not route email");
-    } finally {
-      setWorkingId(null);
-    }
-  }
-
   if (emails.length === 0) {
     return (
       <div className="rounded-md border border-dashed bg-muted/20 p-2 text-[11px] leading-4 text-muted-foreground">
@@ -208,7 +194,6 @@ export function DealIntakeWorkflow({
               primaryLink?.match_status === "manually_confirmed"),
         );
         const needsReview = email.status === "needs_match_review" || primaryLink?.match_status === "needs_review";
-        const isPendingRouting = email.status === "routing_queued";
         const isWorking = workingId === email.id;
         const dealTitle = shortDealTitle(linkedDeal.property_address, linkedDeal.file_name);
         const routeMeta = primaryLink
@@ -233,7 +218,7 @@ export function DealIntakeWorkflow({
             </div>
 
             <div className="grid min-w-0 gap-1.5 text-[11px] leading-4 sm:grid-cols-3">
-              <IntakeInfo label="Route" value={dealTitle || routingAddress(email.routing_json) || "No confident match"} meta={routeMeta} />
+              <IntakeInfo label="Match" value={dealTitle || routingAddress(email.routing_json) || "Needs admin review"} meta={routeMeta} />
               <IntakeInfo label="Files" value={attachmentWorkflowSummary(email.email_attachments ?? [])} />
               <IntakeInfo
                 label="Received"
@@ -277,12 +262,6 @@ export function DealIntakeWorkflow({
                       Change
                     </Button>
                   </>
-                )}
-                {isPendingRouting && (
-                  <Button size="sm" className="h-7 px-2 text-xs" onClick={() => retryRouting(email)} disabled={isWorking}>
-                    <Search className="size-3.5" />
-                    Route
-                  </Button>
                 )}
                 {!isConfirmed && (
                   <>
@@ -331,18 +310,6 @@ export function DealIntakeWorkflow({
                       variant="default"
                     />
                   </>
-                )}
-                {(email.status === "routing_error" || email.status === "error") && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => retryRouting(email)}
-                    disabled={isWorking}
-                  >
-                    <RotateCcw className="size-3.5" />
-                    Route again
-                  </Button>
                 )}
                 {email.status !== "ignored" && (
                   <Button
@@ -495,8 +462,8 @@ function intakeNextStep(
   needsReview: boolean,
   renderedAttachmentIds: string[],
 ) {
-  if (email.status === "routing_error" || email.status === "error") return "Routing failed; route again or ignore.";
-  if (email.status === "routing_queued") return "Run light routing before matching.";
+  if (email.status === "routing_error" || email.status === "error") return "Review the intake error, then link, create, or ignore.";
+  if (email.status === "routing_queued") return "Link this email or create a draft deal.";
   if (needsReview) return "Confirm the suggested match or change it.";
   if (!isConfirmed) return "Link this email or create a draft deal.";
 
@@ -574,26 +541,13 @@ export function EmailIntakeQueue({
     }
   }
 
-  async function retryRouting(email: IntakeEmailRow) {
-    setWorkingId(email.id);
-    try {
-      await postAction(`/api/inbound-emails/${email.id}/reroute`, {});
-      toast.success("Routing completed.");
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not route email");
-    } finally {
-      setWorkingId(null);
-    }
-  }
-
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-medium">Email Intake Queue</h2>
           <p className="text-sm text-muted-foreground">
-            Review stored packages, run light routing when appropriate, then prepare approved documents for processing.
+            Review stored packages, link or create a draft, then prepare approved documents for processing.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -630,7 +584,6 @@ export function EmailIntakeQueue({
                       primaryLink?.match_status === "manually_confirmed"),
                 );
                 const needsReview = email.status === "needs_match_review" || primaryLink?.match_status === "needs_review";
-                const isPendingRouting = email.status === "routing_queued";
                 const renderedAttachmentIds = linkedDeal ? renderedAttachmentIdsByDeal[linkedDeal.id] ?? [] : [];
 
                 return (
@@ -700,16 +653,6 @@ export function EmailIntakeQueue({
                             </Button>
                           </>
                         )}
-                        {isPendingRouting && (
-                          <Button
-                            size="sm"
-                            onClick={() => retryRouting(email)}
-                            disabled={workingId === email.id}
-                          >
-                            <Search className="size-4" />
-                            Route
-                          </Button>
-                        )}
                         {!isConfirmed && (
                           <>
                             <Button
@@ -754,17 +697,6 @@ export function EmailIntakeQueue({
                               variant="default"
                             />
                           </>
-                        )}
-                        {(email.status === "routing_error" || email.status === "error") && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => retryRouting(email)}
-                            disabled={workingId === email.id}
-                          >
-                            <RotateCcw className="size-4" />
-                            Route again
-                          </Button>
                         )}
                         {email.status !== "ignored" && (
                           <Button
@@ -933,7 +865,7 @@ function EmailIntakeEmptyState() {
             </div>
             <div className="flex flex-wrap gap-2 text-xs">
               <Badge variant="outline">Email received</Badge>
-              <Badge variant="outline">Light routed</Badge>
+              <Badge variant="outline">Admin reviewed</Badge>
               <Badge variant="outline">Admin approved</Badge>
               <Badge variant="outline">Ready to process</Badge>
             </div>
@@ -949,8 +881,8 @@ function EmailIntakeEmptyState() {
             {INTAKE_ADDRESS}
           </div>
           <p className="mt-3 text-xs text-muted-foreground">
-            Forward transaction emails here. The system stores attachments, runs light routing, and waits for admin
-            approval before full AI processing.
+            Forward transaction emails here. The system stores attachments and waits for admin approval before full AI
+            processing.
           </p>
         </div>
       </div>
@@ -988,7 +920,7 @@ function formatIntakeStatus(status: string) {
   if (status === "needs_match_review") return "Needs match review";
   if (status === "draft_transaction_created") return "Draft created";
   if (status === "attachments_queued") return "Storing attachments";
-  if (status === "routing_queued") return "Ready to route";
+  if (status === "routing_queued") return "Needs review";
   if (status === "routing_error") return "Routing error";
   if (status === "ignored") return "Ignored";
   return status.replaceAll("_", " ");
@@ -1007,13 +939,11 @@ function attachmentStatusSummary(attachments: EmailAttachmentForQueue[]) {
   const linked = attachments.filter((item) => item.status === "linked_to_transaction").length;
   const duplicate = attachments.filter((item) => item.status === "duplicate").length;
   const ignored = attachments.filter((item) => item.status === "ignored").length;
-  const classified = attachments.filter((item) => item.status === "light_classified").length;
   const parts = [];
   if (linked) parts.push(`${linked} linked`);
-  if (classified) parts.push(`${classified} classified`);
   if (duplicate) parts.push(`${duplicate} duplicate`);
   if (ignored) parts.push(`${ignored} ignored`);
-  return parts.length ? parts.join(" | ") : "Stored, not routed";
+  return parts.length ? parts.join(" | ") : "Stored";
 }
 
 function routingAddress(routing: Record<string, unknown> | null) {

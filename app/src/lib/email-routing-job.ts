@@ -1,10 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  heuristicRouteEmail,
   transactionTypeForDeal,
   type InboundEmailInput,
   type LightRoutingResult,
 } from "@/lib/email-intake";
-import { routeEmailWithLightAI, type LightRouteAttachmentInput } from "@/lib/ai/light-route";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -39,6 +39,11 @@ type EmailAttachmentRow = {
   file_size: number | null;
   storage_path: string | null;
   status: string;
+};
+
+export type LightRouteAttachmentInput = InboundEmailInput["attachments"][number] & {
+  id?: string;
+  buffer: Buffer;
 };
 
 export async function processQueuedInboundEmails(limit = 5) {
@@ -114,7 +119,7 @@ export async function processInboundEmailRouting(inboundEmailId: string) {
       .in("status", ["stored", "light_classified", "linked_to_transaction"]);
     if (attachmentError) throw new Error(attachmentError.message);
 
-    const routeAttachments = await loadRouteAttachments(supabase, attachments ?? []);
+    const routeAttachments = routeAttachmentInputs(attachments ?? []);
     if (routeAttachments.length === 0) {
       await supabase
         .from("inbound_emails")
@@ -128,9 +133,7 @@ export async function processInboundEmailRouting(inboundEmailId: string) {
     }
 
     const inbound = emailRowToInboundInput(email as InboundEmailRow, routeAttachments);
-    const routing = await routeEmailWithLightAI(inbound, routeAttachments, {
-      inboundEmailId,
-    });
+    const routing = heuristicRouteEmail(inbound);
 
     for (const attachment of routeAttachments) {
       const guess = routing.document_type_guesses.find((item) => item.filename === attachment.name);
@@ -239,26 +242,15 @@ export async function processInboundEmailRouting(inboundEmailId: string) {
   }
 }
 
-async function loadRouteAttachments(
-  supabase: AdminClient,
-  attachments: EmailAttachmentRow[],
-): Promise<LightRouteAttachmentInput[]> {
-  const result: LightRouteAttachmentInput[] = [];
-  for (const attachment of attachments) {
-    if (!attachment.storage_path) continue;
-    const { data: blob, error } = await supabase.storage.from("deals").download(attachment.storage_path);
-    if (error || !blob) continue;
-    const buffer = Buffer.from(await blob.arrayBuffer());
-    result.push({
-      id: attachment.id,
-      name: attachment.original_filename ?? "email-attachment.pdf",
-      contentType: attachment.mime_type,
-      contentLength: attachment.file_size ?? buffer.byteLength,
-      contentBase64: buffer.toString("base64"),
-      buffer,
-    });
-  }
-  return result;
+function routeAttachmentInputs(attachments: EmailAttachmentRow[]): LightRouteAttachmentInput[] {
+  return attachments.map((attachment) => ({
+    id: attachment.id,
+    name: attachment.original_filename ?? "email-attachment.pdf",
+    contentType: attachment.mime_type,
+    contentLength: attachment.file_size,
+    contentBase64: "",
+    buffer: Buffer.alloc(0),
+  }));
 }
 
 function emailRowToInboundInput(
