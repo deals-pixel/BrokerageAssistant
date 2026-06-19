@@ -1058,6 +1058,9 @@ function EmailAttachmentsPanel({
 }) {
   if (attachments.length === 0) return null;
   const renderedSet = new Set(renderedAttachmentIds);
+  const hasUnpreparedAttachment = attachments.some((attachment) => !renderedSet.has(attachment.id));
+
+  if (!hasUnpreparedAttachment) return null;
 
   return (
     <Card>
