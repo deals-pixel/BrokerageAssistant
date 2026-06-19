@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
+import { shortDocumentLabel } from "@/lib/display";
 import { DOCUMENT_TYPES, type DocumentType, type SourceBox } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,26 +33,98 @@ export function PagePanel({
   const [zoom, setZoom] = useState(100);
   const imageUrl = (page: number) => `/api/deals/${dealId}/pages/${page}/image`;
   const documentSections = useMemo(() => groupPagesByDocument(pages), [pages]);
-  const selectedDocType =
-    selectedPage != null ? pages.find((p) => p.page_number === selectedPage)?.doc_type : null;
+  const selectedSection =
+    selectedPage != null
+      ? documentSections.find((section) => section.pages.includes(selectedPage))
+      : documentSections[0];
   const selectedPageRow =
     selectedPage != null ? pages.find((p) => p.page_number === selectedPage) : null;
-  const selectedDocLabel = selectedDocType
-    ? (DOCUMENT_TYPES[selectedDocType as DocumentType] ?? selectedDocType)
-    : "Unclassified document";
+  const selectedDocLabel = selectedSection?.label ?? "Unclassified document";
   const selectedFormLabel = formatStandardFormLabel(selectedPageRow);
+  const selectedSectionPages = selectedSection?.pages ?? [];
+  const selectedPageIndex = selectedPage != null ? selectedSectionPages.indexOf(selectedPage) : -1;
+  const canGoPrevious = selectedPageIndex > 0;
+  const canGoNext = selectedPageIndex >= 0 && selectedPageIndex < selectedSectionPages.length - 1;
 
   return (
     <Card className="self-start lg:sticky lg:top-4">
       <CardContent className="space-y-3 p-3">
+        {documentSections.length > 0 && (
+          <div className="flex gap-1 overflow-x-auto border-b pb-2" role="tablist" aria-label="Document preview tabs">
+            {documentSections.map((section) => {
+              const selected = selectedPage != null && section.pages.includes(selectedPage);
+              return (
+                <button
+                  key={section.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  title={section.formLabel ? `${section.label} - ${section.formLabel}` : section.label}
+                  onClick={() => onSelect(section.startPage)}
+                  className={`shrink-0 rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors ${
+                    selected
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  <span className="block max-w-36 truncate font-medium">
+                    {shortDocumentLabel(section.label)}
+                  </span>
+                  <span className="block text-[10px] leading-tight opacity-80">
+                    {formatPageRange(section.pages)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {selectedPage != null && (
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <p className="min-w-0 truncate text-xs text-muted-foreground">
-                {selectedDocLabel}
+                {shortDocumentLabel(selectedDocLabel)}
                 {selectedFormLabel ? ` - ${selectedFormLabel}` : ""}
               </p>
               <div className="flex items-center gap-1">
+                {selectedSectionPages.length > 1 && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      title="Previous page in document"
+                      onClick={() => {
+                        if (canGoPrevious) onSelect(selectedSectionPages[selectedPageIndex - 1]);
+                      }}
+                      disabled={!canGoPrevious}
+                    >
+                      <ChevronLeft />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      title="Current page in document"
+                      disabled
+                      className="w-auto px-2 text-xs disabled:opacity-100"
+                    >
+                      {selectedPageIndex + 1}/{selectedSectionPages.length}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      title="Next page in document"
+                      onClick={() => {
+                        if (canGoNext) onSelect(selectedSectionPages[selectedPageIndex + 1]);
+                      }}
+                      disabled={!canGoNext}
+                    >
+                      <ChevronRight />
+                    </Button>
+                  </>
+                )}
                 <Button
                   type="button"
                   variant="outline"
@@ -121,36 +194,11 @@ export function PagePanel({
             )}
           </div>
         )}
-        <div className="grid max-h-[360px] grid-cols-5 gap-2 overflow-y-auto">
-          {documentSections.map((section) => (
-            <button
-              key={section.key}
-              type="button"
-              onClick={() => onSelect(section.startPage)}
-              className={`rounded border p-1 text-left ${
-                selectedPage != null && section.pages.includes(selectedPage)
-                  ? "border-primary ring-2 ring-primary/40"
-                  : "border-muted"
-              }`}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={imageUrl(section.startPage)}
-                alt={`${section.label} preview`}
-                loading="lazy"
-                className="aspect-[8.5/11] w-full rounded-sm object-cover"
-              />
-              <p className="mt-1 truncate text-[10px] leading-tight text-muted-foreground">
-                {section.label}
-              </p>
-              {section.formLabel && (
-                <p className="truncate text-[10px] leading-tight text-muted-foreground">
-                  {section.formLabel}
-                </p>
-              )}
-            </button>
-          ))}
-        </div>
+        {selectedPage == null && (
+          <div className="rounded border border-dashed p-8 text-center text-sm text-muted-foreground">
+            No rendered document pages are available yet.
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -195,4 +243,10 @@ function formatStandardFormLabel(page: PageRow | null | undefined) {
   const title = page.standard_form_title ?? "";
   if (number && title) return `${number} ${title}`;
   return number || title;
+}
+
+function formatPageRange(pages: number[]) {
+  if (pages.length === 0) return "";
+  if (pages.length === 1) return `p.${pages[0]}`;
+  return `p.${pages[0]}-${pages[pages.length - 1]}`;
 }
