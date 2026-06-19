@@ -573,11 +573,6 @@ export function ReviewScreen({
         summary={packageSummary}
         activeFilter={packageFilter}
         onFilterChange={setPackageFilter}
-        onViewPages={(page) => {
-          setSelectedFieldKey(null);
-          setSelectedSourceIndex(null);
-          setSelectedPage(page);
-        }}
         onMarkLoneWolfUploaded={markLoneWolfUploaded}
         onGenerateReminder={openReminderDialog}
         onReviewMatch={openClassificationReview}
@@ -929,7 +924,6 @@ function PackageDocumentsPanel({
   summary,
   activeFilter,
   onFilterChange,
-  onViewPages,
   onMarkLoneWolfUploaded,
   onGenerateReminder,
   onReviewMatch,
@@ -940,7 +934,6 @@ function PackageDocumentsPanel({
   summary: string;
   activeFilter: PackageFilter;
   onFilterChange: (filter: PackageFilter) => void;
-  onViewPages: (page: number) => void;
   onMarkLoneWolfUploaded: (requirementId: string) => void;
   onGenerateReminder: (row: PackageDocumentRow) => void;
   onReviewMatch: (row: PackageDocumentRow) => void;
@@ -1014,7 +1007,7 @@ function PackageDocumentsPanel({
                           <button
                             type="button"
                             className="text-blue-600 hover:underline"
-                            onClick={() => onViewPages(row.pages[0])}
+                            onClick={() => onReviewMatch(row)}
                           >
                             {row.documentLabel}
                           </button>
