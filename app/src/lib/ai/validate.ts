@@ -4,7 +4,22 @@ import type { MergedField } from "./merge";
  * Deterministic sanity checks on merged fields. Adds notes / flags rather than
  * rejecting values — the admin makes the final call on the review screen.
  */
-export function validateFields(fields: MergedField[], transactionType: string): MergedField[] {
+type ValidationContext = {
+  scenarioKey?: string | null;
+  scenarioLabel?: string | null;
+};
+
+type CommissionPerspective = {
+  listingSide: boolean;
+  cooperatingSide: boolean;
+  specialSide: boolean;
+};
+
+export function validateFields(
+  fields: MergedField[],
+  transactionType: string,
+  context: ValidationContext = {},
+): MergedField[] {
   const get = (k: string) => fields.find((f) => f.key === k);
 
   const flag = (f: MergedField | undefined, note: string) => {
@@ -13,7 +28,7 @@ export function validateFields(fields: MergedField[], transactionType: string): 
     f.notes = f.notes ? `${f.notes}; ${note}` : note;
   };
 
-  normalizeCommissionFields(fields);
+  normalizeCommissionFields(fields, commissionPerspective(context));
 
   if (transactionType === "lease") {
     const leaseStart = get("lease_start_date");
@@ -80,7 +95,7 @@ export function validateFields(fields: MergedField[], transactionType: string): 
   return fields;
 }
 
-function normalizeCommissionFields(fields: MergedField[]) {
+function normalizeCommissionFields(fields: MergedField[], perspective: CommissionPerspective) {
   const get = (key: string) => fields.find((field) => field.key === key);
   const remove = (field: MergedField | undefined) => {
     if (!field) return;
@@ -92,7 +107,7 @@ function normalizeCommissionFields(fields: MergedField[]) {
   let listing = get("listing_commission_pct");
   let cooperating = get("cooperating_commission_pct");
 
-  if (total?.sourceDocumentType === "listing_agreement" && !listing) {
+  if (perspective.listingSide && total?.sourceDocumentType === "listing_agreement" && !listing) {
     listing = {
       ...total,
       key: "listing_commission_pct",
@@ -102,6 +117,32 @@ function normalizeCommissionFields(fields: MergedField[]) {
       ),
     };
     fields.push(listing);
+  }
+
+  if (!perspective.listingSide && total?.sourceDocumentType === "listing_agreement") {
+    total.notes = appendNote(
+      total.notes,
+      "Listing agreement commission is not treated as Your Commission for this scenario.",
+    );
+    remove(total);
+  }
+
+  total = get("total_commission_pct");
+  listing = get("listing_commission_pct");
+  cooperating = get("cooperating_commission_pct");
+
+  if (perspective.cooperatingSide && !perspective.listingSide && cooperating && !listing) {
+    listing = {
+      ...cooperating,
+      key: "listing_commission_pct",
+      notes: appendNote(
+        cooperating.notes,
+        "Co-operating side commission moved to Your Commission for this scenario.",
+      ),
+    };
+    fields.push(listing);
+    remove(cooperating);
+    cooperating = undefined;
   }
 
   total = get("total_commission_pct");
@@ -147,6 +188,38 @@ function normalizeCommissionFields(fields: MergedField[]) {
     needsReview: true,
     notes: "Total commission calculated from listing and co-operating commission.",
   });
+}
+
+function commissionPerspective(context: ValidationContext): CommissionPerspective {
+  const key = context.scenarioKey ?? "";
+  const label = (context.scenarioLabel ?? "").toLowerCase();
+
+  const listingSide =
+    key.startsWith("sale_seller") ||
+    key.startsWith("lease_landlord") ||
+    key === "sale_same_agent_both_sides" ||
+    key === "lease_same_agent_both_sides" ||
+    label.includes("seller rep") ||
+    label.includes("landlord rep");
+
+  const cooperatingSide =
+    key.startsWith("sale_buyer") ||
+    key.startsWith("lease_tenant") ||
+    key === "sale_same_agent_both_sides" ||
+    key === "lease_same_agent_both_sides" ||
+    key === "sale_seller_rep_buyer_sga" ||
+    key === "lease_landlord_rep_tenant_sga" ||
+    key === "pre_construction" ||
+    label.includes("buyer rep") ||
+    label.includes("tenant rep");
+
+  const specialSide =
+    key === "referral_paid_by_other_brokerage" ||
+    key === "co_brokerage_paid_by_other_brokerage" ||
+    label.includes("referral") ||
+    label.includes("co-brokerage");
+
+  return { listingSide, cooperatingSide, specialSide };
 }
 
 function appendNote(existing: string | undefined, note: string) {

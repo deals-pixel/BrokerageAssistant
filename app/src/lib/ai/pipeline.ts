@@ -95,7 +95,19 @@ export async function processDeal(dealId: string): Promise<void> {
     // Steps 4–5: merge + validate
     const templateFallbacks = applyTemplateSourceFallbacks(extractions, pageFormMatches);
     let merged = mergeExtractions(templateFallbacks.extractions);
-    merged = validateFields(merged, classification.transaction_type);
+    const preliminaryChecklist = buildChecklistResult(
+      classification.transaction_type,
+      classification.pages.map((page) => ({
+        page_number: page.page_number,
+        doc_type: page.doc_type,
+      })),
+      null,
+      merged.map((field) => ({ field_key: field.key, value: field.value })),
+    );
+    merged = validateFields(merged, classification.transaction_type, {
+      scenarioKey: preliminaryChecklist.scenario.key,
+      scenarioLabel: preliminaryChecklist.scenario.label,
+    });
 
     // Persist fields
     await supabase.from("deal_fields").delete().eq("deal_id", dealId);
