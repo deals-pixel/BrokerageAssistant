@@ -2,8 +2,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { DOCUMENT_TYPES } from "@/lib/types";
 import { classificationGuideFromStandardForms } from "@/lib/standard-forms";
-import { anthropic, AI_MODEL } from "./client";
+import { anthropic, CLASSIFICATION_AI_MODEL } from "./client";
 import { PageClassificationSchema, type PageClassification } from "./schemas";
+import { logAiUsage, usageFromResponse } from "./usage";
 
 const DOC_TYPE_GUIDE = Object.entries(DOCUMENT_TYPES)
   .map(([key, label]) => `- ${key}: ${label}`)
@@ -32,6 +33,7 @@ const BATCH_SIZE = 10;
 
 export async function classifyPages(
   pageImages: { pageNumber: number; base64: string; mediaType: "image/jpeg" | "image/png" }[],
+  options: { dealId?: string | null; metadata?: Record<string, unknown> } = {},
 ): Promise<PageClassification> {
   const batches: (typeof pageImages)[] = [];
   for (let i = 0; i < pageImages.length; i += BATCH_SIZE) {
@@ -55,12 +57,24 @@ export async function classifyPages(
     });
 
     const response = await anthropic.messages.parse({
-      model: AI_MODEL,
+      model: CLASSIFICATION_AI_MODEL,
       max_tokens: 16000,
       thinking: { type: "adaptive" },
       system: SYSTEM,
       messages: [{ role: "user", content }],
       output_config: { format: zodOutputFormat(PageClassificationSchema) },
+    });
+    await logAiUsage({
+      layer: "classification",
+      model: CLASSIFICATION_AI_MODEL,
+      dealId: options.dealId,
+      usage: usageFromResponse(response),
+      inputPages: batch.length,
+      metadata: {
+        batch_start_page: batch[0].pageNumber,
+        batch_end_page: batch[batch.length - 1].pageNumber,
+        ...options.metadata,
+      },
     });
 
     const parsed = response.parsed_output;

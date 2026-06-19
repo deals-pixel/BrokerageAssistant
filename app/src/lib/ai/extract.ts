@@ -2,8 +2,14 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { ALL_FIELD_KEYS, FIELD_LABELS, type DocumentType } from "@/lib/types";
 import { extractionTemplateGuide, type StandardFormMatch } from "@/lib/standard-forms";
-import { anthropic, AI_MODEL } from "./client";
+import { anthropic, EXTRACTION_AI_MODEL } from "./client";
+import {
+  extractionCacheKey,
+  readCachedExtraction,
+  writeCachedExtraction,
+} from "./extraction-cache";
 import { FieldExtractionSchema, type FieldExtraction } from "./schemas";
+import { logAiUsage, usageFromResponse } from "./usage";
 
 const FIELD_GUIDE = ALL_FIELD_KEYS.map((key) => `- ${key}: ${FIELD_LABELS[key]}`).join("\n");
 
@@ -93,10 +99,39 @@ const MAX_PAGES_PER_CALL = 12;
 
 export async function extractFromDocument(
   docType: DocumentType,
-  pageImages: { pageNumber: number; base64: string; mediaType: "image/jpeg" | "image/png" }[],
-  options: { standardForms?: StandardFormMatch[] } = {},
+  pageImages: { pageNumber: number; base64: string; mediaType: "image/jpeg" | "image/png"; pageHash?: string | null }[],
+  options: {
+    standardForms?: StandardFormMatch[];
+    dealId?: string | null;
+    metadata?: Record<string, unknown>;
+  } = {},
 ): Promise<FieldExtraction> {
   const pages = pageImages.slice(0, MAX_PAGES_PER_CALL);
+  const standardFormKeys = (options.standardForms ?? [])
+    .map((form) => form.key)
+    .filter(Boolean)
+    .sort();
+  const cacheKey = extractionCacheKey({
+    model: EXTRACTION_AI_MODEL,
+    docType,
+    pages,
+    standardFormKeys,
+  });
+
+  if (cacheKey) {
+    const cached = await readCachedExtraction(cacheKey);
+    if (cached) {
+      await logAiUsage({
+        layer: "extraction",
+        model: EXTRACTION_AI_MODEL,
+        dealId: options.dealId,
+        cached: true,
+        inputPages: pages.length,
+        metadata: { doc_type: docType, cache_key: cacheKey, ...options.metadata },
+      });
+      return cached;
+    }
+  }
 
   const content: Anthropic.ContentBlockParam[] = pages.flatMap((page) => [
     { type: "text" as const, text: `Page ${page.pageNumber}:` },
@@ -118,16 +153,33 @@ export async function extractFromDocument(
   });
 
   const response = await anthropic.messages.parse({
-    model: AI_MODEL,
+    model: EXTRACTION_AI_MODEL,
     max_tokens: 16000,
     thinking: { type: "adaptive" },
     system: SYSTEM,
     messages: [{ role: "user", content }],
     output_config: { format: zodOutputFormat(FieldExtractionSchema) },
   });
+  await logAiUsage({
+    layer: "extraction",
+    model: EXTRACTION_AI_MODEL,
+    dealId: options.dealId,
+    usage: usageFromResponse(response),
+    inputPages: pages.length,
+    metadata: { doc_type: docType, cache_key: cacheKey, ...options.metadata },
+  });
 
   const parsed = response.parsed_output;
   if (!parsed) throw new Error(`Extraction returned no parseable output for ${docType}`);
   parsed.fields = parsed.fields.filter((field) => ALL_FIELD_KEYS.includes(field.field_key));
+  if (cacheKey) {
+    await writeCachedExtraction({
+      cacheKey,
+      model: EXTRACTION_AI_MODEL,
+      docType,
+      pageHashes: pages.map((page) => page.pageHash).filter((hash): hash is string => Boolean(hash)),
+      extraction: parsed,
+    });
+  }
   return parsed;
 }

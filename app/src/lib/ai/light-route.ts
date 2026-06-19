@@ -6,10 +6,12 @@ import { DOCUMENT_TYPES } from "@/lib/types";
 import type { InboundAttachmentInput, InboundEmailInput, LightRoutingResult } from "@/lib/email-intake";
 import { heuristicRouteEmail } from "@/lib/email-intake";
 import { anthropic, LIGHT_AI_MODEL } from "./client";
+import { logAiUsage, usageFromResponse } from "./usage";
 
 const MAX_ATTACHMENTS = Number(process.env.LIGHT_ROUTING_MAX_ATTACHMENTS ?? 5);
 const MAX_PDF_PAGES = Number(process.env.LIGHT_ROUTING_MAX_PDF_PAGES ?? 3);
 const MAX_FILE_BYTES = Number(process.env.LIGHT_ROUTING_MAX_FILE_MB ?? 12) * 1024 * 1024;
+const SKIP_AI_MIN_CONFIDENCE = Number(process.env.LIGHT_ROUTING_SKIP_AI_MIN_CONFIDENCE ?? 0.9);
 const DOCUMENT_TYPE_KEYS = ["unknown", ...Object.keys(DOCUMENT_TYPES)] as [string, ...string[]];
 
 const LightRoutingSchema = z.object({
@@ -63,18 +65,44 @@ export type LightRouteAttachmentInput = InboundAttachmentInput & {
 export async function routeEmailWithLightAI(
   email: InboundEmailInput,
   attachments: LightRouteAttachmentInput[],
+  options: { inboundEmailId?: string | null } = {},
 ): Promise<LightRoutingResult> {
   const fallback = heuristicRouteEmail(email);
+  if (fallback.transaction_code && fallback.routing_confidence >= SKIP_AI_MIN_CONFIDENCE) {
+    await logAiUsage({
+      layer: "light_routing",
+      model: LIGHT_AI_MODEL,
+      inboundEmailId: options.inboundEmailId,
+      cached: true,
+      inputAttachments: attachments.length,
+      metadata: {
+        reason: "heuristic_transaction_code_high_confidence",
+        routing_confidence: fallback.routing_confidence,
+      },
+    });
+    return fallback;
+  }
   if (!process.env.ANTHROPIC_API_KEY) return fallback;
 
   try {
     const content = await buildRoutingContent(email, attachments);
     const response = await anthropic.messages.parse({
       model: LIGHT_AI_MODEL,
-      max_tokens: 5000,
+      max_tokens: 2000,
       system: SYSTEM,
       messages: [{ role: "user", content }],
       output_config: { format: zodOutputFormat(LightRoutingSchema) },
+    });
+    await logAiUsage({
+      layer: "light_routing",
+      model: LIGHT_AI_MODEL,
+      inboundEmailId: options.inboundEmailId,
+      usage: usageFromResponse(response),
+      inputAttachments: attachments.length,
+      metadata: {
+        max_attachments: MAX_ATTACHMENTS,
+        max_pdf_pages: MAX_PDF_PAGES,
+      },
     });
 
     const parsed = response.parsed_output;

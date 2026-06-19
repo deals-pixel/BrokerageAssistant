@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { classifyPages } from "./classify";
 import { extractFromDocument, EXTRACTABLE_DOCS } from "./extract";
@@ -10,10 +11,12 @@ import {
 } from "./template-source";
 import { buildChecklistResult } from "@/lib/checklist";
 import { syncMissingDocumentTasks } from "@/lib/workflow";
-import type { DocumentType } from "@/lib/types";
-import type { FieldExtraction } from "./schemas";
+import { CLASSIFICATION_AI_MODEL } from "./client";
+import { logAiUsage } from "./usage";
+import type { Confidence, DocumentType, TransactionType } from "@/lib/types";
+import type { FieldExtraction, PageClassification } from "./schemas";
 
-type PageImage = { pageNumber: number; base64: string; mediaType: "image/jpeg" };
+type PageImage = { pageNumber: number; base64: string; mediaType: "image/jpeg"; pageHash: string };
 
 /**
  * Full pipeline for one deal: download page images from storage,
@@ -46,32 +49,56 @@ export async function processDeal(dealId: string): Promise<void> {
         .from("deals")
         .download(p.image_path);
       if (dlErr || !blob) throw new Error(`Failed to download page ${p.page_number}: ${dlErr?.message}`);
+      const buffer = Buffer.from(await blob.arrayBuffer());
+      const pageHash = createHash("sha256").update(buffer).digest("hex");
+      if (p.page_hash !== pageHash) {
+        await supabase.from("deal_pages").update({ page_hash: pageHash }).eq("id", p.id);
+      }
       images.push({
         pageNumber: p.page_number,
-        base64: Buffer.from(await blob.arrayBuffer()).toString("base64"),
+        base64: buffer.toString("base64"),
         mediaType: "image/jpeg",
+        pageHash,
       });
     }
 
     // Step 2: classify
-    const classification = await classifyPages(images);
+    const storedClassification = classificationFromStoredPages(deal, pages);
+    const classification =
+      storedClassification ??
+      (await classifyPages(images, {
+        dealId,
+        metadata: { source: "full_processing" },
+      }));
+    if (storedClassification) {
+      await logAiUsage({
+        layer: "classification",
+        model: CLASSIFICATION_AI_MODEL,
+        dealId,
+        cached: true,
+        inputPages: images.length,
+        metadata: { source: "stored_deal_pages" },
+      });
+    }
     const pageFormMatches = buildPageStandardFormMatches(classification.pages);
-    for (const c of classification.pages) {
-      const formMatch = pageFormMatches.find((match) => match.pageNumber === c.page_number)?.match;
-      await supabase
-        .from("deal_pages")
-        .update({
-          doc_type: c.doc_type,
-          doc_confidence: c.confidence,
-          standard_form_key: formMatch?.key ?? null,
-          standard_form_number: formMatch?.formNumber ?? null,
-          standard_form_title: formMatch?.title ?? null,
-          standard_form_confidence: formMatch?.confidence ?? null,
-          classification_reviewed_at: null,
-          classification_reviewed_by: null,
-        })
-        .eq("deal_id", dealId)
-        .eq("page_number", c.page_number);
+    if (!storedClassification) {
+      for (const c of classification.pages) {
+        const formMatch = pageFormMatches.find((match) => match.pageNumber === c.page_number)?.match;
+        await supabase
+          .from("deal_pages")
+          .update({
+            doc_type: c.doc_type,
+            doc_confidence: c.confidence,
+            standard_form_key: formMatch?.key ?? null,
+            standard_form_number: formMatch?.formNumber ?? null,
+            standard_form_title: formMatch?.title ?? null,
+            standard_form_confidence: formMatch?.confidence ?? null,
+            classification_reviewed_at: null,
+            classification_reviewed_by: null,
+          })
+          .eq("deal_id", dealId)
+          .eq("page_number", c.page_number);
+      }
     }
 
     // Step 3: extract per document group
@@ -88,6 +115,8 @@ export async function processDeal(dealId: string): Promise<void> {
     for (const [docType, docImages] of byDoc) {
       const extraction = await extractFromDocument(docType, docImages, {
         standardForms: standardFormMatchesForDocument(docType, pageFormMatches),
+        dealId,
+        metadata: { source: "full_processing" },
       });
       extractions.push({ docType, extraction });
     }
@@ -156,6 +185,7 @@ export async function processDeal(dealId: string): Promise<void> {
       action: "pipeline_completed",
       details: {
         pages: classification.pages.length,
+        classification_source: storedClassification ? "stored_deal_pages" : "ai",
         documents: [...byDoc.keys()],
         fields: merged.length,
         scenario: checklist.scenario.key,
@@ -184,4 +214,66 @@ export async function processDeal(dealId: string): Promise<void> {
     });
     throw err;
   }
+}
+
+function classificationFromStoredPages(
+  deal: { transaction_type?: string | null },
+  pages: Array<{
+    page_number: number;
+    doc_type?: string | null;
+    doc_confidence?: string | null;
+    standard_form_key?: string | null;
+    standard_form_number?: string | null;
+    standard_form_title?: string | null;
+    standard_form_confidence?: string | null;
+  }>,
+): PageClassification | null {
+  if (!pages.every((page) => page.doc_type && isReusableConfidence(page.doc_confidence))) return null;
+
+  return {
+    transaction_type: transactionTypeFromStoredDeal(deal.transaction_type) ?? inferTransactionTypeFromDocs(pages),
+    pages: pages.map((page) => ({
+      page_number: page.page_number,
+      doc_type: page.doc_type as DocumentType,
+      confidence: page.doc_confidence as Confidence,
+      standard_form_key: page.standard_form_key ?? null,
+      standard_form_number: page.standard_form_number ?? null,
+      standard_form_title: page.standard_form_title ?? null,
+      standard_form_confidence: isConfidence(page.standard_form_confidence)
+        ? (page.standard_form_confidence as Confidence)
+        : null,
+    })),
+  };
+}
+
+function transactionTypeFromStoredDeal(value: string | null | undefined): TransactionType | null {
+  return value === "purchase" || value === "lease" ? value : null;
+}
+
+function inferTransactionTypeFromDocs(pages: Array<{ doc_type?: string | null }>): TransactionType {
+  const docs = new Set(pages.map((page) => page.doc_type).filter(Boolean));
+  if (
+    docs.has("agreement_to_lease") ||
+    docs.has("lease_agreement") ||
+    docs.has("ontario_residential_tenancy_agreement") ||
+    docs.has("tenant_representation_agreement")
+  ) {
+    return "lease";
+  }
+  if (
+    docs.has("agreement_of_purchase_and_sale") ||
+    docs.has("first_page_aps") ||
+    docs.has("buyer_representation_agreement")
+  ) {
+    return "purchase";
+  }
+  return "unknown";
+}
+
+function isConfidence(value: string | null | undefined): value is Confidence {
+  return value === "high" || value === "medium" || value === "low";
+}
+
+function isReusableConfidence(value: string | null | undefined): value is Confidence {
+  return value === "high" || value === "medium";
 }

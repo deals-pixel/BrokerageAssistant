@@ -128,7 +128,9 @@ export async function processInboundEmailRouting(inboundEmailId: string) {
     }
 
     const inbound = emailRowToInboundInput(email as InboundEmailRow, routeAttachments);
-    const routing = await routeEmailWithLightAI(inbound, routeAttachments);
+    const routing = await routeEmailWithLightAI(inbound, routeAttachments, {
+      inboundEmailId,
+    });
 
     for (const attachment of routeAttachments) {
       const guess = routing.document_type_guesses.find((item) => item.filename === attachment.name);

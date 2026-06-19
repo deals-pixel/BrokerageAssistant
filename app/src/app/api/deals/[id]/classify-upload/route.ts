@@ -25,7 +25,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: "No page images provided" }, { status: 400 });
   }
 
-  const classification = await classifyPages(images);
+  const classification = await classifyPages(images, {
+    dealId: id,
+    metadata: { source: "pending_upload_preflight" },
+  });
   const standardFormMatches = buildPageStandardFormMatches(classification.pages);
 
   const { data: existingPages, error } = await supabase
