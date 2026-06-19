@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { CalendarClock, CheckCircle2, CircleAlert, Columns3, LayoutList, Table2 } from "lucide-react";
+import { CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LayoutList, Table2 } from "lucide-react";
 import { buildChecklistResult, type ChecklistItem } from "@/lib/checklist";
 import { DashboardAutoRefresh } from "@/components/dashboard-auto-refresh";
 import { createClient } from "@/lib/supabase/server";
@@ -253,30 +253,42 @@ const BOARD_COLUMNS: {
   icon: ReactNode;
   className: string;
   dotClassName: string;
+  textClassName: string;
+  headerPillClassName: string;
+  cardClassName: string;
 }[] = [
   {
     status: "Incomplete",
     label: "Incomplete",
     helper: "Missing documents",
     icon: <CircleAlert className="size-3.5" />,
-    className: "border-red-100 bg-red-50/45",
-    dotClassName: "bg-red-700",
+    className: "bg-[#fcf7f5]",
+    dotClassName: "bg-[#e18d51]",
+    textClassName: "text-[#a5541f]",
+    headerPillClassName: "bg-[#f7dfcc] text-[#7e431d]",
+    cardClassName: "border-[#f0cbb5] shadow-[0_1px_2px_rgba(90,51,25,0.05)]",
   },
   {
     status: "Ready",
     label: "Ready",
     helper: "Ready for submission",
     icon: <CheckCircle2 className="size-3.5" />,
-    className: "border-emerald-100 bg-emerald-50/55",
-    dotClassName: "bg-emerald-700",
+    className: "bg-[#f3f9f6]",
+    dotClassName: "bg-[#45ad79]",
+    textClassName: "text-[#26845a]",
+    headerPillClassName: "bg-[#d5efe3] text-[#1f6f4d]",
+    cardClassName: "border-[#bddfcf] shadow-[0_1px_2px_rgba(28,90,62,0.05)]",
   },
   {
     status: "Submitted",
     label: "Submitted",
     helper: "Filed or closed",
     icon: <LayoutList className="size-3.5" />,
-    className: "border-slate-200 bg-slate-50/70",
-    dotClassName: "bg-slate-600",
+    className: "bg-[#f7f7f5]",
+    dotClassName: "bg-[#8a8780]",
+    textClassName: "text-[#69655d]",
+    headerPillClassName: "bg-[#e9e6df] text-[#56524b]",
+    cardClassName: "border-[#dad7d0] shadow-[0_1px_2px_rgba(52,48,41,0.05)]",
   },
 ];
 
@@ -285,24 +297,26 @@ function StatusBoard({ deals }: { deals: DashboardDeal[] }) {
     <div className="grid gap-3 lg:grid-cols-3">
       {BOARD_COLUMNS.map((column) => {
         const columnDeals = deals.filter((deal) => deal.complianceStatus === column.status);
+        const averageCompletion = columnDeals.length
+          ? Math.round(columnDeals.reduce((sum, deal) => sum + deal.completionPct, 0) / columnDeals.length)
+          : 0;
         return (
-          <div key={column.status} className={`min-h-64 rounded-xl border p-3 ${column.className}`}>
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-2">
+          <div key={column.status} className={`min-h-64 rounded-lg p-2 ${column.className}`}>
+            <div className="mb-2 flex items-center justify-between gap-2 px-1 text-sm">
+              <div className="flex min-w-0 items-center gap-1.5">
                 <span className={`size-2 rounded-full ${column.dotClassName}`} />
-                <div>
-                  <div className="flex items-center gap-1.5 text-sm font-semibold">
-                    {column.icon}
-                    {column.label}
-                  </div>
-                  <div className="text-xs text-muted-foreground">{column.helper}</div>
-                </div>
+                <span className={`rounded-md px-1.5 py-0.5 font-medium ${column.headerPillClassName}`}>
+                  {column.label}
+                </span>
               </div>
-              <Badge variant="outline">{columnDeals.length}</Badge>
+              <div className={`flex shrink-0 items-center gap-2 tabular-nums ${column.textClassName}`}>
+                <span>{columnDeals.length} deals</span>
+                <span>{averageCompletion}%</span>
+              </div>
             </div>
             <div className="space-y-2">
               {columnDeals.map((deal) => (
-                <TransactionCard key={deal.id} deal={deal} />
+                <TransactionCard key={deal.id} deal={deal} column={column} />
               ))}
               {columnDeals.length === 0 && (
                 <div className="rounded-lg border border-dashed bg-background/65 p-4 text-sm text-muted-foreground">
@@ -317,27 +331,38 @@ function StatusBoard({ deals }: { deals: DashboardDeal[] }) {
   );
 }
 
-function TransactionCard({ deal }: { deal: DashboardDeal }) {
+function TransactionCard({
+  deal,
+  column,
+}: {
+  deal: DashboardDeal;
+  column: (typeof BOARD_COLUMNS)[number];
+}) {
   return (
-    <div className="rounded-lg border bg-background p-3 shadow-xs">
-      <div className="space-y-2">
+    <div className={`rounded-lg border bg-background p-3 ${column.cardClassName}`}>
+      <div className="space-y-3">
         <div>
-          <Link href={`/deals/${deal.id}`} className="font-semibold leading-snug hover:underline">
-            {deal.property_address ?? deal.file_name}
-          </Link>
-          <div className="mt-1 text-xs text-muted-foreground">
+          <div className="flex items-start gap-2">
+            <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            <Link href={`/deals/${deal.id}`} className="font-semibold leading-snug hover:underline">
+              {deal.property_address ?? deal.file_name}
+            </Link>
+          </div>
+          <div className="mt-3 text-xs text-muted-foreground">
             {deal.transaction_type} · {deal.scenarioShortLabel}
           </div>
         </div>
         <div className="flex flex-wrap gap-1">
-          <Badge variant={STATUS_VARIANT[deal.complianceStatus] ?? "outline"}>{deal.complianceStatus}</Badge>
+          <span className={`rounded px-1.5 py-0.5 text-xs ${column.headerPillClassName}`}>
+            {deal.complianceStatus}
+          </span>
           {deal.source === "email" && <Badge variant="outline">Email</Badge>}
           {deal.transaction_code && <Badge variant="outline">{deal.transaction_code}</Badge>}
         </div>
         <MissingBadges deal={deal} limit={2} />
         <CompletionMeter deal={deal} />
         <div className="flex items-center justify-between gap-2 pt-1">
-          <div className="text-xs text-muted-foreground">
+          <div className="text-xs text-foreground/80">
             {deal.closingDate ? `Closing ${deal.closingDate.toLocaleDateString()}` : "No closing date"}
           </div>
           <ProcessDealButton
