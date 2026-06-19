@@ -16,6 +16,7 @@ ${FIELD_GUIDE}
 Rules:
 - Return one entry per field you can read from these pages; omit fields not shown.
 - Dates in YYYY-MM-DD. Money as plain numbers without $ or commas, for example 850000. Percentages as numbers, for example 2.5. If a commission is written as text, return that visible text.
+- Commission fields are directional. listing_commission_pct is the commission payable to our/listing brokerage ("Your Commission"). cooperating_commission_pct is the commission payable/offered to the co-operating brokerage. total_commission_pct is only the combined total of listing plus co-operating commission when the document explicitly gives a total or the two side amounts can be safely added. Do not copy the listing brokerage commission into total_commission_pct.
 - transaction_type is purchase or lease. firm_or_conditional is firm or conditional. multiple_offer is yes (N) or no.
 - representation_side: listing, cooperating, or both. seller_representation and buyer_representation can be SGA, other brokerage, self-represented, or unknown when visible.
 - scenario_hint should capture explicit phrases such as referral, co-brokerage, pre-construction, buyer self-represented, tenant self-represented, or multiple representation when visible.
@@ -75,7 +76,7 @@ const DOC_HINTS: Partial<Record<DocumentType, string>> = {
   form_635_receipt_of_funds:
     "Receipt of funds records show the payer, recipient, amount, deposit source, and method.",
   listing_agreement:
-    "The listing agreement shows total commission, listing period, seller/landlord names, listing agent, listing brokerage, and MLS listing details.",
+    "The listing agreement shows listing period, seller/landlord names, listing agent, listing brokerage, and commission terms. In the commission section, the amount payable to the Listing Brokerage is listing_commission_pct (Your Commission), not total_commission_pct. The amount offered/payable to any co-operating brokerage is cooperating_commission_pct. Only fill total_commission_pct if the form explicitly gives a combined total or you can safely add the listing and co-operating amounts.",
   buyer_representation_agreement:
     "The buyer representation agreement shows buyer names, buyer contact details, representation dates, and commission payable to the buyer brokerage.",
   tenant_representation_agreement:

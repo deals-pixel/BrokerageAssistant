@@ -13,6 +13,8 @@ export function validateFields(fields: MergedField[], transactionType: string): 
     f.notes = f.notes ? `${f.notes}; ${note}` : note;
   };
 
+  normalizeCommissionFields(fields);
+
   if (transactionType === "lease") {
     const leaseStart = get("lease_start_date");
     if (leaseStart?.value) {
@@ -76,6 +78,137 @@ export function validateFields(fields: MergedField[], transactionType: string): 
   }
 
   return fields;
+}
+
+function normalizeCommissionFields(fields: MergedField[]) {
+  const get = (key: string) => fields.find((field) => field.key === key);
+  const remove = (field: MergedField | undefined) => {
+    if (!field) return;
+    const index = fields.indexOf(field);
+    if (index >= 0) fields.splice(index, 1);
+  };
+
+  let total = get("total_commission_pct");
+  let listing = get("listing_commission_pct");
+  let cooperating = get("cooperating_commission_pct");
+
+  if (total?.sourceDocumentType === "listing_agreement" && !listing) {
+    listing = {
+      ...total,
+      key: "listing_commission_pct",
+      notes: appendNote(
+        total.notes,
+        "Commission from listing agreement moved to Your Commission; listing-side commission is not the total commission.",
+      ),
+    };
+    fields.push(listing);
+  }
+
+  total = get("total_commission_pct");
+  listing = get("listing_commission_pct");
+  cooperating = get("cooperating_commission_pct");
+
+  if (!listing || !cooperating) {
+    if (listing && total?.sourceDocumentType === "listing_agreement" && valuesEquivalent(total.value, listing.value)) {
+      remove(total);
+    }
+    return;
+  }
+
+  const calculatedTotal = addCommissionValues(listing.value, cooperating.value);
+  if (!calculatedTotal) {
+    if (
+      total?.sourceDocumentType === "listing_agreement" &&
+      (valuesEquivalent(total.value, listing.value) || valuesEquivalent(total.value, cooperating.value))
+    ) {
+      remove(total);
+    }
+    return;
+  }
+
+  if (total) {
+    total.value = calculatedTotal;
+    total.confidence = lowerConfidence(listing.confidence, cooperating.confidence);
+    total.sourceDocumentType = listing.sourceDocumentType;
+    total.sourcePage = listing.sourcePage;
+    total.sourceBox = listing.sourceBox;
+    total.needsReview = true;
+    total.notes = appendNote(total.notes, "Total commission calculated from listing and co-operating commission.");
+    return;
+  }
+
+  fields.push({
+    key: "total_commission_pct",
+    value: calculatedTotal,
+    confidence: lowerConfidence(listing.confidence, cooperating.confidence),
+    sourceDocumentType: listing.sourceDocumentType,
+    sourcePage: listing.sourcePage,
+    sourceBox: listing.sourceBox,
+    needsReview: true,
+    notes: "Total commission calculated from listing and co-operating commission.",
+  });
+}
+
+function appendNote(existing: string | undefined, note: string) {
+  return existing ? `${existing}; ${note}` : note;
+}
+
+function lowerConfidence(a: MergedField["confidence"], b: MergedField["confidence"]) {
+  const rank = { low: 0, medium: 1, high: 2 } as const;
+  return rank[a] <= rank[b] ? a : b;
+}
+
+function valuesEquivalent(a: string | null | undefined, b: string | null | undefined) {
+  if (!a || !b) return false;
+  return normalizeCommissionText(a) === normalizeCommissionText(b);
+}
+
+function addCommissionValues(a: string | null | undefined, b: string | null | undefined) {
+  const numericA = num(a);
+  const numericB = num(b);
+  if (numericA !== null && numericB !== null) return String(roundCommission(numericA + numericB));
+
+  const monthRentA = parseMonthRentFraction(a);
+  const monthRentB = parseMonthRentFraction(b);
+  if (monthRentA !== null && monthRentB !== null) {
+    const total = monthRentA + monthRentB;
+    if (Math.abs(total - 1) < 0.0001) return "1 month rent";
+    return `${formatFraction(total)} month rent`;
+  }
+
+  return null;
+}
+
+function normalizeCommissionText(value: string) {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function parseMonthRentFraction(value: string | null | undefined) {
+  if (!value) return null;
+  const normalized = normalizeCommissionText(value);
+  if (!normalized.includes("month") || !normalized.includes("rent")) return null;
+
+  const fraction = normalized.match(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
+  if (fraction) {
+    const numerator = Number(fraction[1]);
+    const denominator = Number(fraction[2]);
+    if (denominator !== 0) return numerator / denominator;
+  }
+
+  const decimal = normalized.match(/(\d+(?:\.\d+)?)/);
+  return decimal ? Number(decimal[1]) : null;
+}
+
+function formatFraction(value: number) {
+  const rounded = roundCommission(value);
+  if (Number.isInteger(rounded)) return String(rounded);
+  if (Math.abs(rounded - 0.5) < 0.0001) return "1/2";
+  if (Math.abs(rounded - 1.5) < 0.0001) return "1 1/2";
+  return String(rounded);
+}
+
+function roundCommission(value: number) {
+  return Math.round(value * 1000) / 1000;
 }
 
 function num(s: string | null | undefined): number | null {
