@@ -1794,8 +1794,7 @@ function buildPackageDocumentRows({
 
 function defaultLoneWolfStatus(item: ChecklistItem): RequirementStatusRow["lonewolf_status"] {
   if (!item.found) return "unknown";
-  if (item.required || item.conditional) return "pending_upload";
-  return "not_required";
+  return "pending_upload";
 }
 
 function formatLoneWolfStatus(status: RequirementStatusRow["lonewolf_status"]) {
