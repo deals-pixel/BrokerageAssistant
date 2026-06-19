@@ -204,6 +204,7 @@ export function ReviewScreen({
   const router = useRouter();
   const [edited, setEdited] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [savingFieldKey, setSavingFieldKey] = useState<string | null>(null);
   const [workingTaskId, setWorkingTaskId] = useState<string | null>(null);
   const [draftingReminder, setDraftingReminder] = useState(false);
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
@@ -282,60 +283,86 @@ export function ReviewScreen({
     setSelectedPage(source.sourcePage);
   }
 
-  async function saveEdits(markReviewed: boolean) {
+  async function persistFieldEdits(entries: [string, string][], markReviewed: boolean) {
     setSaving(true);
     const supabase = createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
-    try {
-      for (const [key, value] of Object.entries(edited)) {
-        const existing = fieldMap.get(key);
-        if (existing) {
-          const { error } = await supabase
-            .from("deal_fields")
-            .update({
-              value: value || null,
-              needs_review: false,
-              confidence: "high",
-              conflict_sources: null,
-              edited_by: user?.id,
-              edited_at: new Date().toISOString(),
-              notes: null,
-            })
-            .eq("deal_id", deal.id)
-            .eq("field_key", key);
-          if (error) throw new Error(error.message);
-        } else {
-          const { error } = await supabase.from("deal_fields").insert({
-            deal_id: deal.id,
-            field_key: key,
+    for (const [key, value] of entries) {
+      const existing = fieldMap.get(key);
+      if (existing) {
+        const { error } = await supabase
+          .from("deal_fields")
+          .update({
             value: value || null,
-            confidence: "high",
             needs_review: false,
+            confidence: "high",
+            conflict_sources: null,
             edited_by: user?.id,
             edited_at: new Date().toISOString(),
-          });
-          if (error) throw new Error(error.message);
-        }
+            notes: null,
+          })
+          .eq("deal_id", deal.id)
+          .eq("field_key", key);
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await supabase.from("deal_fields").insert({
+          deal_id: deal.id,
+          field_key: key,
+          value: value || null,
+          confidence: "high",
+          needs_review: false,
+          edited_by: user?.id,
+          edited_at: new Date().toISOString(),
+        });
+        if (error) throw new Error(error.message);
       }
+    }
 
-      const newStatus = markReviewed ? "reviewed" : "in_review";
-      await supabase.from("deals").update({ status: newStatus }).eq("id", deal.id);
-      await supabase.from("audit_logs").insert({
-        user_id: user?.id,
-        deal_id: deal.id,
-        action: markReviewed ? "deal_reviewed" : "fields_edited",
-        details: { edited_fields: Object.keys(edited) },
-      });
+    const newStatus = markReviewed ? "reviewed" : "in_review";
+    await supabase.from("deals").update({ status: newStatus }).eq("id", deal.id);
+    await supabase.from("audit_logs").insert({
+      user_id: user?.id,
+      deal_id: deal.id,
+      action: markReviewed ? "deal_reviewed" : "fields_edited",
+      details: { edited_fields: entries.map(([key]) => key) },
+    });
+  }
 
+  async function saveEdits(markReviewed: boolean) {
+    const entries = Object.entries(edited);
+    if (entries.length === 0 && !markReviewed) return;
+
+    try {
+      await persistFieldEdits(entries, markReviewed);
       toast.success(markReviewed ? "Deal marked as reviewed." : "Edits saved.");
       setEdited({});
       router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Save failed");
     } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveFieldEdit(fieldKey: string) {
+    if (edited[fieldKey] === undefined) return;
+    setSavingFieldKey(fieldKey);
+    try {
+      await persistFieldEdits([[fieldKey, edited[fieldKey]]], false);
+      toast.success("Field override saved.");
+      setEdited((prev) => {
+        const next = { ...prev };
+        delete next[fieldKey];
+        return next;
+      });
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSavingFieldKey(null);
       setSaving(false);
     }
   }
@@ -743,9 +770,11 @@ export function ReviewScreen({
                       : null;
                   const conflictSources = validConflictSources(row?.conflict_sources);
                   const fieldStatus = getFieldStatus(f.key, row, conflictSources.length, fieldMap);
+                  const fieldDirty = edited[f.key] !== undefined;
+                  const fieldSaving = savingFieldKey === f.key;
                   const inputClassName =
                     fieldStatus.className +
-                    (edited[f.key] !== undefined ? " ring-2 ring-blue-300" : "");
+                    (fieldDirty ? " ring-2 ring-blue-300" : "");
                   return (
                     <div
                       key={f.key}
@@ -761,37 +790,51 @@ export function ReviewScreen({
                           {f.label}
                         </label>
                       </div>
-                      {f.multiline ? (
-                        <Textarea
-                          id={inputId}
-                          className={`min-h-20 ${inputClassName}`}
-                          title={
-                            row?.source_page != null
-                              ? `Source: ${sourceLabel ?? "uploaded document"}`
-                              : undefined
-                          }
-                          value={currentValue(f.key)}
-                          onFocus={() => jumpToFieldSource(row, f.key)}
-                          onChange={(e) =>
-                            setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))
-                          }
-                        />
-                      ) : (
-                        <Input
-                          id={inputId}
-                          className={inputClassName}
-                          title={
-                            row?.source_page != null
-                              ? `Source: ${sourceLabel ?? "uploaded document"}`
-                              : undefined
-                          }
-                          value={currentValue(f.key)}
-                          onFocus={() => jumpToFieldSource(row, f.key)}
-                          onChange={(e) =>
-                            setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))
-                          }
-                        />
-                      )}
+                      <div className={f.multiline ? "flex items-start gap-2" : "flex items-center gap-2"}>
+                        {f.multiline ? (
+                          <Textarea
+                            id={inputId}
+                            className={`min-h-20 flex-1 ${inputClassName}`}
+                            title={
+                              row?.source_page != null
+                                ? `Source: ${sourceLabel ?? "uploaded document"}`
+                                : undefined
+                            }
+                            value={currentValue(f.key)}
+                            onFocus={() => jumpToFieldSource(row, f.key)}
+                            onChange={(e) =>
+                              setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))
+                            }
+                          />
+                        ) : (
+                          <Input
+                            id={inputId}
+                            className={`flex-1 ${inputClassName}`}
+                            title={
+                              row?.source_page != null
+                                ? `Source: ${sourceLabel ?? "uploaded document"}`
+                                : undefined
+                            }
+                            value={currentValue(f.key)}
+                            onFocus={() => jumpToFieldSource(row, f.key)}
+                            onChange={(e) =>
+                              setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))
+                            }
+                          />
+                        )}
+                        {fieldDirty && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0"
+                            onClick={() => saveFieldEdit(f.key)}
+                            disabled={saving || fieldSaving}
+                          >
+                            {fieldSaving ? "Saving..." : "Save"}
+                          </Button>
+                        )}
+                      </div>
                       <div className="mt-2 flex items-start gap-2 text-xs">
                         <FieldStatusDot tone={fieldStatus.tone} className="mt-1" />
                         <div>
