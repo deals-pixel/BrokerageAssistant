@@ -27,7 +27,9 @@ export default async function DealPage({
 
   const { data: fields } = await supabase
     .from("deal_fields")
-    .select("field_key, value, confidence, source_doc_type, source_page, source_box, conflict_sources, needs_review, notes")
+    .select(
+      "field_key, value, confidence, source_doc_type, source_page, source_box, conflict_sources, needs_review, notes, edited_at",
+    )
     .eq("deal_id", id);
 
   const { data: tasks } = await supabase

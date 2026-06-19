@@ -77,6 +77,7 @@ type FieldRow = {
   conflict_sources: FieldSourceCandidate[] | null;
   needs_review: boolean;
   notes: string | null;
+  edited_at?: string | null;
 };
 
 type TaskRow = {
@@ -1320,7 +1321,9 @@ function getFieldStatus(
   return {
     tone: "confirmed",
     label: "Confirmed",
-    detail: row?.source_doc_type
+    detail: row?.edited_at
+      ? "Admin Override"
+      : row?.source_doc_type
       ? `Confirmed from ${documentTypeLabel(row.source_doc_type)}`
       : "Confirmed from source",
     className: "border-green-200 bg-green-50/60 focus-visible:ring-green-200",
