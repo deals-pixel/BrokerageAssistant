@@ -1174,8 +1174,11 @@ function PipelineIndicator({ row }: { row: PackageDocumentRow }) {
     },
     {
       id: "lonewolf",
-      complete: row.found && (row.loneWolfLabel === "Uploaded" || row.loneWolfLabel === "Not Required"),
-      current: row.pendingLoneWolf,
+      complete:
+        row.found &&
+        !row.needsReview &&
+        (row.loneWolfLabel === "Uploaded" || row.loneWolfLabel === "Not Required"),
+      current: row.pendingLoneWolf && !row.needsReview,
     },
   ];
 
