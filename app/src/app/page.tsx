@@ -104,7 +104,10 @@ export default async function DashboardPage({
       "attachments_queued",
       "routing",
       "routing_error",
+      "intake_review",
       "needs_match_review",
+      "new_deal_suggested",
+      "not_deal_suggested",
       "matched",
       "draft_transaction_created",
       "ignored",
@@ -115,6 +118,7 @@ export default async function DashboardPage({
 
   const baseDeals = ((data ?? []) as DealRow[]).map(toDashboardDeal);
   const intakeEmails = (intakeData ?? []) as IntakeEmailRow[];
+  const unconfirmedIntakeEmails = intakeEmails.filter((email) => !isConfirmedIntakeEmail(email) && email.status !== "ignored");
   const linkedDealIds = Array.from(
     new Set(
       intakeEmails
@@ -140,7 +144,7 @@ export default async function DashboardPage({
     acc[page.deal_id].push(page.email_attachment_id);
     return acc;
   }, {});
-  const intakeEmailsByDealId = intakeEmails.reduce<Record<string, IntakeEmailRow[]>>((acc, email) => {
+  const intakeEmailsByDealId = intakeEmails.filter(isConfirmedIntakeEmail).reduce<Record<string, IntakeEmailRow[]>>((acc, email) => {
     for (const link of email.deal_email_links ?? []) {
       if (!link.deal_id) continue;
       acc[link.deal_id] = acc[link.deal_id] ?? [];
@@ -148,12 +152,12 @@ export default async function DashboardPage({
     }
     return acc;
   }, {});
-  const deals = baseDeals.map((deal) => ({
+  const realDeals = baseDeals.map((deal) => ({
     ...deal,
     intakeEmails: intakeEmailsByDealId[deal.id] ?? [],
     renderedAttachmentIds: renderedAttachmentIdsByDeal[deal.id] ?? [],
   }));
-  const dealOptions = deals.map<IntakeDealOption>((deal) => ({
+  const dealOptions = realDeals.map<IntakeDealOption>((deal) => ({
     id: deal.id,
     label: deal.property_address ?? deal.file_name,
     status: deal.status,
@@ -161,6 +165,7 @@ export default async function DashboardPage({
     transactionCode: deal.transaction_code,
     createdAt: deal.created_at,
   }));
+  const deals = [...unconfirmedIntakeEmails.map(toIntakeDashboardDeal), ...realDeals];
   const filteredDeals = deals.filter((deal) => matchesFilter(deal, activeFilter));
   const metrics = buildMetrics(deals);
 
@@ -391,6 +396,7 @@ function TransactionCard({
   dealOptions: IntakeDealOption[];
 }) {
   const isIntake = isIntakeDeal(deal);
+  const isVirtualIntake = isVirtualIntakeDeal(deal);
 
   return (
     <div className={`min-w-0 overflow-hidden rounded-lg border bg-background p-2 ${column.cardClassName}`}>
@@ -398,12 +404,18 @@ function TransactionCard({
         <div className="min-w-0">
           <div className="flex min-w-0 items-start gap-1.5">
             <FileText className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-            <Link
-              href={`/deals/${deal.id}`}
-              className="min-w-0 break-words text-sm font-semibold leading-snug hover:underline"
-            >
-              {shortDealTitle(deal.property_address, deal.file_name)}
-            </Link>
+            {isVirtualIntake ? (
+              <span className="min-w-0 break-words text-sm font-semibold leading-snug">
+                {shortDealTitle(deal.property_address, deal.file_name)}
+              </span>
+            ) : (
+              <Link
+                href={`/deals/${deal.id}`}
+                className="min-w-0 break-words text-sm font-semibold leading-snug hover:underline"
+              >
+                {shortDealTitle(deal.property_address, deal.file_name)}
+              </Link>
+            )}
           </div>
           <div className="mt-1.5 truncate text-[11px] leading-4 text-muted-foreground">
             {deal.transaction_type} | {deal.scenarioShortLabel}
@@ -538,9 +550,13 @@ function TimeList({
                 }
               >
                 <div className="min-w-0">
-                  <Link href={`/deals/${deal.id}`} className="font-medium hover:underline">
-                    {shortDealTitle(deal.property_address, deal.file_name)}
-                  </Link>
+                  {isVirtualIntakeDeal(deal) ? (
+                    <div className="font-medium">{shortDealTitle(deal.property_address, deal.file_name)}</div>
+                  ) : (
+                    <Link href={`/deals/${deal.id}`} className="font-medium hover:underline">
+                      {shortDealTitle(deal.property_address, deal.file_name)}
+                    </Link>
+                  )}
                   <div className="text-xs text-muted-foreground">
                     {deal.transaction_type} | {deal.scenarioShortLabel}
                   </div>
@@ -605,9 +621,13 @@ function RecordsTable({ deals }: { deals: DashboardDeal[] }) {
           {deals.map((deal) => (
             <TableRow key={deal.id}>
               <TableCell className="min-w-56">
-                <Link href={`/deals/${deal.id}`} className="font-medium hover:underline">
-                  {shortDealTitle(deal.property_address, deal.file_name)}
-                </Link>
+                {isVirtualIntakeDeal(deal) ? (
+                  <div className="font-medium">{shortDealTitle(deal.property_address, deal.file_name)}</div>
+                ) : (
+                  <Link href={`/deals/${deal.id}`} className="font-medium hover:underline">
+                    {shortDealTitle(deal.property_address, deal.file_name)}
+                  </Link>
+                )}
                 <div className="text-xs text-muted-foreground">
                   {deal.page_count ?? 0} pages
                   {deal.closingDate ? ` | Closing ${deal.closingDate.toLocaleDateString()}` : ""}
@@ -745,6 +765,40 @@ function toDashboardDeal(deal: DealRow): DashboardDeal {
   };
 }
 
+function toIntakeDashboardDeal(email: IntakeEmailRow): DashboardDeal {
+  const routing = email.routing_json ?? {};
+  const receivedAt = email.received_at ?? new Date().toISOString();
+  const address = stringRoutingValue(routing, "property_address");
+  const typeGuess = stringRoutingValue(routing, "transaction_type_guess");
+  const transactionCode = stringRoutingValue(routing, "transaction_code");
+
+  return {
+    id: `intake:${email.id}`,
+    file_name: email.subject || "Inbound email package",
+    status: "draft_from_email",
+    transaction_type: transactionTypeFromRouting(typeGuess),
+    property_address: address || null,
+    transaction_code: transactionCode || null,
+    source: "email",
+    page_count: 0,
+    scenario_key: null,
+    scenario_label: null,
+    submitted_at: null,
+    created_at: receivedAt,
+    deal_pages: [],
+    deal_fields: [],
+    scenarioLabel: intakeScenarioLabel(email.status),
+    scenarioShortLabel: intakeScenarioLabel(email.status),
+    complianceStatus: "Draft",
+    completionPct: 0,
+    missingRequired: [],
+    closingDate: null,
+    canAuditChecklist: false,
+    intakeEmails: [email],
+    renderedAttachmentIds: [],
+  };
+}
+
 function buildMetrics(deals: DashboardDeal[]) {
   return {
     activeTransactions: deals.filter((deal) => deal.complianceStatus !== "Submitted").length,
@@ -773,6 +827,33 @@ function parseDate(value: string | null) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isConfirmedIntakeEmail(email: IntakeEmailRow) {
+  return (email.deal_email_links ?? []).some((link) => link.match_status === "manually_confirmed" || link.match_status === "auto_matched");
+}
+
+function isVirtualIntakeDeal(deal: DashboardDeal) {
+  return deal.id.startsWith("intake:");
+}
+
+function stringRoutingValue(routing: Record<string, unknown>, key: string) {
+  const value = routing[key];
+  return typeof value === "string" ? value : "";
+}
+
+function transactionTypeFromRouting(value: string): TransactionType {
+  if (value === "lease") return "lease";
+  if (value === "sale") return "purchase";
+  return "unknown";
+}
+
+function intakeScenarioLabel(status: string) {
+  if (status === "needs_match_review") return "Likely existing deal";
+  if (status === "new_deal_suggested") return "New deal suggested";
+  if (status === "not_deal_suggested") return "Not a deal?";
+  if (status === "error" || status === "routing_error") return "Needs attention";
+  return "Intake review";
 }
 
 function parseFilter(value: string | undefined): FilterKey {

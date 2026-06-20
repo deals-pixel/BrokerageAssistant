@@ -6,8 +6,8 @@ import {
   heuristicRouteEmail,
   normalizeInboundEmailPayload,
   shouldStoreAttachment,
-  transactionTypeForDeal,
 } from "@/lib/email-intake";
+import { matchDeal } from "@/lib/email-routing-job";
 
 export const maxDuration = 60;
 
@@ -94,10 +94,8 @@ async function storeInboundAttachments(
 
   try {
     let storedCount = 0;
-    let storedSize = 0;
     let ignoredCount = 0;
     let duplicateCount = 0;
-    const storedAttachmentIds: string[] = [];
 
     for (const attachment of inbound.attachments) {
       const buffer = Buffer.from(attachment.contentBase64, "base64");
@@ -171,46 +169,29 @@ async function storeInboundAttachments(
         .update({ storage_path: storagePath })
         .eq("id", attachmentRow.id);
       storedCount += 1;
-      storedSize += fileSize;
-      storedAttachmentIds.push(attachmentRow.id);
     }
 
     if (storedCount > 0) {
       const routing = heuristicRouteEmail(inbound);
-      const { data: draftDeal, error: draftError } = await supabase
-        .from("deals")
-        .insert({
-          created_by: null,
-          file_name: inbound.subject || "Email intake package",
-          file_size: storedSize,
-          page_count: 0,
-          status: "draft_from_email",
-          transaction_type: transactionTypeForDeal(routing.transaction_type_guess),
-          property_address: routing.property_address || null,
-          source: "email",
-          transaction_code: await nextTransactionCode(supabase),
-        })
-        .select("id")
-        .single();
-      if (draftError || !draftDeal) throw new Error(draftError?.message ?? "Could not create draft deal");
-
-      await supabase.from("deal_email_links").insert({
-        deal_id: draftDeal.id,
-        inbound_email_id: inboundEmailId,
-        match_score: 0,
-        match_reason: "Draft created from inbound email; admin review required",
-        match_status: "manually_confirmed",
-      });
-
-      await supabase
-        .from("email_attachments")
-        .update({ deal_id: draftDeal.id, status: "linked_to_transaction", linked_at: new Date().toISOString() })
-        .in("id", storedAttachmentIds);
+      const match = await matchDeal(supabase, routing, inbound.fromEmail);
+      const strongMatch = match.best && match.score >= 80 ? match.best : null;
+      if (strongMatch) {
+        await supabase.from("deal_email_links").upsert(
+          {
+            deal_id: strongMatch.id,
+            inbound_email_id: inboundEmailId,
+            match_score: match.score,
+            match_reason: match.reason,
+            match_status: "needs_review",
+          },
+          { onConflict: "deal_id,inbound_email_id" },
+        );
+      }
 
       await supabase
         .from("inbound_emails")
         .update({
-          status: "draft_transaction_created",
+          status: strongMatch ? "needs_match_review" : "intake_review",
           routing_json: routing,
           routing_completed_at: new Date().toISOString(),
           error_message: null,
@@ -218,13 +199,15 @@ async function storeInboundAttachments(
         .eq("id", inboundEmailId);
 
       await supabase.from("audit_logs").insert({
-        deal_id: draftDeal.id,
-        action: "draft_deal_created_from_email",
+        deal_id: strongMatch ? strongMatch.id : null,
+        action: strongMatch ? "inbound_email_match_suggested" : "inbound_email_ready_for_review",
         details: {
           inbound_email_id: inboundEmailId,
           attachments: storedCount,
           ignored_attachments: ignoredCount,
           duplicate_attachments: duplicateCount,
+          match_score: strongMatch ? match.score : 0,
+          match_reason: strongMatch ? match.reason : null,
           routing,
           ai_used: false,
         },
@@ -251,15 +234,6 @@ async function storeInboundAttachments(
       })
       .eq("id", inboundEmailId);
   }
-}
-
-async function nextTransactionCode(supabase: ReturnType<typeof createAdminClient>) {
-  const year = new Date().getFullYear();
-  const { count } = await supabase
-    .from("deals")
-    .select("id", { count: "exact", head: true })
-    .gte("created_at", `${year}-01-01T00:00:00.000Z`);
-  return `TX-${year}-${String((count ?? 0) + 1).padStart(4, "0")}`;
 }
 
 function verifyInboundSecret(req: Request) {

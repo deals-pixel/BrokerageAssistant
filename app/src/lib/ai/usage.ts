@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 
-type AiLayer = "light_routing" | "classification" | "extraction";
+type AiLayer = "light_routing" | "intake_analysis" | "classification" | "extraction";
 
 type UsagePayload = {
   input_tokens?: number | null;

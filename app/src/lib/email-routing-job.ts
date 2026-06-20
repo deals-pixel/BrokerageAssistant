@@ -1,7 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   heuristicRouteEmail,
-  transactionTypeForDeal,
   type InboundEmailInput,
   type LightRoutingResult,
 } from "@/lib/email-intake";
@@ -153,82 +152,39 @@ export async function processInboundEmailRouting(inboundEmailId: string) {
       .filter((id): id is string => Boolean(id));
     const completedAt = new Date().toISOString();
 
-    if (match.best && match.score >= 80) {
-      await linkEmailToDeal(supabase, {
-        emailId: inboundEmailId,
-        dealId: match.best.id,
-        attachmentIds,
-        matchScore: match.score,
-        matchReason: match.reason,
-        matchStatus: "auto_matched",
-      });
-      await supabase
-        .from("deals")
-        .update({ status: "awaiting_admin_process", source: "email" })
-        .eq("id", match.best.id);
-      await supabase
-        .from("inbound_emails")
-        .update({ status: "matched", routing_json: routing, routing_completed_at: completedAt })
-        .eq("id", inboundEmailId);
-      await supabase.from("audit_logs").insert({
-        deal_id: match.best.id,
-        action: "email_auto_matched",
-        details: { inbound_email_id: inboundEmailId, attachments: attachmentIds.length, match_score: match.score },
-      });
-      return { inboundEmailId, status: "matched", dealId: match.best.id };
-    }
-
     if (match.best && match.score >= 50) {
-      await supabase.from("deal_email_links").insert({
-        deal_id: match.best.id,
-        inbound_email_id: inboundEmailId,
-        match_score: match.score,
-        match_reason: match.reason,
-        match_status: "needs_review",
-      });
+      await supabase.from("deal_email_links").upsert(
+        {
+          deal_id: match.best.id,
+          inbound_email_id: inboundEmailId,
+          match_score: match.score,
+          match_reason: match.reason,
+          match_status: "needs_review",
+        },
+        { onConflict: "deal_id,inbound_email_id" },
+      );
       await supabase
         .from("inbound_emails")
         .update({ status: "needs_match_review", routing_json: routing, routing_completed_at: completedAt })
         .eq("id", inboundEmailId);
+      await supabase.from("audit_logs").insert({
+        deal_id: match.best.id,
+        action: "inbound_email_match_suggested",
+        details: { inbound_email_id: inboundEmailId, attachments: attachmentIds.length, match_score: match.score },
+      });
       return { inboundEmailId, status: "needs_match_review", dealId: match.best.id };
     }
 
-    const { data: draftDeal, error: draftError } = await supabase
-      .from("deals")
-      .insert({
-        created_by: null,
-        file_name: inbound.subject || "Email intake package",
-        file_size: routeAttachments.reduce((sum, item) => sum + (item.contentLength ?? 0), 0),
-        page_count: 0,
-        status: "draft_from_email",
-        transaction_type: transactionTypeForDeal(routing.transaction_type_guess),
-        property_address: routing.property_address || null,
-        source: "email",
-        transaction_code: await nextTransactionCode(supabase),
-      })
-      .select("id")
-      .single();
-    if (draftError || !draftDeal) throw new Error(draftError?.message ?? "Could not create draft deal");
-
-    await linkEmailToDeal(supabase, {
-      emailId: inboundEmailId,
-      dealId: draftDeal.id,
-      attachmentIds,
-      matchScore: match.score,
-      matchReason: match.reason || "No confident existing match",
-      matchStatus: "manually_confirmed",
-    });
     await supabase
       .from("inbound_emails")
-      .update({ status: "draft_transaction_created", routing_json: routing, routing_completed_at: completedAt })
+      .update({ status: "intake_review", routing_json: routing, routing_completed_at: completedAt })
       .eq("id", inboundEmailId);
     await supabase.from("audit_logs").insert({
-      deal_id: draftDeal.id,
-      action: "draft_deal_created_from_email",
+      action: "inbound_email_ready_for_review",
       details: { inbound_email_id: inboundEmailId, attachments: attachmentIds.length, routing },
     });
 
-    return { inboundEmailId, status: "draft_transaction_created", dealId: draftDeal.id };
+    return { inboundEmailId, status: "intake_review" };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await supabase
@@ -278,7 +234,7 @@ function emailRowToInboundInput(
   };
 }
 
-async function matchDeal(
+export async function matchDeal(
   supabase: AdminClient,
   routing: LightRoutingResult,
   senderEmail: string | null,
@@ -356,52 +312,6 @@ function scoreDeal(deal: DealCandidate, routing: LightRoutingResult, senderEmail
   }
 
   return { score, reason: reasons.join(", ") || "No matching signals" };
-}
-
-async function linkEmailToDeal(
-  supabase: AdminClient,
-  {
-    emailId,
-    dealId,
-    attachmentIds,
-    matchScore,
-    matchReason,
-    matchStatus,
-  }: {
-    emailId: string;
-    dealId: string;
-    attachmentIds: string[];
-    matchScore: number;
-    matchReason: string;
-    matchStatus: string;
-  },
-) {
-  await supabase.from("deal_email_links").upsert(
-    {
-      deal_id: dealId,
-      inbound_email_id: emailId,
-      match_score: matchScore,
-      match_reason: matchReason,
-      match_status: matchStatus,
-    },
-    { onConflict: "deal_id,inbound_email_id" },
-  );
-
-  if (attachmentIds.length > 0) {
-    await supabase
-      .from("email_attachments")
-      .update({ deal_id: dealId, status: "linked_to_transaction", linked_at: new Date().toISOString() })
-      .in("id", attachmentIds);
-  }
-}
-
-async function nextTransactionCode(supabase: AdminClient) {
-  const year = new Date().getFullYear();
-  const { count } = await supabase
-    .from("deals")
-    .select("id", { count: "exact", head: true })
-    .gte("created_at", `${year}-01-01T00:00:00.000Z`);
-  return `TX-${year}-${String((count ?? 0) + 1).padStart(4, "0")}`;
 }
 
 function normalizeText(value: string) {

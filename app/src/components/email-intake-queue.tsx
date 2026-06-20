@@ -11,6 +11,7 @@ import {
   Link2,
   Mail,
   Search,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -173,6 +174,19 @@ export function DealIntakeWorkflow({
     }
   }
 
+  async function analyzeEmail(email: IntakeEmailRow) {
+    setWorkingId(email.id);
+    try {
+      await postAction(`/api/inbound-emails/${email.id}/analyze`, {});
+      toast.success("Intake analyzed.");
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Analysis failed");
+    } finally {
+      setWorkingId(null);
+    }
+  }
+
   if (emails.length === 0) {
     return (
       <div className="rounded-md border border-dashed bg-muted/20 p-2 text-[11px] leading-4 text-muted-foreground">
@@ -185,9 +199,10 @@ export function DealIntakeWorkflow({
     <div className="min-w-0 space-y-2">
       {emails.map((email) => {
         const primaryLink = bestLink(email);
-        const linkedDeal = linkedDealFromRelation(primaryLink?.deals) ?? deal;
+        const suggestedDeal = linkedDealFromRelation(primaryLink?.deals);
+        const linkedDeal = suggestedDeal ?? deal;
         const isConfirmed = Boolean(
-          linkedDeal &&
+          suggestedDeal &&
             (email.status === "matched" ||
               email.status === "draft_transaction_created" ||
               primaryLink?.match_status === "auto_matched" ||
@@ -195,7 +210,9 @@ export function DealIntakeWorkflow({
         );
         const needsReview = email.status === "needs_match_review" || primaryLink?.match_status === "needs_review";
         const isWorking = workingId === email.id;
-        const dealTitle = shortDealTitle(linkedDeal.property_address, linkedDeal.file_name);
+        const dealTitle = suggestedDeal
+          ? shortDealTitle(suggestedDeal.property_address, suggestedDeal.file_name)
+          : routingAddress(email.routing_json) || "Needs admin review";
         const routeMeta = primaryLink
           ? `${primaryLink.match_score ?? 0}% | ${formatMatchStatus(primaryLink.match_status)}`
           : routingSummary(email.routing_json) || "No match signal";
@@ -265,6 +282,18 @@ export function DealIntakeWorkflow({
                 )}
                 {!isConfirmed && (
                   <>
+                    {canAnalyzeIntake(email) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => analyzeEmail(email)}
+                        disabled={isWorking}
+                      >
+                        <Sparkles className="size-3.5" />
+                        Analyze
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant={needsReview ? "outline" : "default"}
@@ -463,7 +492,9 @@ function intakeNextStep(
   renderedAttachmentIds: string[],
 ) {
   if (email.status === "routing_error" || email.status === "error") return "Review the intake error, then link, create, or ignore.";
-  if (email.status === "routing_queued") return "Link this email or create a draft deal.";
+  if (email.status === "not_deal_suggested") return "AI suggests this is not a deal package. Ignore it or choose another action.";
+  if (email.status === "new_deal_suggested") return "AI suggests this is a new deal. Create a draft or link it to an existing one.";
+  if (email.status === "intake_review" || email.status === "routing_queued") return "Analyze intake, link it, create a draft, or ignore it.";
   if (needsReview) return "Confirm the suggested match or change it.";
   if (!isConfirmed) return "Link this email or create a draft deal.";
 
@@ -536,6 +567,19 @@ export function EmailIntakeQueue({
       router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Action failed");
+    } finally {
+      setWorkingId(null);
+    }
+  }
+
+  async function analyzeEmail(email: IntakeEmailRow) {
+    setWorkingId(email.id);
+    try {
+      await postAction(`/api/inbound-emails/${email.id}/analyze`, {});
+      toast.success("Intake analyzed.");
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Analysis failed");
     } finally {
       setWorkingId(null);
     }
@@ -655,6 +699,17 @@ export function EmailIntakeQueue({
                         )}
                         {!isConfirmed && (
                           <>
+                            {canAnalyzeIntake(email) && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => analyzeEmail(email)}
+                                disabled={workingId === email.id}
+                              >
+                                <Sparkles className="size-4" />
+                                Analyze
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               variant={needsReview ? "outline" : "default"}
@@ -906,6 +961,7 @@ function intakeStatusVariant(status: string): "default" | "secondary" | "destruc
   if (status === "matched" || status === "draft_transaction_created") return "default";
   if (
     status === "needs_match_review" ||
+    status === "new_deal_suggested" ||
     status === "attachments_queued" ||
     status === "routing" ||
     status === "routing_queued"
@@ -917,7 +973,10 @@ function intakeStatusVariant(status: string): "default" | "secondary" | "destruc
 }
 
 function formatIntakeStatus(status: string) {
+  if (status === "intake_review") return "Intake review";
   if (status === "needs_match_review") return "Needs match review";
+  if (status === "new_deal_suggested") return "New deal suggested";
+  if (status === "not_deal_suggested") return "Not a deal?";
   if (status === "draft_transaction_created") return "Draft created";
   if (status === "attachments_queued") return "Storing attachments";
   if (status === "routing_queued") return "Needs review";
@@ -963,4 +1022,15 @@ function routingSummary(routing: Record<string, unknown> | null) {
   const confidenceText = typeof confidence === "number" ? `${Math.round(confidence * 100)}% confidence` : "";
   if (type === "unknown") return confidenceText;
   return [type, confidenceText].filter(Boolean).join(" | ");
+}
+
+function canAnalyzeIntake(email: IntakeEmailRow) {
+  return (
+    email.status === "intake_review" ||
+    email.status === "new_deal_suggested" ||
+    email.status === "not_deal_suggested" ||
+    email.status === "routing_queued" ||
+    email.status === "routing_error" ||
+    email.status === "error"
+  );
 }

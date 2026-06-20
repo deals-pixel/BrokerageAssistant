@@ -71,9 +71,6 @@ export async function confirmInboundEmailMatch({
   );
 
   await linkAttachmentsToDeal(supabase, inboundEmailId, dealId);
-  await table(supabase, "deals")
-    .update({ status: "awaiting_admin_process", error_message: null })
-    .eq("id", dealId);
   await table(supabase, "inbound_emails")
     .update({ status: "matched", error_message: null })
     .eq("id", inboundEmailId);
