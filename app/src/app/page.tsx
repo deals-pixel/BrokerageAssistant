@@ -97,7 +97,7 @@ export default async function DashboardPage({
   const { data: intakeData } = await supabase
     .from("inbound_emails")
     .select(
-      "id, from_email, from_name, subject, status, received_at, routing_json, error_message, email_attachments(id, status, original_filename, mime_type, file_size, light_classification_type, light_classification_confidence, received_at), deal_email_links(deal_id, match_score, match_reason, match_status, deals(id, property_address, file_name, status, page_count))",
+      "id, from_email, from_name, subject, body_text, body_html, status, received_at, routing_json, error_message, email_attachments(id, status, original_filename, mime_type, file_size, light_classification_type, light_classification_confidence, received_at), deal_email_links(deal_id, match_score, match_reason, match_status, deals(id, property_address, file_name, status, page_count))",
     )
     .in("status", [
       "routing_queued",

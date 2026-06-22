@@ -11,12 +11,15 @@ import {
   Link2,
   Mail,
   Search,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { EmailAttachmentIngestButton } from "@/components/email-attachment-ingest-button";
+import {
+  EmailAttachmentIngestButton,
+  prepareEmailAttachmentsForProcessing,
+} from "@/components/email-attachment-ingest-button";
 import { ProcessDealButton } from "@/components/process-deal-button";
+import { createClient } from "@/lib/supabase/client";
 import { shortDealTitle, shortDocumentLabel } from "@/lib/display";
 import { INTAKE_ADDRESS } from "@/lib/intake-address";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +50,8 @@ export type IntakeEmailRow = {
   from_email: string | null;
   from_name: string | null;
   subject: string | null;
+  body_text: string | null;
+  body_html: string | null;
   status: string;
   received_at: string | null;
   routing_json: Record<string, unknown> | null;
@@ -89,7 +94,7 @@ export type IntakeDealOption = {
   createdAt: string;
 };
 
-type DialogMode = "link" | "create" | "ignore";
+type DialogMode = "review" | "link" | "create" | "ignore";
 
 type DialogState = {
   mode: DialogMode;
@@ -98,6 +103,7 @@ type DialogState = {
   propertyAddress: string;
   transactionType: string;
   reason: string;
+  previewAttachmentId: string;
 };
 
 type IntakeWorkflowDeal = {
@@ -120,8 +126,10 @@ export function DealIntakeWorkflow({
   renderedAttachmentIds: string[];
 }) {
   const router = useRouter();
+  const supabase = createClient();
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [workingId, setWorkingId] = useState<string | null>(null);
+  const [workflowProgress, setWorkflowProgress] = useState("");
   const selectedDeal = useMemo(
     () => dealOptions.find((item) => item.id === dialog?.selectedDealId) ?? null,
     [dealOptions, dialog?.selectedDealId],
@@ -137,6 +145,7 @@ export function DealIntakeWorkflow({
       propertyAddress: routingAddress(email.routing_json) || deal.property_address || "",
       transactionType: routingTransactionType(email.routing_json),
       reason: "",
+      previewAttachmentId: firstPreviewAttachmentId(email),
     });
   }
 
@@ -174,16 +183,47 @@ export function DealIntakeWorkflow({
     }
   }
 
-  async function analyzeEmail(email: IntakeEmailRow) {
-    setWorkingId(email.id);
+  async function approveAndProcess(dialog: DialogState, action: "link" | "create") {
+    setWorkingId(dialog.email.id);
+    setWorkflowProgress(action === "link" ? "Linking email to transaction..." : "Creating draft transaction...");
     try {
-      await postAction(`/api/inbound-emails/${email.id}/analyze`, {});
-      toast.success("Intake analyzed.");
+      const result =
+        action === "link"
+          ? await postAction(`/api/inbound-emails/${dialog.email.id}/link`, {
+              dealId: dialog.selectedDealId,
+              matchReason: "Admin approved email intake for full processing",
+            })
+          : await postAction(`/api/inbound-emails/${dialog.email.id}/create-draft`, {
+              propertyAddress: dialog.propertyAddress,
+              transactionType: dialog.transactionType,
+            });
+      const approvedDeal = result.deal as IntakeLinkedDeal | undefined;
+      if (!approvedDeal?.id) throw new Error("Approved transaction was not returned.");
+
+      setWorkflowProgress("Preparing email attachments...");
+      await prepareEmailAttachmentsForProcessing({
+        supabase,
+        dealId: approvedDeal.id,
+        attachments: dialog.email.email_attachments,
+        renderedAttachmentIds: approvedDeal.id === deal.id ? renderedAttachmentIds : [],
+        onProgress: setWorkflowProgress,
+      });
+
+      setWorkflowProgress("Running full AI extraction and compliance check...");
+      const processResponse = await fetch(`/api/deals/${approvedDeal.id}/process`, { method: "POST" });
+      if (!processResponse.ok) {
+        const body = await processResponse.json().catch(() => null);
+        throw new Error(body?.error ?? "Full processing failed");
+      }
+
+      toast.success("Email package approved and processed.");
+      setDialog(null);
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Analysis failed");
+      toast.error(err instanceof Error ? err.message : "Approval failed");
     } finally {
       setWorkingId(null);
+      setWorkflowProgress("");
     }
   }
 
@@ -263,58 +303,22 @@ export function DealIntakeWorkflow({
               </div>
               <div className="flex min-w-0 flex-wrap justify-end gap-1.5">
                 {needsReview && linkedDeal && (
-                  <>
-                    <Button size="sm" className="h-7 px-2 text-xs" onClick={() => openDialog("link", email)} disabled={isWorking}>
-                      <CheckCircle2 className="size-3.5" />
-                      Confirm
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2 text-xs"
-                      onClick={() => openDialog("link", email)}
-                      disabled={isWorking}
-                    >
-                      <Search className="size-3.5" />
-                      Change
-                    </Button>
-                  </>
+                  <Button size="sm" className="h-7 px-2 text-xs" onClick={() => openDialog("review", email)} disabled={isWorking}>
+                    <CheckCircle2 className="size-3.5" />
+                    Review match
+                  </Button>
                 )}
                 {!isConfirmed && (
-                  <>
-                    {canAnalyzeIntake(email) && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => analyzeEmail(email)}
-                        disabled={isWorking}
-                      >
-                        <Sparkles className="size-3.5" />
-                        Analyze
-                      </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant={needsReview ? "outline" : "default"}
-                      className="h-7 px-2 text-xs"
-                      onClick={() => openDialog("link", email)}
-                      disabled={isWorking || dealOptions.length === 0}
-                    >
-                      <Link2 className="size-3.5" />
-                      Link
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2 text-xs"
-                      onClick={() => openDialog("create", email)}
-                      disabled={isWorking}
-                    >
-                      <FilePlus2 className="size-3.5" />
-                      Create draft
-                    </Button>
-                  </>
+                  <Button
+                    size="sm"
+                    variant={needsReview ? "outline" : "default"}
+                    className="h-7 px-2 text-xs"
+                    onClick={() => openDialog("review", email)}
+                    disabled={isWorking}
+                  >
+                    <Search className="size-3.5" />
+                    Review intake
+                  </Button>
                 )}
                 {isConfirmed && linkedDeal && (
                   <>
@@ -359,13 +363,31 @@ export function DealIntakeWorkflow({
       })}
 
       <Dialog open={Boolean(dialog)} onOpenChange={(open) => !open && setDialog(null)}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className={dialog?.mode === "review" ? "max-h-[90vh] overflow-hidden sm:max-w-6xl" : "sm:max-w-lg"}>
           {dialog && (
             <>
               <DialogHeader>
                 <DialogTitle>{dialogTitle(dialog.mode)}</DialogTitle>
-                <DialogDescription>{dialog.email.subject || "No subject"}</DialogDescription>
+                <DialogDescription>
+                  {dialog.mode === "review"
+                    ? "Inspect the email and attachments, then approve full processing or ignore this intake."
+                    : dialog.email.subject || "No subject"}
+                </DialogDescription>
               </DialogHeader>
+
+              {dialog.mode === "review" && (
+                <IntakeReviewModal
+                  dialog={dialog}
+                  selectedDeal={selectedDeal}
+                  dealOptions={dealOptions}
+                  working={workingId === dialog.email.id}
+                  progress={workflowProgress}
+                  onChange={setDialog}
+                  onApproveExisting={() => approveAndProcess(dialog, "link")}
+                  onApproveNew={() => approveAndProcess(dialog, "create")}
+                  onIgnore={() => submitDialogWithMode({ ...dialog, mode: "ignore" })}
+                />
+              )}
 
               {dialog.mode === "link" && (
                 <div className="space-y-3">
@@ -438,9 +460,11 @@ export function DealIntakeWorkflow({
                 <Button variant="outline" onClick={() => setDialog(null)}>
                   Cancel
                 </Button>
-                <Button onClick={submitDialog} disabled={workingId === dialog.email.id}>
-                  {workingId === dialog.email.id ? "Saving..." : dialogSubmitLabel(dialog.mode)}
-                </Button>
+                {dialog.mode !== "review" && (
+                  <Button onClick={submitDialog} disabled={workingId === dialog.email.id}>
+                    {workingId === dialog.email.id ? "Saving..." : dialogSubmitLabel(dialog.mode)}
+                  </Button>
+                )}
               </DialogFooter>
             </>
           )}
@@ -448,6 +472,24 @@ export function DealIntakeWorkflow({
       </Dialog>
     </div>
   );
+
+  async function submitDialogWithMode(nextDialog: DialogState) {
+    setDialog(nextDialog);
+    setWorkingId(nextDialog.email.id);
+    try {
+      await postAction(`/api/inbound-emails/${nextDialog.email.id}/ignore`, {
+        reason: nextDialog.reason || "Ignored during intake review",
+      });
+      toast.success("Email ignored.");
+      setDialog(null);
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Action failed");
+    } finally {
+      setWorkingId(null);
+      setWorkflowProgress("");
+    }
+  }
 }
 
 function IntakeInfo({
@@ -466,6 +508,223 @@ function IntakeInfo({
         {value}
       </div>
       {meta && <div className="truncate text-[10px] leading-3 text-muted-foreground">{meta}</div>}
+    </div>
+  );
+}
+
+function IntakeReviewModal({
+  dialog,
+  selectedDeal,
+  dealOptions,
+  working,
+  progress,
+  onChange,
+  onApproveExisting,
+  onApproveNew,
+  onIgnore,
+}: {
+  dialog: DialogState;
+  selectedDeal: IntakeDealOption | null;
+  dealOptions: IntakeDealOption[];
+  working: boolean;
+  progress: string;
+  onChange: (dialog: DialogState) => void;
+  onApproveExisting: () => void;
+  onApproveNew: () => void;
+  onIgnore: () => void;
+}) {
+  const attachments = dialog.email.email_attachments ?? [];
+  const previewableAttachments = attachments.filter((attachment) => attachment.status !== "ignored" && attachment.status !== "duplicate");
+  const selectedAttachment =
+    previewableAttachments.find((attachment) => attachment.id === dialog.previewAttachmentId) ??
+    previewableAttachments[0] ??
+    null;
+  const emailBody = plainEmailBody(dialog.email);
+  const routing = dialog.email.routing_json;
+  const documentGuesses = routingDocumentGuesses(routing);
+
+  return (
+    <div className="grid min-h-0 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.85fr)]">
+      <div className="min-h-0 space-y-3 overflow-y-auto pr-1">
+        <div className="rounded-lg border">
+          <div className="border-b p-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Email</div>
+            <div className="mt-1 text-sm font-medium">{dialog.email.subject || "No subject"}</div>
+            <div className="text-xs text-muted-foreground">
+              {dialog.email.from_name || dialog.email.from_email || "Unknown sender"}
+              {dialog.email.received_at ? ` | ${new Date(dialog.email.received_at).toLocaleString()}` : ""}
+            </div>
+          </div>
+          <div className="max-h-40 overflow-y-auto whitespace-pre-wrap p-3 text-xs leading-5 text-foreground/80">
+            {emailBody || "No readable email body was included with this forwarded package."}
+          </div>
+        </div>
+
+        <div className="rounded-lg border">
+          <div className="flex flex-wrap items-center gap-2 border-b p-2">
+            {previewableAttachments.length === 0 ? (
+              <span className="px-1 text-xs text-muted-foreground">No stored document attachments to preview.</span>
+            ) : (
+              previewableAttachments.map((attachment) => (
+                <button
+                  key={attachment.id}
+                  type="button"
+                  className={`max-w-48 truncate rounded-md border px-2 py-1 text-left text-xs ${
+                    selectedAttachment?.id === attachment.id ? "border-primary bg-primary text-primary-foreground" : "bg-background"
+                  }`}
+                  onClick={() => onChange({ ...dialog, previewAttachmentId: attachment.id })}
+                  title={attachment.original_filename ?? undefined}
+                >
+                  {attachment.original_filename || "Attachment"}
+                </button>
+              ))
+            )}
+          </div>
+          <div className="h-[34rem] bg-muted/25">
+            {selectedAttachment ? (
+              attachmentCanPreview(selectedAttachment) ? (
+                <iframe
+                  title={selectedAttachment.original_filename ?? "Attachment preview"}
+                  src={`/api/email-attachments/${selectedAttachment.id}/download`}
+                  className="h-full w-full bg-background"
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
+                  Preview is not available for this file type. Use Download to inspect it.
+                </div>
+              )
+            ) : (
+              <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
+                Select an attachment to preview.
+              </div>
+            )}
+          </div>
+          {selectedAttachment && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t p-2 text-xs text-muted-foreground">
+              <span className="truncate">{attachmentMeta(selectedAttachment)}</span>
+              <Button
+                size="sm"
+                variant="outline"
+                nativeButton={false}
+                render={<Link href={`/api/email-attachments/${selectedAttachment.id}/download`} target="_blank" />}
+              >
+                Download
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="min-h-0 space-y-3 overflow-y-auto">
+        <div className="rounded-lg border p-3">
+          <div className="mb-2 text-sm font-medium">Routing Signals</div>
+          <div className="grid gap-2 text-xs">
+            <SignalRow label="Property" value={routingAddress(routing) || "Unknown"} />
+            <SignalRow label="Type" value={routingTransactionType(routing)} />
+            <SignalRow label="Confidence" value={routingConfidence(routing)} />
+            <SignalRow label="Status" value={formatIntakeStatus(dialog.email.status)} />
+          </div>
+          {documentGuesses.length > 0 && (
+            <div className="mt-3 space-y-1">
+              <div className="text-xs font-medium text-muted-foreground">Document guesses</div>
+              {documentGuesses.slice(0, 5).map((guess) => (
+                <div key={`${guess.filename}-${guess.document_type}`} className="rounded-md bg-muted/35 px-2 py-1 text-xs">
+                  <div className="truncate font-medium">{shortDocumentLabel(guess.document_type)}</div>
+                  <div className="truncate text-muted-foreground">
+                    {guess.filename} {typeof guess.confidence === "number" ? `| ${Math.round(guess.confidence * 100)}%` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-lg border p-3">
+          <div className="mb-3 text-sm font-medium">Approve Destination</div>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor={`review-existing-${dialog.email.id}`}>Existing transaction</Label>
+              <select
+                id={`review-existing-${dialog.email.id}`}
+                value={dialog.selectedDealId}
+                onChange={(event) => onChange({ ...dialog, selectedDealId: event.target.value })}
+                className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
+              >
+                {dealOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+              {selectedDeal && (
+                <p className="text-xs text-muted-foreground">
+                  {selectedDeal.transactionCode ? `${selectedDeal.transactionCode} | ` : ""}
+                  {selectedDeal.transactionType} | {selectedDeal.status}
+                </p>
+              )}
+              <Button
+                className="w-full"
+                onClick={onApproveExisting}
+                disabled={working || !dialog.selectedDealId || dealOptions.length === 0}
+              >
+                Approve existing & process
+              </Button>
+            </div>
+
+            <div className="border-t pt-3">
+              <div className="mb-2 text-xs font-medium text-muted-foreground">Or create a new transaction</div>
+              <div className="space-y-2">
+                <Input
+                  value={dialog.propertyAddress}
+                  onChange={(event) => onChange({ ...dialog, propertyAddress: event.target.value })}
+                  placeholder="Property address"
+                />
+                <select
+                  value={dialog.transactionType}
+                  onChange={(event) => onChange({ ...dialog, transactionType: event.target.value })}
+                  className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
+                >
+                  <option value="unknown">Unknown</option>
+                  <option value="sale">Sale</option>
+                  <option value="purchase">Purchase</option>
+                  <option value="lease">Lease</option>
+                  <option value="referral">Referral</option>
+                  <option value="co_brokerage">Co-brokerage</option>
+                  <option value="preconstruction">Pre-construction</option>
+                </select>
+                <Button variant="outline" className="w-full" onClick={onApproveNew} disabled={working}>
+                  Create new & process
+                </Button>
+              </div>
+            </div>
+
+            <div className="border-t pt-3">
+              <Textarea
+                value={dialog.reason}
+                onChange={(event) => onChange({ ...dialog, reason: event.target.value })}
+                placeholder="Reason if ignored"
+              />
+              <Button variant="outline" className="mt-2 w-full" onClick={onIgnore} disabled={working}>
+                Ignore intake
+              </Button>
+            </div>
+          </div>
+          {working && (
+            <div className="mt-3 rounded-md bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+              {progress || "Working..."}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SignalRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="truncate font-medium">{value}</span>
     </div>
   );
 }
@@ -494,7 +753,7 @@ function intakeNextStep(
   if (email.status === "routing_error" || email.status === "error") return "Review the intake error, then link, create, or ignore.";
   if (email.status === "not_deal_suggested") return "AI suggests this is not a deal package. Ignore it or choose another action.";
   if (email.status === "new_deal_suggested") return "AI suggests this is a new deal. Create a draft or link it to an existing one.";
-  if (email.status === "intake_review" || email.status === "routing_queued") return "Analyze intake, link it, create a draft, or ignore it.";
+  if (email.status === "intake_review" || email.status === "routing_queued") return "Review intake, approve it for processing, or ignore it.";
   if (needsReview) return "Confirm the suggested match or change it.";
   if (!isConfirmed) return "Link this email or create a draft deal.";
 
@@ -535,6 +794,7 @@ export function EmailIntakeQueue({
       propertyAddress: routingAddress(email.routing_json),
       transactionType: routingTransactionType(email.routing_json),
       reason: "",
+      previewAttachmentId: firstPreviewAttachmentId(email),
     });
   }
 
@@ -567,19 +827,6 @@ export function EmailIntakeQueue({
       router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Action failed");
-    } finally {
-      setWorkingId(null);
-    }
-  }
-
-  async function analyzeEmail(email: IntakeEmailRow) {
-    setWorkingId(email.id);
-    try {
-      await postAction(`/api/inbound-emails/${email.id}/analyze`, {});
-      toast.success("Intake analyzed.");
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Analysis failed");
     } finally {
       setWorkingId(null);
     }
@@ -699,17 +946,6 @@ export function EmailIntakeQueue({
                         )}
                         {!isConfirmed && (
                           <>
-                            {canAnalyzeIntake(email) && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => analyzeEmail(email)}
-                                disabled={workingId === email.id}
-                              >
-                                <Sparkles className="size-4" />
-                                Analyze
-                              </Button>
-                            )}
                             <Button
                               size="sm"
                               variant={needsReview ? "outline" : "default"}
@@ -1005,6 +1241,16 @@ function attachmentStatusSummary(attachments: EmailAttachmentForQueue[]) {
   return parts.length ? parts.join(" | ") : "Stored";
 }
 
+function formatEmailAttachmentStatus(status: string) {
+  if (status === "linked_to_transaction") return "Linked";
+  if (status === "light_classified") return "Classified";
+  if (status === "stored") return "Stored";
+  if (status === "duplicate") return "Duplicate";
+  if (status === "ignored") return "Ignored";
+  if (status === "failed") return "Failed";
+  return status.replaceAll("_", " ");
+}
+
 function routingAddress(routing: Record<string, unknown> | null) {
   const value = routing?.property_address;
   return typeof value === "string" ? value : "";
@@ -1024,13 +1270,72 @@ function routingSummary(routing: Record<string, unknown> | null) {
   return [type, confidenceText].filter(Boolean).join(" | ");
 }
 
-function canAnalyzeIntake(email: IntakeEmailRow) {
+function routingConfidence(routing: Record<string, unknown> | null) {
+  const confidence = routing?.routing_confidence;
+  return typeof confidence === "number" ? `${Math.round(confidence * 100)}%` : "Unknown";
+}
+
+function routingDocumentGuesses(routing: Record<string, unknown> | null) {
+  const value = routing?.document_type_guesses;
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const candidate = item as Record<string, unknown>;
+      return {
+        filename: typeof candidate.filename === "string" ? candidate.filename : "Attachment",
+        document_type: typeof candidate.document_type === "string" ? candidate.document_type : "unknown",
+        confidence: typeof candidate.confidence === "number" ? candidate.confidence : null,
+      };
+    })
+    .filter((item): item is { filename: string; document_type: string; confidence: number | null } => Boolean(item));
+}
+
+function firstPreviewAttachmentId(email: IntakeEmailRow) {
   return (
-    email.status === "intake_review" ||
-    email.status === "new_deal_suggested" ||
-    email.status === "not_deal_suggested" ||
-    email.status === "routing_queued" ||
-    email.status === "routing_error" ||
-    email.status === "error"
+    email.email_attachments.find((attachment) => attachment.status !== "ignored" && attachment.status !== "duplicate")?.id ??
+    ""
   );
+}
+
+function plainEmailBody(email: IntakeEmailRow) {
+  if (email.body_text?.trim()) return email.body_text.trim();
+  if (!email.body_html) return "";
+  return email.body_html
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function attachmentCanPreview(attachment: EmailAttachmentForQueue) {
+  const mime = attachment.mime_type ?? "";
+  const name = attachment.original_filename?.toLowerCase() ?? "";
+  return mime === "application/pdf" || mime.startsWith("image/") || name.endsWith(".pdf");
+}
+
+function attachmentMeta(attachment: EmailAttachmentForQueue) {
+  return [
+    attachment.original_filename || "Attachment",
+    attachment.mime_type || "unknown type",
+    formatBytes(attachment.file_size),
+    formatEmailAttachmentStatus(attachment.status),
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function formatBytes(bytes: number | null) {
+  if (!bytes) return "";
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
 }
