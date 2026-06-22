@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LayoutList, Table2 } from "lucide-react";
+import { Archive, CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LoaderCircle, Table2 } from "lucide-react";
 import { buildChecklistResult, type ChecklistItem } from "@/lib/checklist";
 import { DashboardAutoRefresh } from "@/components/dashboard-auto-refresh";
 import { createClient } from "@/lib/supabase/server";
@@ -27,8 +27,8 @@ import {
 import type { TransactionType } from "@/lib/types";
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  Draft: "outline",
-  "Needs Processing": "secondary",
+  "Intake Review": "outline",
+  "Routing Review": "secondary",
   Incomplete: "destructive",
   Ready: "default",
   Submitted: "secondary",
@@ -40,9 +40,9 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   error: "destructive",
 };
 
-type ComplianceStatus = "Draft" | "Needs Processing" | "Incomplete" | "Ready" | "Submitted";
-type FilterKey = "all" | "intake" | "incomplete" | "ready" | "submitted" | "closing_week";
-type ViewKey = "status" | "time" | "table";
+type ComplianceStatus = "Intake Review" | "Routing Review" | "Incomplete" | "Ready" | "Submitted";
+type FilterKey = "all" | "intake" | "routing" | "incomplete" | "ready" | "closing_week";
+type ViewKey = "status" | "time" | "table" | "archive";
 
 type DealRow = {
   id: string;
@@ -166,7 +166,10 @@ export default async function DashboardPage({
     createdAt: deal.created_at,
   }));
   const deals = [...unconfirmedIntakeEmails.map(toIntakeDashboardDeal), ...realDeals];
-  const filteredDeals = deals.filter((deal) => matchesFilter(deal, activeFilter));
+  const workspaceDeals = deals.filter((deal) => deal.complianceStatus !== "Submitted");
+  const archivedDeals = deals.filter((deal) => deal.complianceStatus === "Submitted");
+  const viewDeals = activeView === "archive" ? archivedDeals : workspaceDeals;
+  const filteredDeals = viewDeals.filter((deal) => matchesFilter(deal, activeView === "archive" ? "all" : activeFilter));
   const metrics = buildMetrics(deals);
 
   return (
@@ -226,45 +229,59 @@ export default async function DashboardPage({
               label="All Records"
               icon={<Table2 className="size-3.5" />}
             />
+            <ViewButton
+              active={activeView === "archive"}
+              href={dashboardHref({ view: "archive", filter: "all" })}
+              label={`Submitted & Archived ${metrics.submittedTransactions}`}
+              icon={<Archive className="size-3.5" />}
+            />
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 border-y py-3">
-          <FilterButton
-            active={activeFilter === "all"}
-            href={dashboardHref({ view: activeView, filter: "all" })}
-            label={`All ${deals.length}`}
-          />
-          <FilterButton
-            active={activeFilter === "intake"}
-            href={dashboardHref({ view: activeView, filter: "intake" })}
-            label={`Intake ${metrics.intakeTransactions}`}
-          />
-          <FilterButton
-            active={activeFilter === "incomplete"}
-            href={dashboardHref({ view: activeView, filter: "incomplete" })}
-            label={`Incomplete ${metrics.incompleteTransactions}`}
-          />
-          <FilterButton
-            active={activeFilter === "ready"}
-            href={dashboardHref({ view: activeView, filter: "ready" })}
-            label={`Ready ${metrics.readyForSubmission}`}
-          />
-          <FilterButton
-            active={activeFilter === "submitted"}
-            href={dashboardHref({ view: activeView, filter: "submitted" })}
-            label={`Submitted ${metrics.submittedTransactions}`}
-          />
-          <FilterButton
-            active={activeFilter === "closing_week"}
-            href={dashboardHref({ view: activeView, filter: "closing_week" })}
-            label={`Closing This Week ${metrics.closingThisWeek}`}
-          />
-        </div>
+        {activeView === "archive" ? (
+          <div className="flex flex-wrap items-center gap-2 border-y py-3 text-sm text-muted-foreground">
+            <Archive className="size-4" />
+            Submitted and archived transactions are separated from the active workspace.
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2 border-y py-3">
+            <FilterButton
+              active={activeFilter === "all"}
+              href={dashboardHref({ view: activeView, filter: "all" })}
+              label={`All ${workspaceDeals.length}`}
+            />
+            <FilterButton
+              active={activeFilter === "intake"}
+              href={dashboardHref({ view: activeView, filter: "intake" })}
+              label={`Intake ${metrics.intakeTransactions}`}
+            />
+            <FilterButton
+              active={activeFilter === "routing"}
+              href={dashboardHref({ view: activeView, filter: "routing" })}
+              label={`Routing ${metrics.routingReviewTransactions}`}
+            />
+            <FilterButton
+              active={activeFilter === "incomplete"}
+              href={dashboardHref({ view: activeView, filter: "incomplete" })}
+              label={`Incomplete ${metrics.incompleteTransactions}`}
+            />
+            <FilterButton
+              active={activeFilter === "ready"}
+              href={dashboardHref({ view: activeView, filter: "ready" })}
+              label={`Ready ${metrics.readyForSubmission}`}
+            />
+            <FilterButton
+              active={activeFilter === "closing_week"}
+              href={dashboardHref({ view: activeView, filter: "closing_week" })}
+              label={`Closing This Week ${metrics.closingThisWeek}`}
+            />
+          </div>
+        )}
 
         {activeView === "status" && <StatusBoard deals={filteredDeals} dealOptions={dealOptions} />}
         {activeView === "time" && <TimeList deals={filteredDeals} dealOptions={dealOptions} />}
         {activeView === "table" && <RecordsTable deals={filteredDeals} />}
+        {activeView === "archive" && <RecordsTable deals={filteredDeals} archive />}
       </section>
     </div>
   );
@@ -282,9 +299,9 @@ const BOARD_COLUMNS: {
   cardClassName: string;
 }[] = [
   {
-    status: "Draft",
-    label: "Draft",
-    helper: "Email received",
+    status: "Intake Review",
+    label: "Intake Review",
+    helper: "Admin decision needed",
     icon: <FileText className="size-3.5" />,
     className: "bg-[#f7f7f5]",
     dotClassName: "bg-[#8a8780]",
@@ -293,9 +310,9 @@ const BOARD_COLUMNS: {
     cardClassName: "border-[#dad7d0] shadow-[0_1px_2px_rgba(52,48,41,0.05)]",
   },
   {
-    status: "Needs Processing",
-    label: "Needs Processing",
-    helper: "Prepared, not parsed",
+    status: "Routing Review",
+    label: "Routing Review",
+    helper: "Confirm destination",
     icon: <CalendarClock className="size-3.5" />,
     className: "bg-[#f5f8fc]",
     dotClassName: "bg-[#5a9bdd]",
@@ -325,17 +342,6 @@ const BOARD_COLUMNS: {
     headerPillClassName: "bg-[#d5efe3] text-[#1f6f4d]",
     cardClassName: "border-[#bddfcf] shadow-[0_1px_2px_rgba(28,90,62,0.05)]",
   },
-  {
-    status: "Submitted",
-    label: "Submitted",
-    helper: "Filed or closed",
-    icon: <LayoutList className="size-3.5" />,
-    className: "bg-[#f7f7f5]",
-    dotClassName: "bg-[#8a8780]",
-    textClassName: "text-[#69655d]",
-    headerPillClassName: "bg-[#e9e6df] text-[#56524b]",
-    cardClassName: "border-[#dad7d0] shadow-[0_1px_2px_rgba(52,48,41,0.05)]",
-  },
 ];
 
 function StatusBoard({
@@ -347,7 +353,7 @@ function StatusBoard({
 }) {
   return (
     <div className="min-w-0">
-      <div className="grid min-w-0 grid-cols-5 gap-2">
+      <div className="grid min-w-0 grid-cols-4 gap-2">
         {BOARD_COLUMNS.map((column) => {
           const columnDeals = deals.filter((deal) => deal.complianceStatus === column.status);
           const averageCompletion = columnDeals.length
@@ -395,8 +401,9 @@ function TransactionCard({
   column: (typeof BOARD_COLUMNS)[number];
   dealOptions: IntakeDealOption[];
 }) {
-  const isIntake = isIntakeDeal(deal);
   const isVirtualIntake = isVirtualIntakeDeal(deal);
+  const isProcessing = deal.status === "processing";
+  const hasIntakeWorkflow = deal.intakeEmails.length > 0 || isVirtualIntake;
 
   return (
     <div className={`min-w-0 overflow-hidden rounded-lg border bg-background p-2 ${column.cardClassName}`}>
@@ -436,7 +443,8 @@ function TransactionCard({
             </Badge>
           )}
         </div>
-        {isIntake ? (
+        {isProcessing && <ProcessingStepProgress />}
+        {hasIntakeWorkflow ? (
           <DealIntakeWorkflow
             deal={deal}
             emails={deal.intakeEmails}
@@ -461,7 +469,7 @@ function TransactionCard({
 }
 
 function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
-  if (deal.complianceStatus === "Draft") {
+  if (deal.status === "processing" || deal.complianceStatus === "Routing Review" || deal.complianceStatus === "Submitted") {
     return null;
   }
 
@@ -483,8 +491,42 @@ function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
       dealId={deal.id}
       status={deal.status}
       pageCount={deal.page_count}
-      variant={deal.complianceStatus === "Needs Processing" ? "default" : "outline"}
+      variant={deal.complianceStatus === "Intake Review" ? "default" : "outline"}
     />
+  );
+}
+
+function ProcessingStepProgress() {
+  const steps = [
+    { label: "Pages ready", state: "done" },
+    { label: "Reading forms", state: "active" },
+    { label: "Extracting fields", state: "pending" },
+    { label: "Checking requirements", state: "pending" },
+  ];
+
+  return (
+    <div className="rounded-md border border-blue-200 bg-blue-50/70 p-2 text-[11px] text-blue-950">
+      <div className="mb-2 flex items-center gap-1.5 font-medium">
+        <LoaderCircle className="size-3.5 animate-spin" />
+        Processing package
+      </div>
+      <div className="space-y-1">
+        {steps.map((step) => (
+          <div key={step.label} className="flex items-center gap-1.5">
+            <span
+              className={
+                step.state === "done"
+                  ? "size-2 rounded-full bg-blue-700"
+                  : step.state === "active"
+                    ? "size-2 rounded-full bg-blue-500 animate-pulse"
+                    : "size-2 rounded-full border border-blue-300 bg-background"
+              }
+            />
+            <span className={step.state === "pending" ? "text-blue-800/60" : ""}>{step.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -495,13 +537,20 @@ function TimeList({
   deals: DashboardDeal[];
   dealOptions: IntakeDealOption[];
 }) {
-  const intakeDeals = deals.filter(isIntakeDeal);
-  const dateTrackedDeals = deals.filter((deal) => !isIntakeDeal(deal));
+  const intakeDeals = deals.filter((deal) => deal.complianceStatus === "Intake Review");
+  const routingDeals = deals.filter((deal) => deal.complianceStatus === "Routing Review");
+  const dateTrackedDeals = deals.filter((deal) => deal.complianceStatus !== "Intake Review" && deal.complianceStatus !== "Routing Review");
   const groups = [
     {
-      label: "Waiting to Process",
+      label: "Intake Review",
       icon: <FileText className="size-4" />,
       deals: intakeDeals,
+      kind: "intake" as const,
+    },
+    {
+      label: "Routing Review",
+      icon: <CalendarClock className="size-4" />,
+      deals: routingDeals,
       kind: "intake" as const,
     },
     {
@@ -541,59 +590,12 @@ function TimeList({
           </div>
           <div className="overflow-hidden rounded-lg border">
             {group.deals.map((deal) => (
-              <div
+              <TimeListDealRow
                 key={deal.id}
-                className={
-                  group.kind === "intake"
-                    ? "grid gap-3 border-b p-3 last:border-b-0 md:grid-cols-[minmax(0,0.85fr)_minmax(0,2fr)]"
-                    : "grid gap-3 border-b p-3 last:border-b-0 md:grid-cols-[minmax(0,1.5fr)_8rem_9rem_minmax(12rem,1fr)_9rem]"
-                }
-              >
-                <div className="min-w-0">
-                  {isVirtualIntakeDeal(deal) ? (
-                    <div className="font-medium">{shortDealTitle(deal.property_address, deal.file_name)}</div>
-                  ) : (
-                    <Link href={`/deals/${deal.id}`} className="font-medium hover:underline">
-                      {shortDealTitle(deal.property_address, deal.file_name)}
-                    </Link>
-                  )}
-                  <div className="text-xs text-muted-foreground">
-                    {deal.transaction_type} | {deal.scenarioShortLabel}
-                  </div>
-                  {group.kind === "intake" && (
-                    <div className="mt-2">
-                      <Badge variant={STATUS_VARIANT[deal.complianceStatus] ?? "outline"}>
-                        {deal.complianceStatus}
-                      </Badge>
-                    </div>
-                  )}
-                </div>
-                {group.kind === "intake" ? (
-                  <DealIntakeWorkflow
-                    deal={deal}
-                    emails={deal.intakeEmails}
-                    dealOptions={dealOptions}
-                    renderedAttachmentIds={deal.renderedAttachmentIds}
-                  />
-                ) : (
-                  <>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Closing</div>
-                      <div className="text-sm">{deal.closingDate ? deal.closingDate.toLocaleDateString() : "None"}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Status</div>
-                      <Badge variant={STATUS_VARIANT[deal.complianceStatus] ?? "outline"}>
-                        {deal.complianceStatus}
-                      </Badge>
-                    </div>
-                    <MissingBadges deal={deal} limit={3} />
-                    <div className="flex items-center justify-end">
-                      <DashboardDealAction deal={deal} />
-                    </div>
-                  </>
-                )}
-              </div>
+                deal={deal}
+                dealOptions={dealOptions}
+                kind={group.kind}
+              />
             ))}
           </div>
         </div>
@@ -602,7 +604,85 @@ function TimeList({
   );
 }
 
-function RecordsTable({ deals }: { deals: DashboardDeal[] }) {
+function TimeListDealRow({
+  deal,
+  dealOptions,
+  kind,
+}: {
+  deal: DashboardDeal;
+  dealOptions: IntakeDealOption[];
+  kind: "intake" | "date";
+}) {
+  const hasIntakeWorkflow = deal.intakeEmails.length > 0 || isVirtualIntakeDeal(deal);
+
+  return (
+    <div
+      className={
+        kind === "intake"
+          ? "grid gap-3 border-b p-3 last:border-b-0 md:grid-cols-[minmax(0,0.85fr)_minmax(0,2fr)]"
+          : "grid gap-3 border-b p-3 last:border-b-0 md:grid-cols-[minmax(0,1.5fr)_8rem_9rem_minmax(12rem,1fr)_9rem]"
+      }
+    >
+      <div className="min-w-0">
+        {isVirtualIntakeDeal(deal) ? (
+          <div className="font-medium">{shortDealTitle(deal.property_address, deal.file_name)}</div>
+        ) : (
+          <Link href={`/deals/${deal.id}`} className="font-medium hover:underline">
+            {shortDealTitle(deal.property_address, deal.file_name)}
+          </Link>
+        )}
+        <div className="text-xs text-muted-foreground">
+          {deal.transaction_type} | {deal.scenarioShortLabel}
+        </div>
+        {kind === "intake" && (
+          <div className="mt-2">
+            <Badge variant={STATUS_VARIANT[deal.complianceStatus] ?? "outline"}>
+              {deal.complianceStatus}
+            </Badge>
+          </div>
+        )}
+      </div>
+      {kind === "intake" ? (
+        hasIntakeWorkflow ? (
+          <DealIntakeWorkflow
+            deal={deal}
+            emails={deal.intakeEmails}
+            dealOptions={dealOptions}
+            renderedAttachmentIds={deal.renderedAttachmentIds}
+          />
+        ) : (
+          <div className="min-w-0 space-y-2 rounded-lg border bg-background/65 p-3">
+            {deal.status === "processing" && <ProcessingStepProgress />}
+            <MissingBadges deal={deal} limit={3} />
+            <CompletionMeter deal={deal} />
+            <div className="flex items-center justify-end">
+              <DashboardDealAction deal={deal} />
+            </div>
+          </div>
+        )
+      ) : (
+        <>
+          <div>
+            <div className="text-xs text-muted-foreground">Closing</div>
+            <div className="text-sm">{deal.closingDate ? deal.closingDate.toLocaleDateString() : "None"}</div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground">Status</div>
+            <Badge variant={STATUS_VARIANT[deal.complianceStatus] ?? "outline"}>
+              {deal.complianceStatus}
+            </Badge>
+          </div>
+          <MissingBadges deal={deal} limit={3} />
+          <div className="flex items-center justify-end">
+            <DashboardDealAction deal={deal} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function RecordsTable({ deals, archive = false }: { deals: DashboardDeal[]; archive?: boolean }) {
   return (
     <div className="overflow-hidden rounded-lg border">
       <Table>
@@ -614,7 +694,7 @@ function RecordsTable({ deals }: { deals: DashboardDeal[] }) {
             <TableHead>Status</TableHead>
             <TableHead>Missing</TableHead>
             <TableHead>Completion</TableHead>
-            <TableHead className="text-right">Action</TableHead>
+            {!archive && <TableHead className="text-right">Action</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -646,14 +726,14 @@ function RecordsTable({ deals }: { deals: DashboardDeal[] }) {
               <TableCell>
                 <CompletionMeter deal={deal} />
               </TableCell>
-              <TableCell className="text-right">
+              {!archive && <TableCell className="text-right">
                 <DashboardDealAction deal={deal} />
-              </TableCell>
+              </TableCell>}
             </TableRow>
           ))}
           {deals.length === 0 && (
             <TableRow>
-              <TableCell colSpan={7} className="text-center text-muted-foreground">
+              <TableCell colSpan={archive ? 6 : 7} className="text-center text-muted-foreground">
                 No transactions match this view.
               </TableCell>
             </TableRow>
@@ -738,18 +818,22 @@ function toDashboardDeal(deal: DealRow): DashboardDeal {
   const complianceStatus: ComplianceStatus = submitted
     ? "Submitted"
     : isEmailDraft
-      ? "Draft"
+      ? "Intake Review"
       : needsProcessing
-        ? "Needs Processing"
+        ? "Intake Review"
         : checklist.missingRequired.length === 0
           ? "Ready"
           : "Incomplete";
   const scenarioLabel = isEmailDraft
-    ? "Email draft"
+    ? "Intake review"
     : needsProcessing
-      ? "Ready to process"
+      ? deal.status === "processing" ? "Processing package" : "Ready to process"
       : deal.scenario_label ?? checklist.scenario.label;
-  const scenarioShortLabel = isEmailDraft ? "Email draft" : needsProcessing ? "Ready to process" : checklist.scenario.shortLabel;
+  const scenarioShortLabel = isEmailDraft
+    ? "Intake review"
+    : needsProcessing
+      ? deal.status === "processing" ? "Processing" : "Ready to process"
+      : checklist.scenario.shortLabel;
 
   return {
     ...deal,
@@ -789,7 +873,7 @@ function toIntakeDashboardDeal(email: IntakeEmailRow): DashboardDeal {
     deal_fields: [],
     scenarioLabel: intakeScenarioLabel(email.status),
     scenarioShortLabel: intakeScenarioLabel(email.status),
-    complianceStatus: "Draft",
+    complianceStatus: intakeComplianceStatus(email.status),
     completionPct: 0,
     missingRequired: [],
     closingDate: null,
@@ -802,7 +886,8 @@ function toIntakeDashboardDeal(email: IntakeEmailRow): DashboardDeal {
 function buildMetrics(deals: DashboardDeal[]) {
   return {
     activeTransactions: deals.filter((deal) => deal.complianceStatus !== "Submitted").length,
-    intakeTransactions: deals.filter(isIntakeDeal).length,
+    intakeTransactions: deals.filter((deal) => deal.complianceStatus === "Intake Review").length,
+    routingReviewTransactions: deals.filter((deal) => deal.complianceStatus === "Routing Review").length,
     incompleteTransactions: deals.filter((deal) => deal.complianceStatus === "Incomplete").length,
     missingFintrac: countDealsMissing(deals, "form_630_individual_identification"),
     missingDeposits: countDealsMissing(deals, "deposit_proof"),
@@ -856,12 +941,19 @@ function intakeScenarioLabel(status: string) {
   return "Intake review";
 }
 
+function intakeComplianceStatus(status: string): ComplianceStatus {
+  if (status === "needs_match_review" || status === "new_deal_suggested" || status === "not_deal_suggested") {
+    return "Routing Review";
+  }
+  return "Intake Review";
+}
+
 function parseFilter(value: string | undefined): FilterKey {
   if (
     value === "intake" ||
+    value === "routing" ||
     value === "incomplete" ||
     value === "ready" ||
-    value === "submitted" ||
     value === "closing_week"
   ) {
     return value;
@@ -870,7 +962,7 @@ function parseFilter(value: string | undefined): FilterKey {
 }
 
 function parseView(value: string | undefined): ViewKey {
-  if (value === "time" || value === "table") return value;
+  if (value === "time" || value === "table" || value === "archive") return value;
   return "status";
 }
 
@@ -884,16 +976,12 @@ function dashboardHref({ view, filter }: { view: ViewKey; filter: FilterKey }) {
 
 function matchesFilter(deal: DashboardDeal, filter: FilterKey) {
   if (filter === "all") return true;
-  if (filter === "intake") return isIntakeDeal(deal);
+  if (filter === "intake") return deal.complianceStatus === "Intake Review";
+  if (filter === "routing") return deal.complianceStatus === "Routing Review";
   if (filter === "incomplete") return deal.complianceStatus === "Incomplete";
   if (filter === "ready") return deal.complianceStatus === "Ready";
-  if (filter === "submitted") return deal.complianceStatus === "Submitted";
   if (filter === "closing_week") return isClosingThisWeek(deal.closingDate);
   return true;
-}
-
-function isIntakeDeal(deal: DashboardDeal) {
-  return deal.complianceStatus === "Draft" || deal.complianceStatus === "Needs Processing";
 }
 
 function isClosingThisWeek(date: Date | null) {
