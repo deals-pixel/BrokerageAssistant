@@ -29,10 +29,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     deal_id: id,
     action: `export_${format}`,
   });
-  await supabase
-    .from("deals")
-    .update({ status: "exported", submitted_at: new Date().toISOString() })
-    .eq("id", id);
 
   const baseName = (deal.property_address ?? deal.file_name ?? "deal")
     .replace(/[^\w\- ]/g, "")
@@ -85,4 +81,34 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   return NextResponse.json({ error: "Unknown format" }, { status: 400 });
+}
+
+export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const submittedAt = new Date().toISOString();
+  const { data: deal, error } = await supabase
+    .from("deals")
+    .update({ status: "exported", submitted_at: submittedAt })
+    .eq("id", id)
+    .select("id")
+    .single();
+  if (error || !deal) {
+    return NextResponse.json({ error: error?.message ?? "Deal not found" }, { status: 404 });
+  }
+
+  await supabase.from("audit_logs").insert({
+    user_id: user.id,
+    deal_id: id,
+    action: "deal_submitted_archived",
+    details: { submitted_at: submittedAt },
+  });
+
+  return NextResponse.json({ ok: true, submitted_at: submittedAt });
 }

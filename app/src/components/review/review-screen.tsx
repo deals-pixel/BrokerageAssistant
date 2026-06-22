@@ -30,6 +30,7 @@ import {
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { ProcessDealButton } from "@/components/process-deal-button";
 import { EmailAttachmentIngestButton } from "@/components/email-attachment-ingest-button";
+import { SubmitArchiveButton } from "@/components/submit-archive-button";
 import { toast } from "sonner";
 import {
   FIELD_SECTIONS,
@@ -901,7 +902,7 @@ export function ReviewScreen({
       <div className="grid grid-cols-1 gap-4">
         <Card>
           <CardHeader className="py-3">
-            <CardTitle className="text-base">Export</CardTitle>
+            <CardTitle className="text-base">Export & Submission</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
             <Button
@@ -921,9 +922,19 @@ export function ReviewScreen({
             <Button variant="outline" onClick={copySummary}>
               Copy summary
             </Button>
+            <SubmitArchiveButton
+              dealId={deal.id}
+              disabled={checklistResult.missingRequired.length > 0 || deal.status === "exported"}
+            />
             <p className="w-full text-xs text-muted-foreground">
-              CSV column order matches the Deal Information Sheet for Lone Wolf entry.
+              Downloads are read-only. Use Submit & archive when the transaction is complete and ready to leave the
+              active workspace.
             </p>
+            {checklistResult.missingRequired.length > 0 && (
+              <p className="w-full text-xs text-muted-foreground">
+                Submission is available after all required documents are complete.
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>

@@ -12,6 +12,7 @@ import {
 } from "@/components/email-intake-queue";
 import { ProcessDealButton } from "@/components/process-deal-button";
 import { SignOutButton } from "@/components/sign-out-button";
+import { SubmitArchiveButton } from "@/components/submit-archive-button";
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -484,6 +485,10 @@ function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
         Remind
       </Button>
     );
+  }
+
+  if (deal.complianceStatus === "Ready") {
+    return <SubmitArchiveButton dealId={deal.id} variant="default" />;
   }
 
   return (
