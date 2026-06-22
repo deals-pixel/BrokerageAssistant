@@ -403,7 +403,7 @@ function TransactionCard({
 }) {
   const isVirtualIntake = isVirtualIntakeDeal(deal);
   const isProcessing = deal.status === "processing";
-  const hasIntakeWorkflow = deal.intakeEmails.length > 0 || isVirtualIntake;
+  const hasIntakeWorkflow = shouldShowIntakeWorkflow(deal);
 
   return (
     <div className={`min-w-0 overflow-hidden rounded-lg border bg-background p-2 ${column.cardClassName}`}>
@@ -613,7 +613,7 @@ function TimeListDealRow({
   dealOptions: IntakeDealOption[];
   kind: "intake" | "date";
 }) {
-  const hasIntakeWorkflow = deal.intakeEmails.length > 0 || isVirtualIntakeDeal(deal);
+  const hasIntakeWorkflow = shouldShowIntakeWorkflow(deal);
 
   return (
     <div
@@ -920,6 +920,11 @@ function isConfirmedIntakeEmail(email: IntakeEmailRow) {
 
 function isVirtualIntakeDeal(deal: DashboardDeal) {
   return deal.id.startsWith("intake:");
+}
+
+function shouldShowIntakeWorkflow(deal: DashboardDeal) {
+  const hasIntakeSource = deal.intakeEmails.length > 0 || isVirtualIntakeDeal(deal);
+  return hasIntakeSource && (deal.complianceStatus === "Intake Review" || deal.complianceStatus === "Routing Review");
 }
 
 function stringRoutingValue(routing: Record<string, unknown>, key: string) {
