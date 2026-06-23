@@ -340,26 +340,14 @@ export function DealIntakeWorkflow({
           >
             {routingReady ? (
               <div className="min-w-0 space-y-2">
-                <div className="flex min-w-0 items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">AI suggestion</div>
-                    <div className="truncate text-[12px] font-semibold leading-4" title={suggestion.title}>
-                      {suggestion.title}
-                    </div>
-                  </div>
-                  <Badge variant={intakeStatusVariant(email.status)} className="h-5 shrink-0 px-1.5 text-[11px]">
-                    {formatIntakeStatus(email.status)}
-                  </Badge>
-                </div>
-                <div className="rounded-md bg-muted/35 px-2 py-1.5">
-                  <div className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">
-                    {suggestion.meta}
+                <div className="min-w-0">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">AI suggestion</div>
+                  <div className="truncate text-[12px] font-semibold leading-4" title={suggestion.title}>
+                    {suggestion.title}
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-1.5 text-[10px]">
-                  <SuggestionMeta label="Type" value={routingTransactionType(email.routing_json)} />
+                <div className="grid grid-cols-1 gap-1.5 text-[10px]">
                   <SuggestionMeta label="Confidence" value={routingConfidence(email.routing_json)} />
-                  <SuggestionMeta label="Match" value={primaryLink?.match_score != null ? `${primaryLink.match_score}%` : email.status === "new_deal_suggested" ? "New" : "None"} />
                 </div>
               </div>
             ) : (
