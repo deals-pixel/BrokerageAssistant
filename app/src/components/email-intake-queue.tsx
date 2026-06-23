@@ -257,7 +257,6 @@ export function DealIntakeWorkflow({
         const routeMeta = primaryLink
           ? `${primaryLink.match_score ?? 0}% | ${formatMatchStatus(primaryLink.match_status)}`
           : routingSummary(email.routing_json) || "No match signal";
-        const signal = primaryLink?.match_reason || routingSummary(email.routing_json);
         const nextStep = intakeNextStep(email, isConfirmed, needsReview, renderedAttachmentIds);
 
         return (
@@ -265,8 +264,7 @@ export function DealIntakeWorkflow({
             <div className="flex min-w-0 items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Email</div>
-                <div className="truncate text-[12px] font-semibold leading-4">{email.subject || "No subject"}</div>
-                <div className="truncate text-[11px] leading-4 text-muted-foreground" title={email.from_email ?? undefined}>
+                <div className="truncate text-[12px] font-semibold leading-4" title={email.from_email ?? undefined}>
                   {email.from_name || email.from_email || "Unknown sender"}
                 </div>
               </div>
@@ -275,7 +273,7 @@ export function DealIntakeWorkflow({
               </Badge>
             </div>
 
-            <div className="grid min-w-0 gap-1.5 text-[11px] leading-4 sm:grid-cols-3">
+            <div className="min-w-0 space-y-1.5 text-[11px] leading-4">
               <IntakeInfo label="Match" value={dealTitle || routingAddress(email.routing_json) || "Needs admin review"} meta={routeMeta} />
               <IntakeInfo label="Files" value={attachmentWorkflowSummary(email.email_attachments ?? [])} />
               <IntakeInfo
@@ -283,14 +281,8 @@ export function DealIntakeWorkflow({
                 value={email.received_at ? new Date(email.received_at).toLocaleDateString() : "Unknown"}
                 meta={email.received_at ? new Date(email.received_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
               />
-              {signal && (
-                <div className="min-w-0 rounded-md bg-muted/35 px-2 py-1 sm:col-span-3">
-                  <span className="font-medium text-foreground/80">Signal: </span>
-                  <span className="text-muted-foreground">{signal}</span>
-                </div>
-              )}
               {email.error_message && (
-                <div className="flex min-w-0 items-center gap-1 text-destructive sm:col-span-3">
+                <div className="flex min-w-0 items-center gap-1 text-destructive">
                   <AlertCircle className="size-3 shrink-0" />
                   <span className="break-words">{email.error_message}</span>
                 </div>
@@ -503,12 +495,14 @@ function IntakeInfo({
   meta?: string;
 }) {
   return (
-    <div className="min-w-0 rounded-md bg-muted/35 px-2 py-1">
+    <div className="grid min-w-0 grid-cols-[4.25rem_minmax(0,1fr)] gap-2 rounded-md bg-muted/35 px-2 py-1.5">
       <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="truncate text-[11px] font-medium leading-4 text-foreground" title={value}>
-        {value}
+      <div className="min-w-0">
+        <div className="truncate text-[11px] font-medium leading-4 text-foreground" title={value}>
+          {value}
+        </div>
+        {meta && <div className="truncate text-[10px] leading-3 text-muted-foreground">{meta}</div>}
       </div>
-      {meta && <div className="truncate text-[10px] leading-3 text-muted-foreground">{meta}</div>}
     </div>
   );
 }
