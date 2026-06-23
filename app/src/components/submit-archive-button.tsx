@@ -3,6 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 
 type SubmitArchiveButtonProps = {
@@ -10,6 +18,7 @@ type SubmitArchiveButtonProps = {
   disabled?: boolean;
   size?: "default" | "sm";
   variant?: "default" | "outline";
+  warningItems?: string[];
 };
 
 export function SubmitArchiveButton({
@@ -17,11 +26,22 @@ export function SubmitArchiveButton({
   disabled = false,
   size = "sm",
   variant = "default",
+  warningItems = [],
 }: SubmitArchiveButtonProps) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  function requestSubmit() {
+    if (warningItems.length > 0) {
+      setConfirmOpen(true);
+      return;
+    }
+    void submit();
+  }
 
   async function submit() {
+    setConfirmOpen(false);
     setSubmitting(true);
     try {
       const res = await fetch(`/api/deals/${dealId}/export`, { method: "POST" });
@@ -39,8 +59,38 @@ export function SubmitArchiveButton({
   }
 
   return (
-    <Button size={size} variant={variant} onClick={submit} disabled={disabled || submitting}>
-      {submitting ? "Submitting..." : "Submit & archive"}
-    </Button>
+    <>
+      <Button size={size} variant={variant} onClick={requestSubmit} disabled={disabled || submitting}>
+        {submitting ? "Submitting..." : "Submit & archive"}
+      </Button>
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Archive incomplete transaction?</DialogTitle>
+            <DialogDescription>
+              This transaction still has missing required information. Archiving will move it out of the active
+              workspace anyway.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+            <div className="font-medium">Missing before archive</div>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+              {warningItems.slice(0, 6).map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+              {warningItems.length > 6 && <li>{warningItems.length - 6} more item(s)</li>}
+            </ul>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={submit} disabled={submitting}>
+              {submitting ? "Archiving..." : "Archive anyway"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

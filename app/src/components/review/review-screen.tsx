@@ -285,7 +285,7 @@ export function ReviewScreen({
     setSelectedPage(source.sourcePage);
   }
 
-  async function persistFieldEdits(entries: [string, string][], markReviewed: boolean) {
+  async function persistFieldEdits(entries: [string, string][]) {
     setSaving(true);
     const supabase = createClient();
     const {
@@ -323,23 +323,21 @@ export function ReviewScreen({
       }
     }
 
-    const newStatus = markReviewed ? "reviewed" : "in_review";
-    await supabase.from("deals").update({ status: newStatus }).eq("id", deal.id);
     await supabase.from("audit_logs").insert({
       user_id: user?.id,
       deal_id: deal.id,
-      action: markReviewed ? "deal_reviewed" : "fields_edited",
+      action: "fields_edited",
       details: { edited_fields: entries.map(([key]) => key) },
     });
   }
 
-  async function saveEdits(markReviewed: boolean) {
+  async function saveEdits() {
     const entries = Object.entries(edited);
-    if (entries.length === 0 && !markReviewed) return;
+    if (entries.length === 0) return;
 
     try {
-      await persistFieldEdits(entries, markReviewed);
-      toast.success(markReviewed ? "Deal marked as reviewed." : "Edits saved.");
+      await persistFieldEdits(entries);
+      toast.success("Edits saved.");
       setEdited({});
       router.refresh();
     } catch (err) {
@@ -353,7 +351,7 @@ export function ReviewScreen({
     if (edited[fieldKey] === undefined) return;
     setSavingFieldKey(fieldKey);
     try {
-      await persistFieldEdits([[fieldKey, edited[fieldKey]]], false);
+      await persistFieldEdits([[fieldKey, edited[fieldKey]]]);
       toast.success("Field override saved.");
       setEdited((prev) => {
         const next = { ...prev };
@@ -586,13 +584,10 @@ export function ReviewScreen({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => saveEdits(false)}
+            onClick={() => saveEdits()}
             disabled={!dirty || saving}
           >
             Save edits
-          </Button>
-          <Button size="sm" onClick={() => saveEdits(true)} disabled={saving}>
-            Mark reviewed
           </Button>
         </div>
       </header>
@@ -924,7 +919,8 @@ export function ReviewScreen({
             </Button>
             <SubmitArchiveButton
               dealId={deal.id}
-              disabled={checklistResult.missingRequired.length > 0 || deal.status === "exported"}
+              disabled={deal.status === "exported"}
+              warningItems={checklistResult.missingRequired.map((item) => item.label)}
             />
             <p className="w-full text-xs text-muted-foreground">
               Downloads are read-only. Use Submit & archive when the transaction is complete and ready to leave the
@@ -932,7 +928,8 @@ export function ReviewScreen({
             </p>
             {checklistResult.missingRequired.length > 0 && (
               <p className="w-full text-xs text-muted-foreground">
-                Submission is available after all required documents are complete.
+                This transaction has missing required documents. Submit & archive is still available, but requires
+                confirmation.
               </p>
             )}
           </CardContent>
