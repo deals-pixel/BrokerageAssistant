@@ -185,6 +185,7 @@ export function DealIntakeWorkflow({
   }
 
   async function approveAndProcess(dialog: DialogState, action: "link" | "create") {
+    const hasProcessableAttachments = hasProcessableEmailAttachments(dialog.email);
     setWorkingId(dialog.email.id);
     setWorkflowProgress(action === "link" ? "Linking email to transaction..." : "Creating draft transaction...");
     try {
@@ -200,6 +201,13 @@ export function DealIntakeWorkflow({
             });
       const approvedDeal = result.deal as IntakeLinkedDeal | undefined;
       if (!approvedDeal?.id) throw new Error("Approved transaction was not returned.");
+
+      if (!hasProcessableAttachments) {
+        toast.success(action === "link" ? "Email linked for review." : "Draft transaction created for review.");
+        setDialog(null);
+        router.refresh();
+        return;
+      }
 
       setWorkflowProgress("Preparing email attachments...");
       await prepareEmailAttachmentsForProcessing({
@@ -324,17 +332,23 @@ export function DealIntakeWorkflow({
                     >
                       Review
                     </Button>
-                    <EmailAttachmentIngestButton
-                      dealId={linkedDeal.id}
-                      attachments={email.email_attachments}
-                      renderedAttachmentIds={renderedAttachmentIds}
-                    />
-                    <ProcessDealButton
-                      dealId={linkedDeal.id}
-                      status={linkedDeal.status}
-                      pageCount={linkedDeal.page_count}
-                      variant="default"
-                    />
+                    {hasProcessableEmailAttachments(email) ? (
+                      <>
+                        <EmailAttachmentIngestButton
+                          dealId={linkedDeal.id}
+                          attachments={email.email_attachments}
+                          renderedAttachmentIds={renderedAttachmentIds}
+                        />
+                        <ProcessDealButton
+                          dealId={linkedDeal.id}
+                          status={linkedDeal.status}
+                          pageCount={linkedDeal.page_count}
+                          variant="default"
+                        />
+                      </>
+                    ) : (
+                      <span className="text-[11px] leading-4 text-muted-foreground">Body-only intake</span>
+                    )}
                   </>
                 )}
                 {email.status !== "ignored" && (
@@ -537,6 +551,7 @@ function IntakeReviewModal({
   const emailBody = plainEmailBody(dialog.email);
   const routing = dialog.email.routing_json;
   const documentGuesses = routingDocumentGuesses(routing);
+  const hasProcessableAttachments = hasProcessableEmailAttachments(dialog.email);
 
   return (
     <div className="grid min-h-0 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.85fr)]">
@@ -619,6 +634,12 @@ function IntakeReviewModal({
             <SignalRow label="Confidence" value={routingConfidence(routing)} />
             <SignalRow label="Status" value={formatIntakeStatus(dialog.email.status)} />
           </div>
+          {!hasProcessableAttachments && (
+            <div className="mt-3 rounded-md bg-muted/35 px-2 py-1.5 text-xs text-muted-foreground">
+              No processable document attachment is available. Approving this intake will save the email context for
+              review; full document parsing starts after PDF/image documents are added.
+            </div>
+          )}
           {documentGuesses.length > 0 && (
             <div className="mt-3 space-y-1">
               <div className="text-xs font-medium text-muted-foreground">Document guesses</div>
@@ -662,7 +683,7 @@ function IntakeReviewModal({
                 onClick={onApproveExisting}
                 disabled={working || !dialog.selectedDealId || dealOptions.length === 0}
               >
-                Approve existing & process
+                {hasProcessableAttachments ? "Approve existing & process" : "Link existing for review"}
               </Button>
             </div>
 
@@ -688,7 +709,7 @@ function IntakeReviewModal({
                   <option value="preconstruction">Pre-construction</option>
                 </select>
                 <Button variant="outline" className="w-full" onClick={onApproveNew} disabled={working}>
-                  Create new & process
+                  {hasProcessableAttachments ? "Create new & process" : "Create draft for review"}
                 </Button>
               </div>
             </div>
@@ -748,6 +769,7 @@ function intakeNextStep(
   if (email.status === "routing_error" || email.status === "error") return "Review the intake error, then link, create, or ignore.";
   if (email.status === "not_deal_suggested") return "AI suggests this is not a deal package. Ignore it or choose another action.";
   if (email.status === "new_deal_suggested") return "AI suggests this is a new deal. Create a draft or link it to an existing one.";
+  if (!hasProcessableEmailAttachments(email)) return "Review the email body, link or create a draft, or ignore it.";
   if (email.status === "intake_review" || email.status === "routing_queued") return "Review intake, approve it for processing, or ignore it.";
   if (needsReview) return "Confirm the suggested match or change it.";
   if (!isConfirmed) return "Link this email or create a draft deal.";
@@ -760,6 +782,14 @@ function intakeNextStep(
   );
   if (pendingAttachments.length > 0) return "Prepare email files for processing.";
   return "Run full processing when ready.";
+}
+
+function hasProcessableEmailAttachments(email: IntakeEmailRow) {
+  return (email.email_attachments ?? []).some((attachment) =>
+    attachment.status === "stored" ||
+    attachment.status === "light_classified" ||
+    attachment.status === "linked_to_transaction",
+  );
 }
 
 export function EmailIntakeQueue({

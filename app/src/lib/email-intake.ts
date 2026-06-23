@@ -127,7 +127,7 @@ export function buildAttachmentStoragePath({
 }
 
 export function heuristicRouteEmail(email: InboundEmailInput): LightRoutingResult {
-  const text = [email.subject, email.bodyText].filter(Boolean).join("\n");
+  const text = [email.subject, inboundEmailPlainText(email)].filter(Boolean).join("\n");
   const normalized = text.toLowerCase();
   const transactionCode = text.match(/\bTX-\d{4}-\d{4,}\b/i)?.[0]?.toUpperCase() ?? "";
   const mlsNumber = text.match(/\b[A-Z]?\d{7,9}\b/i)?.[0] ?? "";
@@ -156,6 +156,53 @@ export function heuristicRouteEmail(email: InboundEmailInput): LightRoutingResul
 }
 
 export const lightRouteEmail = heuristicRouteEmail;
+
+export function hasReviewableEmailContent(email: InboundEmailInput) {
+  const text = [email.subject, inboundEmailPlainText(email)].filter(Boolean).join("\n").trim();
+  if (text.length < 40) return false;
+
+  const normalized = text.toLowerCase();
+  if (/\bTX-\d{4}-\d{4,}\b/i.test(text)) return true;
+  if (extractLikelyAddress(text)) return true;
+  if (/\b[A-Z]?\d{7,9}\b/i.test(text) && /\b(mls|listing)\b/i.test(text)) return true;
+
+  const transactionSignals = [
+    "agreement",
+    "buyer",
+    "closing",
+    "commission",
+    "deal",
+    "deposit",
+    "fintrac",
+    "landlord",
+    "lease",
+    "listing",
+    "offer",
+    "property",
+    "seller",
+    "tenant",
+  ];
+  const signalCount = transactionSignals.filter((signal) => normalized.includes(signal)).length;
+  return text.length >= 120 && signalCount >= 2;
+}
+
+export function inboundEmailPlainText(email: Pick<InboundEmailInput, "bodyText" | "bodyHtml">) {
+  if (email.bodyText?.trim()) return email.bodyText.trim();
+  if (!email.bodyHtml) return "";
+  return email.bodyHtml
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
 
 export function transactionTypeForDeal(
   guess: LightRoutingResult["transaction_type_guess"],

@@ -2,6 +2,7 @@ import { after, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildAttachmentStoragePath,
+  hasReviewableEmailContent,
   hashAttachment,
   heuristicRouteEmail,
   normalizeInboundEmailPayload,
@@ -215,12 +216,57 @@ async function storeInboundAttachments(
       return;
     }
 
-    await supabase
+    if (hasReviewableEmailContent(inbound)) {
+      const routing = heuristicRouteEmail(inbound);
+      const match = await matchDeal(supabase, routing, inbound.fromEmail);
+      const strongMatch = match.best && match.score >= 80 ? match.best : null;
+      if (strongMatch) {
+        await supabase.from("deal_email_links").upsert(
+          {
+            deal_id: strongMatch.id,
+            inbound_email_id: inboundEmailId,
+            match_score: match.score,
+            match_reason: match.reason,
+            match_status: "needs_review",
+          },
+          { onConflict: "deal_id,inbound_email_id" },
+        );
+      }
+
+      await supabase
         .from("inbound_emails")
         .update({
-          status: "ignored",
-          error_message: "No valid document attachments found",
+          status: strongMatch ? "needs_match_review" : "intake_review",
+          routing_json: routing,
+          routing_completed_at: new Date().toISOString(),
+          error_message: null,
         })
+        .eq("id", inboundEmailId);
+
+      await supabase.from("audit_logs").insert({
+        deal_id: strongMatch ? strongMatch.id : null,
+        action: strongMatch ? "inbound_email_match_suggested" : "inbound_email_ready_for_review",
+        details: {
+          inbound_email_id: inboundEmailId,
+          attachments: 0,
+          ignored_attachments: ignoredCount,
+          duplicate_attachments: duplicateCount,
+          content_only: true,
+          match_score: strongMatch ? match.score : 0,
+          match_reason: strongMatch ? match.reason : null,
+          routing,
+          ai_used: false,
+        },
+      });
+      return;
+    }
+
+    await supabase
+      .from("inbound_emails")
+      .update({
+        status: "ignored",
+        error_message: "No valid document attachments or reviewable email content found",
+      })
       .eq("id", inboundEmailId);
 
     // No AI runs during intake. Full parsing starts only after admin review.

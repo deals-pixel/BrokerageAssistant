@@ -1036,6 +1036,7 @@ function formatInboundActivityStatus(status: string) {
 
 function inboundActivityAttachmentSummary(email: IntakeEmailRow) {
   const attachments = email.email_attachments ?? [];
+  if (attachments.length === 0 && email.status !== "ignored") return "Email body only";
   if (attachments.length === 0) return "No valid stored attachments";
   const counts = attachments.reduce<Record<string, number>>((acc, attachment) => {
     acc[attachment.status] = (acc[attachment.status] ?? 0) + 1;

@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  hasReviewableEmailContent,
   heuristicRouteEmail,
   type InboundEmailInput,
   type LightRoutingResult,
@@ -119,19 +120,19 @@ export async function processInboundEmailRouting(inboundEmailId: string) {
     if (attachmentError) throw new Error(attachmentError.message);
 
     const routeAttachments = routeAttachmentInputs(attachments ?? []);
-    if (routeAttachments.length === 0) {
+    const inbound = emailRowToInboundInput(email as InboundEmailRow, routeAttachments);
+    if (routeAttachments.length === 0 && !hasReviewableEmailContent(inbound)) {
       await supabase
         .from("inbound_emails")
         .update({
           status: "ignored",
-          error_message: "No valid document attachments found",
+          error_message: "No valid document attachments or reviewable email content found",
           routing_completed_at: new Date().toISOString(),
         })
         .eq("id", inboundEmailId);
       return { inboundEmailId, status: "ignored" };
     }
 
-    const inbound = emailRowToInboundInput(email as InboundEmailRow, routeAttachments);
     const routing = heuristicRouteEmail(inbound);
 
     for (const attachment of routeAttachments) {
@@ -170,7 +171,12 @@ export async function processInboundEmailRouting(inboundEmailId: string) {
       await supabase.from("audit_logs").insert({
         deal_id: match.best.id,
         action: "inbound_email_match_suggested",
-        details: { inbound_email_id: inboundEmailId, attachments: attachmentIds.length, match_score: match.score },
+        details: {
+          inbound_email_id: inboundEmailId,
+          attachments: attachmentIds.length,
+          content_only: attachmentIds.length === 0,
+          match_score: match.score,
+        },
       });
       return { inboundEmailId, status: "needs_match_review", dealId: match.best.id };
     }
@@ -181,7 +187,12 @@ export async function processInboundEmailRouting(inboundEmailId: string) {
       .eq("id", inboundEmailId);
     await supabase.from("audit_logs").insert({
       action: "inbound_email_ready_for_review",
-      details: { inbound_email_id: inboundEmailId, attachments: attachmentIds.length, routing },
+      details: {
+        inbound_email_id: inboundEmailId,
+        attachments: attachmentIds.length,
+        content_only: attachmentIds.length === 0,
+        routing,
+      },
     });
 
     return { inboundEmailId, status: "intake_review" };
