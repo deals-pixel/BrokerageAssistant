@@ -372,7 +372,7 @@ export function DealIntakeWorkflow({
       })}
 
       <Dialog open={Boolean(dialog)} onOpenChange={(open) => !open && setDialog(null)}>
-        <DialogContent className={dialog?.mode === "review" ? "max-h-[90vh] overflow-hidden sm:max-w-6xl" : "sm:max-w-lg"}>
+        <DialogContent className={dialog?.mode === "review" ? "max-h-[90vh] overflow-y-auto sm:max-w-6xl" : "sm:max-w-lg"}>
           {dialog && (
             <>
               <DialogHeader>
@@ -557,8 +557,8 @@ function IntakeReviewModal({
   const hasProcessableAttachments = hasProcessableEmailAttachments(dialog.email);
 
   return (
-    <div className="grid min-h-0 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.85fr)]">
-      <div className="min-h-0 space-y-3 overflow-y-auto pr-1">
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.85fr)]">
+      <div className="space-y-3">
         <div className="rounded-lg border">
           <div className="border-b p-3">
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Email</div>
@@ -628,7 +628,7 @@ function IntakeReviewModal({
         </div>
       </div>
 
-      <div className="min-h-0 space-y-3 overflow-y-auto">
+      <div className="space-y-3">
         <div className="rounded-lg border p-3">
           <div className="mb-2 text-sm font-medium">Routing Signals</div>
           <div className="grid gap-2 text-xs">
