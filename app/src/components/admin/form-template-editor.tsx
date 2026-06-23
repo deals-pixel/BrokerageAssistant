@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
   ClipboardCopy,
   Download,
   FileText,
@@ -33,6 +37,24 @@ type EditableRegion = {
   box: SourceBox;
 };
 
+type ResizeHandle = "n" | "e" | "s" | "w" | "ne" | "se" | "sw" | "nw";
+
+type BoxInteraction =
+  | { kind: "draw"; start: { x: number; y: number } }
+  | {
+      kind: "move";
+      regionId: string;
+      start: { x: number; y: number };
+      originalBox: SourceBox;
+    }
+  | {
+      kind: "resize";
+      regionId: string;
+      handle: ResizeHandle;
+      start: { x: number; y: number };
+      originalBox: SourceBox;
+    };
+
 type DraftState = {
   formKey: string;
   formTitle: string;
@@ -42,6 +64,10 @@ type DraftState = {
 
 const DRAFT_PREFIX = "brokerage-form-template:";
 const MIN_BOX_SIZE = 0.004;
+const HANDLE_SIZE_CLASS = "size-3";
+const NUDGE_SMALL = 0.002;
+const NUDGE_LARGE = 0.01;
+const RESIZE_HANDLES: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
 const FIELD_OPTIONS = FIELD_SECTIONS.flatMap((section) =>
   section.fields.map((field) => ({
@@ -62,7 +88,7 @@ export function FormTemplateEditor() {
   const [activePage, setActivePage] = useState(1);
   const [regions, setRegions] = useState<EditableRegion[]>([]);
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
-  const [drawingStart, setDrawingStart] = useState<{ x: number; y: number } | null>(null);
+  const [interaction, setInteraction] = useState<BoxInteraction | null>(null);
   const [draftBox, setDraftBox] = useState<SourceBox | null>(null);
   const [progress, setProgress] = useState("");
 
@@ -111,6 +137,24 @@ export function FormTemplateEditor() {
     });
   }
 
+  function updateRegionBox(regionId: string, updater: (box: SourceBox) => SourceBox) {
+    setRegions((current) =>
+      current.map((region) =>
+        region.id === regionId
+          ? {
+              ...region,
+              box: normalizeSize(updater(region.box)),
+            }
+          : region,
+      ),
+    );
+  }
+
+  function updateSelectedBox(updater: (box: SourceBox) => SourceBox) {
+    if (!selectedRegionId) return;
+    updateRegionBox(selectedRegionId, updater);
+  }
+
   async function renderTemplateFile(file: File) {
     if (!isPdf(file) && !isJpeg(file)) {
       toast.error("Use a blank PDF, JPG, or JPEG form.");
@@ -136,7 +180,7 @@ export function FormTemplateEditor() {
     }
   }
 
-  function pointerToBoxPoint(event: PointerEvent<HTMLDivElement>) {
+  function pointerToBoxPoint(event: PointerEvent<HTMLElement>) {
     const surface = pageSurfaceRef.current;
     if (!surface) return null;
     const rect = surface.getBoundingClientRect();
@@ -148,25 +192,62 @@ export function FormTemplateEditor() {
 
   function beginDraw(event: PointerEvent<HTMLDivElement>) {
     if (!activePageImage) return;
+    if (interaction) return;
     const point = pointerToBoxPoint(event);
     if (!point) return;
-    setDrawingStart(point);
+    setInteraction({ kind: "draw", start: point });
     setDraftBox({ x: point.x, y: point.y, width: 0, height: 0 });
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
-  function continueDraw(event: PointerEvent<HTMLDivElement>) {
-    if (!drawingStart) return;
+  function continueInteraction(event: PointerEvent<HTMLElement>) {
+    if (!interaction) return;
     const point = pointerToBoxPoint(event);
     if (!point) return;
-    setDraftBox(normalizeBox(drawingStart, point));
+
+    if (interaction.kind === "draw") {
+      setDraftBox(normalizeBox(interaction.start, point));
+      return;
+    }
+
+    if (interaction.kind === "move") {
+      const dx = point.x - interaction.start.x;
+      const dy = point.y - interaction.start.y;
+      const moved = moveBox(interaction.originalBox, dx, dy);
+      setRegions((current) =>
+        current.map((region) =>
+          region.id === interaction.regionId ? { ...region, box: moved } : region,
+        ),
+      );
+      return;
+    }
+
+    const resized = resizeBox(interaction.originalBox, interaction.start, point, interaction.handle);
+    setRegions((current) =>
+      current.map((region) =>
+        region.id === interaction.regionId ? { ...region, box: resized } : region,
+      ),
+    );
   }
 
-  function finishDraw(event: PointerEvent<HTMLDivElement>) {
-    if (!drawingStart || !draftBox) return;
-    event.currentTarget.releasePointerCapture(event.pointerId);
+  function finishInteraction(event: PointerEvent<HTMLElement>) {
+    if (!interaction) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    if (interaction.kind !== "draw") {
+      setInteraction(null);
+      return;
+    }
+
+    if (!draftBox) {
+      setInteraction(null);
+      return;
+    }
+
     const box = normalizeSize(draftBox);
-    setDrawingStart(null);
+    setInteraction(null);
     setDraftBox(null);
 
     if (box.width < MIN_BOX_SIZE || box.height < MIN_BOX_SIZE) return;
@@ -185,6 +266,44 @@ export function FormTemplateEditor() {
     };
     setRegions((current) => [...current, region]);
     setSelectedRegionId(region.id);
+  }
+
+  function cancelInteraction() {
+    setInteraction(null);
+    setDraftBox(null);
+  }
+
+  function beginMove(event: PointerEvent<HTMLButtonElement>, region: EditableRegion) {
+    const point = pointerToBoxPoint(event);
+    if (!point) return;
+    event.stopPropagation();
+    setSelectedRegionId(region.id);
+    setInteraction({
+      kind: "move",
+      regionId: region.id,
+      start: point,
+      originalBox: region.box,
+    });
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function beginResize(
+    event: PointerEvent<HTMLElement>,
+    region: EditableRegion,
+    handle: ResizeHandle,
+  ) {
+    const point = pointerToBoxPoint(event);
+    if (!point) return;
+    event.stopPropagation();
+    setSelectedRegionId(region.id);
+    setInteraction({
+      kind: "resize",
+      regionId: region.id,
+      handle,
+      start: point,
+      originalBox: region.box,
+    });
+    event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   function loadExistingRegions() {
@@ -252,7 +371,7 @@ export function FormTemplateEditor() {
         <div>
           <h1 className="text-2xl font-semibold">Standard Form Template Editor</h1>
           <p className="text-sm text-muted-foreground">
-            Draw field boxes on blank forms, then export parser-ready template regions.
+            Draw, move, resize, and export parser-ready template regions.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -390,7 +509,7 @@ export function FormTemplateEditor() {
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <MousePointer2 className="size-3.5" />
-              Choose a field, then drag over the exact value area on the blank form.
+              Drag empty space to draw. Drag a selected box to move it. Use handles or the side controls for precision.
             </div>
           </CardHeader>
           <CardContent>
@@ -400,8 +519,9 @@ export function FormTemplateEditor() {
                   ref={pageSurfaceRef}
                   className="relative mx-auto w-full max-w-4xl cursor-crosshair select-none overflow-hidden rounded border bg-white"
                   onPointerDown={beginDraw}
-                  onPointerMove={continueDraw}
-                  onPointerUp={finishDraw}
+                  onPointerMove={continueInteraction}
+                  onPointerUp={finishInteraction}
+                  onPointerCancel={cancelInteraction}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element -- local object URL preview */}
                   <img src={activePageImage.url} alt={`Blank form page ${activePage}`} className="block w-full" />
@@ -413,8 +533,8 @@ export function FormTemplateEditor() {
                         type="button"
                         className={`absolute rounded-[2px] border-2 text-left transition-colors ${
                           selectedRegionId === region.id
-                            ? "border-amber-500 bg-amber-300/35"
-                            : "border-sky-500 bg-sky-300/25 hover:bg-sky-300/40"
+                            ? "cursor-move border-amber-500 bg-amber-300/35"
+                            : "cursor-pointer border-sky-500 bg-sky-300/25 hover:bg-sky-300/40"
                         }`}
                         style={{
                           left: `${region.box.x * 100}%`,
@@ -423,11 +543,27 @@ export function FormTemplateEditor() {
                           height: `${region.box.height * 100}%`,
                         }}
                         title={`${region.label} (${region.fieldKey})`}
-                        onPointerDown={(event) => {
-                          event.stopPropagation();
-                          setSelectedRegionId(region.id);
-                        }}
-                      />
+                        onPointerDown={(event) => beginMove(event, region)}
+                        onPointerMove={continueInteraction}
+                        onPointerUp={finishInteraction}
+                        onPointerCancel={cancelInteraction}
+                      >
+                        {selectedRegionId === region.id && (
+                          <>
+                            {RESIZE_HANDLES.map((handle) => (
+                              <span
+                                key={handle}
+                                title={`Resize ${handle}`}
+                                className={`absolute z-10 rounded-[2px] border border-amber-700 bg-background shadow-sm ${HANDLE_SIZE_CLASS} ${handleClassName(handle)}`}
+                                onPointerDown={(event) => beginResize(event, region, handle)}
+                                onPointerMove={continueInteraction}
+                                onPointerUp={finishInteraction}
+                                onPointerCancel={cancelInteraction}
+                              />
+                            ))}
+                          </>
+                        )}
+                      </button>
                     ))}
                   {draftBox && (
                     <div
@@ -522,6 +658,102 @@ export function FormTemplateEditor() {
                     Delete
                   </Button>
                 </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {(["x", "y", "width", "height"] as const).map((key) => (
+                    <div key={key} className="space-y-1">
+                      <label htmlFor={`region-${key}`} className="text-xs font-medium uppercase text-muted-foreground">
+                        {key === "width" ? "w" : key === "height" ? "h" : key}
+                      </label>
+                      <Input
+                        id={`region-${key}`}
+                        type="number"
+                        step="0.0001"
+                        min="0"
+                        max="1"
+                        value={selectedRegion.box[key]}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          if (!Number.isFinite(value)) return;
+                          updateRegionBox(selectedRegion.id, (box) => ({ ...box, [key]: value }));
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-md border bg-background p-2">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-muted-foreground">Nudge selected box</p>
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="outline"
+                        onClick={() => updateSelectedBox((box) => growBox(box, -NUDGE_SMALL))}
+                      >
+                        Shrink
+                      </Button>
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="outline"
+                        onClick={() => updateSelectedBox((box) => growBox(box, NUDGE_SMALL))}
+                      >
+                        Grow
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    <span />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      title="Move up"
+                      onClick={() => updateSelectedBox((box) => moveBox(box, 0, -NUDGE_SMALL))}
+                    >
+                      <ArrowUp />
+                    </Button>
+                    <span />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      title="Move left"
+                      onClick={() => updateSelectedBox((box) => moveBox(box, -NUDGE_SMALL, 0))}
+                    >
+                      <ArrowLeft />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="xs"
+                      title="Grow by a larger step"
+                      onClick={() => updateSelectedBox((box) => growBox(box, NUDGE_LARGE))}
+                    >
+                      Grow+
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      title="Move right"
+                      onClick={() => updateSelectedBox((box) => moveBox(box, NUDGE_SMALL, 0))}
+                    >
+                      <ArrowRight />
+                    </Button>
+                    <span />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      title="Move down"
+                      onClick={() => updateSelectedBox((box) => moveBox(box, 0, NUDGE_SMALL))}
+                    >
+                      <ArrowDown />
+                    </Button>
+                    <span />
+                  </div>
+                </div>
               </div>
             )}
 
@@ -605,6 +837,70 @@ function formatBox(box: SourceBox) {
   return `${round(box.x)}, ${round(box.y)}, ${round(box.width)}, ${round(box.height)}`;
 }
 
+function handleClassName(handle: ResizeHandle) {
+  const classes: Record<ResizeHandle, string> = {
+    n: "left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize",
+    e: "right-0 top-1/2 translate-x-1/2 -translate-y-1/2 cursor-ew-resize",
+    s: "bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 cursor-ns-resize",
+    w: "left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize",
+    ne: "right-0 top-0 translate-x-1/2 -translate-y-1/2 cursor-nesw-resize",
+    se: "bottom-0 right-0 translate-x-1/2 translate-y-1/2 cursor-nwse-resize",
+    sw: "bottom-0 left-0 -translate-x-1/2 translate-y-1/2 cursor-nesw-resize",
+    nw: "left-0 top-0 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize",
+  };
+  return classes[handle];
+}
+
+function moveBox(box: SourceBox, dx: number, dy: number): SourceBox {
+  return normalizeSize({
+    ...box,
+    x: clamp(box.x + dx, 0, 1 - box.width),
+    y: clamp(box.y + dy, 0, 1 - box.height),
+  });
+}
+
+function resizeBox(
+  box: SourceBox,
+  start: { x: number; y: number },
+  point: { x: number; y: number },
+  handle: ResizeHandle,
+): SourceBox {
+  const dx = point.x - start.x;
+  const dy = point.y - start.y;
+  const left = box.x;
+  const top = box.y;
+  const right = box.x + box.width;
+  const bottom = box.y + box.height;
+
+  let nextLeft = left;
+  let nextTop = top;
+  let nextRight = right;
+  let nextBottom = bottom;
+
+  if (handle.includes("w")) nextLeft = clamp(left + dx, 0, right - MIN_BOX_SIZE);
+  if (handle.includes("e")) nextRight = clamp(right + dx, left + MIN_BOX_SIZE, 1);
+  if (handle.includes("n")) nextTop = clamp(top + dy, 0, bottom - MIN_BOX_SIZE);
+  if (handle.includes("s")) nextBottom = clamp(bottom + dy, top + MIN_BOX_SIZE, 1);
+
+  return normalizeSize({
+    x: nextLeft,
+    y: nextTop,
+    width: nextRight - nextLeft,
+    height: nextBottom - nextTop,
+  });
+}
+
+function growBox(box: SourceBox, amount: number): SourceBox {
+  const next = {
+    x: box.x - amount,
+    y: box.y - amount,
+    width: box.width + amount * 2,
+    height: box.height + amount * 2,
+  };
+  if (next.width < MIN_BOX_SIZE || next.height < MIN_BOX_SIZE) return box;
+  return normalizeSize(next);
+}
+
 function normalizeBox(start: { x: number; y: number }, end: { x: number; y: number }): SourceBox {
   const x = Math.min(start.x, end.x);
   const y = Math.min(start.y, end.y);
@@ -629,9 +925,9 @@ function normalizeSize(box: SourceBox): SourceBox {
   };
 }
 
-function clamp(value: number) {
+function clamp(value: number, min = 0, max = 1) {
   if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(1, value));
+  return Math.max(min, Math.min(max, value));
 }
 
 function round(value: number) {
