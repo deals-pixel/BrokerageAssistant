@@ -9,6 +9,7 @@ import type { FieldExtraction, PageClassification } from "./schemas";
 
 export type PageStandardFormMatch = {
   pageNumber: number;
+  templatePageNumber: number | null;
   docType: DocumentType;
   match: StandardFormMatch | null;
 };
@@ -16,7 +17,7 @@ export type PageStandardFormMatch = {
 export function buildPageStandardFormMatches(
   pages: PageClassification["pages"],
 ): PageStandardFormMatch[] {
-  return pages.map((page) => {
+  const matches = pages.map((page) => {
     const docType = page.doc_type as DocumentType;
     const classifierMatch = standardFormMatchFromKey(
       page.standard_form_key,
@@ -33,8 +34,23 @@ export function buildPageStandardFormMatches(
 
     return {
       pageNumber: page.page_number,
+      templatePageNumber: null,
       docType,
       match,
+    };
+  });
+
+  let previousGroupKey = "";
+  let templatePageNumber = 0;
+  return matches.map((pageMatch) => {
+    const groupKey = pageMatch.match
+      ? `${pageMatch.docType}:${pageMatch.match.key}`
+      : `${pageMatch.docType}:unmatched`;
+    templatePageNumber = groupKey === previousGroupKey ? templatePageNumber + 1 : 1;
+    previousGroupKey = groupKey;
+    return {
+      ...pageMatch,
+      templatePageNumber: pageMatch.match ? templatePageNumber : null,
     };
   });
 }
@@ -69,6 +85,7 @@ export function applyTemplateSourceFallbacks(
       const region = templateRegionsForStandardForm(
         matchedPage?.match?.key,
         field.field_key,
+        matchedPage?.templatePageNumber,
       )[0];
 
       if (!matchedPage || !region?.boxes[0]) return field;

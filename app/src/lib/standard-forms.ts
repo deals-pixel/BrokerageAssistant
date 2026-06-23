@@ -3,6 +3,7 @@ import type { DocumentType, SourceBox } from "@/lib/types";
 export type StandardFormRegion = {
   fieldKey: string;
   label: string;
+  page?: number;
   boxes: SourceBox[];
   note?: string;
 };
@@ -422,9 +423,16 @@ export function templateRegionsForDocumentType(docType: DocumentType, fieldKey: 
 export function templateRegionsForStandardForm(
   formKey: string | null | undefined,
   fieldKey: string,
+  pageNumber?: number | null,
 ) {
   const form = standardFormByKey(formKey);
-  return form?.fieldRegions?.filter((region) => region.fieldKey === fieldKey) ?? [];
+  return (
+    form?.fieldRegions?.filter(
+      (region) =>
+        region.fieldKey === fieldKey &&
+        (pageNumber == null || region.page == null || region.page === pageNumber),
+    ) ?? []
+  );
 }
 
 export function extractionTemplateGuide(matches: StandardFormMatch[]) {
@@ -442,7 +450,7 @@ export function extractionTemplateGuide(matches: StandardFormMatch[]) {
       const boxes = region.boxes
         .map(
           (box) =>
-            `${region.fieldKey} ${region.label}: x=${box.x}, y=${box.y}, width=${box.width}, height=${box.height}`,
+            `${region.fieldKey} ${region.label}${region.page ? ` page=${region.page}` : ""}: x=${box.x}, y=${box.y}, width=${box.width}, height=${box.height}`,
         )
         .join("; ");
       lines.push(`  Template region: ${boxes}`);
