@@ -1,4 +1,5 @@
-import { transactionTypeForDeal, type LightRoutingResult } from "@/lib/email-intake";
+import { heuristicRouteEmail, transactionTypeForDeal, type InboundEmailInput, type LightRoutingResult } from "@/lib/email-intake";
+import { matchDeal } from "@/lib/email-routing-job";
 
 type SupabaseClient = {
   from: (table: string) => unknown;
@@ -26,6 +27,21 @@ type InboundEmailForDraft = {
   subject: string | null;
   routing_json: Partial<LightRoutingResult> | null;
   email_attachments: { id: string; file_size: number | null; status: string }[];
+};
+
+type InboundEmailForRestore = {
+  id: string;
+  from_email: string | null;
+  from_name: string | null;
+  to_email: string | null;
+  original_recipient: string | null;
+  forwarding_admin_email: string | null;
+  subject: string | null;
+  body_text: string | null;
+  body_html: string | null;
+  message_id: string | null;
+  thread_id: string | null;
+  received_at: string | null;
 };
 
 type DealForLink = {
@@ -199,6 +215,74 @@ export async function queueInboundEmailForRouting({
   });
 }
 
+export async function restoreInboundEmailToReview({
+  supabase,
+  inboundEmailId,
+  userId,
+}: {
+  supabase: SupabaseClient;
+  inboundEmailId: string;
+  userId: string;
+}) {
+  const inbound = await fetchInboundEmailForRestore(supabase, inboundEmailId);
+  const input = inboundEmailToInput(inbound);
+  const routing = heuristicRouteEmail(input);
+  const match = await matchDeal(supabase as Parameters<typeof matchDeal>[0], routing, input.fromEmail);
+  const strongMatch = match.best && match.score >= 80 ? match.best : null;
+
+  await table(supabase, "deal_email_links")
+    .update({ match_status: "rejected", confirmed_by: userId })
+    .eq("inbound_email_id", inboundEmailId);
+
+  if (strongMatch) {
+    await table(supabase, "deal_email_links").upsert(
+      {
+        deal_id: strongMatch.id,
+        inbound_email_id: inboundEmailId,
+        match_score: match.score,
+        match_reason: match.reason,
+        match_status: "needs_review",
+      },
+      { onConflict: "deal_id,inbound_email_id" },
+    );
+  }
+
+  await table(supabase, "inbound_emails")
+    .update({
+      status: strongMatch ? "needs_match_review" : "intake_review",
+      routing_json: routing,
+      routing_completed_at: new Date().toISOString(),
+      error_message: null,
+    })
+    .eq("id", inboundEmailId);
+
+  await table(supabase, "audit_logs").insert({
+    user_id: userId,
+    deal_id: strongMatch?.id ?? null,
+    action: strongMatch ? "inbound_email_match_suggested" : "inbound_email_marked_useful",
+    details: {
+      inbound_email_id: inboundEmailId,
+      restored_from_ignored: true,
+      content_only: true,
+      match_score: strongMatch ? match.score : 0,
+      match_reason: strongMatch ? match.reason : null,
+      routing,
+    },
+  });
+
+  return {
+    status: strongMatch ? "needs_match_review" : "intake_review",
+    routing,
+    deal: strongMatch
+      ? {
+          id: strongMatch.id,
+          property_address: strongMatch.property_address,
+          file_name: strongMatch.property_address ?? strongMatch.transaction_code ?? "Matched transaction",
+        }
+      : null,
+  };
+}
+
 async function fetchDeal(supabase: SupabaseClient, dealId: string) {
   const { data, error } = await table(supabase, "deals")
     .select("id, property_address, file_name")
@@ -215,6 +299,34 @@ async function fetchInboundEmailForDraft(supabase: SupabaseClient, inboundEmailI
     .single();
   if (error || !data) throw new Error(error?.message ?? "Inbound email not found");
   return data as InboundEmailForDraft;
+}
+
+async function fetchInboundEmailForRestore(supabase: SupabaseClient, inboundEmailId: string) {
+  const { data, error } = await table(supabase, "inbound_emails")
+    .select(
+      "id, from_email, from_name, to_email, original_recipient, forwarding_admin_email, subject, body_text, body_html, message_id, thread_id, received_at",
+    )
+    .eq("id", inboundEmailId)
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "Inbound email not found");
+  return data as InboundEmailForRestore;
+}
+
+function inboundEmailToInput(email: InboundEmailForRestore): InboundEmailInput {
+  return {
+    fromEmail: email.from_email,
+    fromName: email.from_name,
+    toEmail: email.to_email,
+    originalRecipient: email.original_recipient,
+    forwardingAdminEmail: email.forwarding_admin_email,
+    subject: email.subject,
+    bodyText: email.body_text,
+    bodyHtml: email.body_html,
+    messageId: email.message_id,
+    threadId: email.thread_id,
+    receivedAt: email.received_at,
+    attachments: [],
+  };
 }
 
 async function linkAttachmentsToDeal(supabase: SupabaseClient, inboundEmailId: string, dealId: string) {

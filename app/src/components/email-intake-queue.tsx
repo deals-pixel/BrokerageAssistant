@@ -6,10 +6,12 @@ import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   CheckCircle2,
+  Eye,
   FilePlus2,
   Inbox,
   Link2,
   Mail,
+  RotateCcw,
   Search,
   Trash2,
 } from "lucide-react";
@@ -760,6 +762,36 @@ function attachmentWorkflowSummary(attachments: EmailAttachmentForQueue[]) {
   return labels.length > 2 ? `${fileText} | ${visible} +${labels.length - 2}` : `${fileText} | ${visible}`;
 }
 
+function activityAttachmentSummary(email: IntakeEmailRow) {
+  const attachments = email.email_attachments ?? [];
+  if (attachments.length === 0 && email.status !== "ignored") return "Email body only";
+  if (attachments.length === 0) return "No valid stored attachments";
+  return attachmentStatusSummary(attachments);
+}
+
+function activityAttachmentReason(email: IntakeEmailRow) {
+  const reasons = Array.from(
+    new Set(
+      (email.email_attachments ?? [])
+        .map((attachment) => attachment.ignore_reason)
+        .filter((reason): reason is string => Boolean(reason)),
+    ),
+  );
+  if (reasons.length === 0) return "";
+  return reasons.map((reason) => reason.replaceAll("_", " ")).join(" | ");
+}
+
+function activityResult(email: IntakeEmailRow) {
+  if (email.status === "ignored") return "Hidden from active workspace";
+  if (email.status === "error" || email.status === "routing_error") return "Needs admin attention";
+  if (email.status === "attachments_queued") return "Stored email, preparing attachments";
+  if (email.status === "intake_review") return "Visible in Intake Review";
+  if (email.status === "needs_match_review") return "Visible in Routing Review";
+  if (email.status === "new_deal_suggested") return "Suggested as a new deal";
+  if (email.status === "not_deal_suggested") return "Suggested as not a deal package";
+  return "Stored by the platform";
+}
+
 function intakeNextStep(
   email: IntakeEmailRow,
   isConfirmed: boolean,
@@ -1119,6 +1151,183 @@ export function EmailIntakeQueue({
                   {workingId === dialog.email.id ? "Saving..." : dialogSubmitLabel(dialog.mode)}
                 </Button>
               </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </section>
+  );
+}
+
+export function InboundEmailActivityPanel({ emails }: { emails: IntakeEmailRow[] }) {
+  const router = useRouter();
+  const [selectedEmail, setSelectedEmail] = useState<IntakeEmailRow | null>(null);
+  const [workingId, setWorkingId] = useState<string | null>(null);
+
+  async function markUseful(email: IntakeEmailRow) {
+    setWorkingId(email.id);
+    try {
+      await postAction(`/api/inbound-emails/${email.id}/restore`, {});
+      toast.success("Email moved to intake review.");
+      setSelectedEmail(null);
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not restore email");
+    } finally {
+      setWorkingId(null);
+    }
+  }
+
+  return (
+    <section className="rounded-xl border bg-card p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-medium">Recent Email Intake Activity</h2>
+          <p className="text-sm text-muted-foreground">
+            Delivery receipts from Postmark, including emails hidden from the active workspace.
+          </p>
+        </div>
+        <Badge variant="outline">{emails.length} recent</Badge>
+      </div>
+      <div className="mt-3 overflow-hidden rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Email</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Attachments</TableHead>
+              <TableHead>Platform result</TableHead>
+              <TableHead className="text-right">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {emails.map((email) => {
+              const linkedDeal = linkedDealFromRelation(bestLink(email)?.deals);
+              return (
+                <TableRow key={email.id}>
+                  <TableCell className="min-w-72 align-top">
+                    <div className="font-medium">{email.subject || "No subject"}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {email.from_name || email.from_email || "Unknown sender"}
+                      {email.received_at ? ` | ${new Date(email.received_at).toLocaleString()}` : ""}
+                    </div>
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <Badge variant={intakeStatusVariant(email.status)}>
+                      {formatIntakeStatus(email.status)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="max-w-80 align-top text-sm">
+                    <div>{activityAttachmentSummary(email)}</div>
+                    {activityAttachmentReason(email) && (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {activityAttachmentReason(email)}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell className="max-w-96 align-top text-sm">
+                    {linkedDeal ? (
+                      <Link href={`/deals/${linkedDeal.id}`} className="font-medium hover:underline">
+                        Attached to {shortDealTitle(linkedDeal.property_address, linkedDeal.file_name)}
+                      </Link>
+                    ) : (
+                      <span>{activityResult(email)}</span>
+                    )}
+                    {email.error_message && (
+                      <div className="mt-1 text-xs text-muted-foreground">{email.error_message}</div>
+                    )}
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <div className="flex justify-end">
+                      <Button size="sm" variant="outline" onClick={() => setSelectedEmail(email)}>
+                        <Eye className="size-4" />
+                        Open
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+
+      <Dialog open={Boolean(selectedEmail)} onOpenChange={(open) => !open && setSelectedEmail(null)}>
+        <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-4xl">
+          {selectedEmail && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{selectedEmail.subject || "No subject"}</DialogTitle>
+                <DialogDescription>
+                  {selectedEmail.from_name || selectedEmail.from_email || "Unknown sender"}
+                  {selectedEmail.received_at ? ` | ${new Date(selectedEmail.received_at).toLocaleString()}` : ""}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="grid min-h-0 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1.25fr)_minmax(18rem,0.75fr)]">
+                <div className="min-h-0 space-y-3 overflow-y-auto pr-1">
+                  <div className="rounded-lg border">
+                    <div className="border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Email body
+                    </div>
+                    <div className="max-h-[28rem] overflow-y-auto whitespace-pre-wrap p-3 text-xs leading-5 text-foreground/80">
+                      {plainEmailBody(selectedEmail) || "No readable email body was included."}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="min-h-0 space-y-3 overflow-y-auto">
+                  <div className="rounded-lg border p-3">
+                    <div className="mb-2 text-sm font-medium">Routing Signals</div>
+                    <div className="grid gap-2 text-xs">
+                      <SignalRow label="Property" value={routingAddress(selectedEmail.routing_json) || "Unknown"} />
+                      <SignalRow label="Type" value={routingTransactionType(selectedEmail.routing_json)} />
+                      <SignalRow label="Confidence" value={routingConfidence(selectedEmail.routing_json)} />
+                      <SignalRow label="Status" value={formatIntakeStatus(selectedEmail.status)} />
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border p-3">
+                    <div className="mb-2 text-sm font-medium">Attachments</div>
+                    <div className="space-y-2">
+                      {selectedEmail.email_attachments.length === 0 ? (
+                        <div className="rounded-md bg-muted/35 px-2 py-1.5 text-xs text-muted-foreground">
+                          No attachment records. This may still be useful if the email body contains deal information.
+                        </div>
+                      ) : (
+                        selectedEmail.email_attachments.map((attachment) => (
+                          <div key={attachment.id} className="rounded-md bg-muted/35 px-2 py-1.5 text-xs">
+                            <div className="truncate font-medium">{attachment.original_filename || "Attachment"}</div>
+                            <div className="text-muted-foreground">
+                              {formatEmailAttachmentStatus(attachment.status)}
+                              {attachment.ignore_reason ? ` | ${attachment.ignore_reason.replaceAll("_", " ")}` : ""}
+                              {attachment.file_size ? ` | ${formatBytes(attachment.file_size)}` : ""}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {selectedEmail.status === "ignored" && (
+                    <div className="rounded-lg border p-3">
+                      <div className="mb-2 text-sm font-medium">Override</div>
+                      <p className="mb-3 text-xs text-muted-foreground">
+                        Mark this email as useful to parse the subject/body and move it back into the active intake
+                        workspace.
+                      </p>
+                      <Button
+                        className="w-full"
+                        onClick={() => markUseful(selectedEmail)}
+                        disabled={workingId === selectedEmail.id}
+                      >
+                        <RotateCcw className="size-4" />
+                        {workingId === selectedEmail.id ? "Moving..." : "Mark useful"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
             </>
           )}
         </DialogContent>
