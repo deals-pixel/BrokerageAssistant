@@ -138,10 +138,10 @@ export function DealIntakeWorkflow({
     [dealOptions, dialog?.selectedDealId],
   );
 
-  function openDialog(mode: DialogMode, email: IntakeEmailRow) {
+  function dialogStateForEmail(mode: DialogMode, email: IntakeEmailRow): DialogState {
     const suggestedLink = bestLink(email);
     const suggestedDeal = linkedDealFromRelation(suggestedLink?.deals);
-    setDialog({
+    return {
       mode,
       email,
       selectedDealId: suggestedDeal?.id ?? deal.id ?? dealOptions[0]?.id ?? "",
@@ -149,7 +149,11 @@ export function DealIntakeWorkflow({
       transactionType: routingTransactionType(email.routing_json),
       reason: "",
       previewAttachmentId: firstPreviewAttachmentId(email),
-    });
+    };
+  }
+
+  function openDialog(mode: DialogMode, email: IntakeEmailRow) {
+    setDialog(dialogStateForEmail(mode, email));
   }
 
   async function submitDialog() {
@@ -263,6 +267,27 @@ export function DealIntakeWorkflow({
     }
   }
 
+  async function proceedWithRoutingSuggestion(
+    email: IntakeEmailRow,
+    _primaryLink: IntakeEmailRow["deal_email_links"][number] | null,
+    suggestedDeal: IntakeLinkedDeal | null,
+  ) {
+    const nextDialog = dialogStateForEmail("review", email);
+    if (email.status === "not_deal_suggested") {
+      await submitDialogWithMode({
+        ...nextDialog,
+        mode: "ignore",
+        reason: nextDialog.reason || "AI suggested this intake is not a deal package.",
+      });
+      return;
+    }
+    if (email.status === "new_deal_suggested" || !suggestedDeal) {
+      await approveAndProcess(nextDialog, "create");
+      return;
+    }
+    await approveAndProcess({ ...nextDialog, selectedDealId: suggestedDeal.id }, "link");
+  }
+
   if (emails.length === 0) {
     return (
       <div className="rounded-md border border-dashed bg-muted/20 p-2 text-[11px] leading-4 text-muted-foreground">
@@ -286,6 +311,7 @@ export function DealIntakeWorkflow({
         );
         const needsReview = email.status === "needs_match_review" || primaryLink?.match_status === "needs_review";
         const isWorking = workingId === email.id;
+        const routingReady = isRoutingReviewEmail(email, primaryLink);
         const dealTitle = suggestedDeal
           ? shortDealTitle(suggestedDeal.property_address, suggestedDeal.file_name)
           : routingAddress(email.routing_json) || "Needs admin review";
@@ -293,36 +319,83 @@ export function DealIntakeWorkflow({
           ? `${primaryLink.match_score ?? 0}% | ${formatMatchStatus(primaryLink.match_status)}`
           : routingSummary(email.routing_json) || "No match signal";
         const nextStep = intakeNextStep(email, isConfirmed, needsReview, renderedAttachmentIds);
+        const suggestion = routingSuggestion(email, primaryLink, suggestedDeal);
 
         return (
-          <div key={email.id} className="min-w-0 space-y-2 rounded-md border bg-background/80 p-2.5">
-            <div className="flex min-w-0 items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Email</div>
-                <div className="truncate text-[12px] font-semibold leading-4" title={email.from_email ?? undefined}>
-                  {email.from_name || email.from_email || "Unknown sender"}
+          <div
+            key={email.id}
+            role={routingReady ? "button" : undefined}
+            tabIndex={routingReady ? 0 : undefined}
+            className={`min-w-0 space-y-2 rounded-md border bg-background/80 p-2.5 text-left transition ${
+              routingReady ? "hover:border-foreground/30 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : ""
+            }`}
+            onClick={routingReady ? () => openDialog("review", email) : undefined}
+            onKeyDown={(event) => {
+              if (!routingReady) return;
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                openDialog("review", email);
+              }
+            }}
+          >
+            {routingReady ? (
+              <div className="min-w-0 space-y-2">
+                <div className="flex min-w-0 items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">AI suggestion</div>
+                    <div className="truncate text-[12px] font-semibold leading-4" title={suggestion.primary}>
+                      {suggestion.title}
+                    </div>
+                  </div>
+                  <Badge variant={intakeStatusVariant(email.status)} className="h-5 shrink-0 px-1.5 text-[11px]">
+                    {formatIntakeStatus(email.status)}
+                  </Badge>
+                </div>
+                <div className="rounded-md bg-muted/35 px-2 py-1.5">
+                  <div className="truncate text-[12px] font-medium leading-4" title={suggestion.primary}>
+                    {suggestion.primary}
+                  </div>
+                  <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+                    {suggestion.meta}
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+                  <SuggestionMeta label="Type" value={routingTransactionType(email.routing_json)} />
+                  <SuggestionMeta label="Confidence" value={routingConfidence(email.routing_json)} />
+                  <SuggestionMeta label="Match" value={primaryLink?.match_score != null ? `${primaryLink.match_score}%` : email.status === "new_deal_suggested" ? "New" : "None"} />
                 </div>
               </div>
-              <Badge variant={intakeStatusVariant(email.status)} className="h-5 shrink-0 px-1.5 text-[11px]">
-                {formatIntakeStatus(email.status)}
-              </Badge>
-            </div>
-
-            <div className="min-w-0 space-y-1.5 text-[11px] leading-4">
-              <IntakeInfo label="Match" value={dealTitle || routingAddress(email.routing_json) || "Needs admin review"} meta={routeMeta} />
-              <IntakeInfo label="Files" value={attachmentWorkflowSummary(email.email_attachments ?? [])} />
-              <IntakeInfo
-                label="Received"
-                value={email.received_at ? new Date(email.received_at).toLocaleDateString() : "Unknown"}
-                meta={email.received_at ? new Date(email.received_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
-              />
-              {email.error_message && (
-                <div className="flex min-w-0 items-center gap-1 text-destructive">
-                  <AlertCircle className="size-3 shrink-0" />
-                  <span className="break-words">{email.error_message}</span>
+            ) : (
+              <>
+                <div className="flex min-w-0 items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Email</div>
+                    <div className="truncate text-[12px] font-semibold leading-4" title={email.from_email ?? undefined}>
+                      {email.from_name || email.from_email || "Unknown sender"}
+                    </div>
+                  </div>
+                  <Badge variant={intakeStatusVariant(email.status)} className="h-5 shrink-0 px-1.5 text-[11px]">
+                    {formatIntakeStatus(email.status)}
+                  </Badge>
                 </div>
-              )}
-            </div>
+
+                <div className="min-w-0 space-y-1.5 text-[11px] leading-4">
+                  <IntakeInfo label="Match" value={dealTitle || routingAddress(email.routing_json) || "Needs admin review"} meta={routeMeta} />
+                  <IntakeInfo label="Files" value={attachmentWorkflowSummary(email.email_attachments ?? [])} />
+                  <IntakeInfo
+                    label="Received"
+                    value={email.received_at ? new Date(email.received_at).toLocaleDateString() : "Unknown"}
+                    meta={email.received_at ? new Date(email.received_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
+                  />
+                  {email.error_message && (
+                    <div className="flex min-w-0 items-center gap-1 text-destructive">
+                      <AlertCircle className="size-3 shrink-0" />
+                      <span className="break-words">{email.error_message}</span>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
 
             <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-t pt-2">
               <div className="min-w-0 text-[11px] leading-4">
@@ -330,18 +403,42 @@ export function DealIntakeWorkflow({
                 <span className="text-muted-foreground">{nextStep}</span>
               </div>
               <div className="flex min-w-0 flex-wrap justify-end gap-1.5">
-                {needsReview && linkedDeal && (
-                  <Button size="sm" className="h-7 px-2 text-xs" onClick={() => openDialog("review", email)} disabled={isWorking}>
-                    <CheckCircle2 className="size-3.5" />
-                    Review match
-                  </Button>
+                {routingReady && (
+                  <>
+                    <Button
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        proceedWithRoutingSuggestion(email, primaryLink, suggestedDeal);
+                      }}
+                      disabled={isWorking}
+                    >
+                      Proceed
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openDialog("review", email);
+                      }}
+                      disabled={isWorking}
+                    >
+                      Override
+                    </Button>
+                  </>
                 )}
-                {!isConfirmed && (
+                {!routingReady && !isConfirmed && (
                   <Button
                     size="sm"
-                    variant={needsReview ? "outline" : "default"}
+                    variant="default"
                     className="h-7 px-2 text-xs"
-                    onClick={() => openDialog("review", email)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openDialog("review", email);
+                    }}
                     disabled={isWorking}
                   >
                     <Search className="size-3.5" />
@@ -355,6 +452,7 @@ export function DealIntakeWorkflow({
                       size="sm"
                       className="h-7 px-2 text-xs"
                       nativeButton={false}
+                      onClick={(event) => event.stopPropagation()}
                       render={<Link href={`/deals/${linkedDeal.id}`} />}
                     >
                       Review
@@ -378,12 +476,15 @@ export function DealIntakeWorkflow({
                     )}
                   </>
                 )}
-                {email.status !== "ignored" && (
+                {!routingReady && email.status !== "ignored" && (
                   <Button
                     size="sm"
                     variant="outline"
                     className="h-7 px-2 text-xs"
-                    onClick={() => openDialog("ignore", email)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openDialog("ignore", email);
+                    }}
                     disabled={isWorking}
                   >
                     <Trash2 className="size-3.5" />
@@ -1541,6 +1642,40 @@ function isRoutingReviewEmail(
     email.status === "not_deal_suggested" ||
     link?.match_status === "needs_review"
   );
+}
+
+function routingSuggestion(
+  email: IntakeEmailRow,
+  primaryLink: IntakeEmailRow["deal_email_links"][number] | null,
+  suggestedDeal: IntakeLinkedDeal | null,
+) {
+  const routing = email.routing_json;
+  if (email.status === "not_deal_suggested") {
+    return {
+      title: "Not a deal package",
+      primary: "AI suggests this intake should be ignored.",
+      meta: email.error_message || "No confident deal-document signal was found.",
+    };
+  }
+  if (email.status === "new_deal_suggested") {
+    return {
+      title: "Create a new transaction",
+      primary: routingAddress(routing) || "AI did not find a confident existing transaction.",
+      meta: "No existing deal match reached the routing threshold.",
+    };
+  }
+  if (suggestedDeal) {
+    return {
+      title: "Match to existing transaction",
+      primary: shortDealTitle(suggestedDeal.property_address, suggestedDeal.file_name),
+      meta: primaryLink?.match_reason || routingSummary(routing) || "Review the suggested destination.",
+    };
+  }
+  return {
+    title: "Review routing",
+    primary: routingAddress(routing) || "No confident route is available.",
+    meta: routingSummary(routing) || "Open the modal to choose a destination.",
+  };
 }
 
 function linkedDealFromRelation(value: IntakeLinkedDeal | IntakeLinkedDeal[] | null | undefined) {
