@@ -27,6 +27,8 @@ Rules:
 - representation_side: listing, cooperating, or both. seller_representation and buyer_representation can be SGA, other brokerage, self-represented, or unknown when visible.
 - scenario_hint should capture explicit phrases such as referral, co-brokerage, pre-construction, buyer self-represented, tenant self-represented, or multiple representation when visible.
 - seller_is_corporation and buyer_is_corporation should be yes, no, or unknown when visible.
+- additional_payees, rebate_to_clients, and referral should be yes or no when visible.
+- additional_payee_1_commission_pct, additional_payee_2_commission_pct, cooperating_commission_pct, listing_commission_pct, and total_commission_pct are percentages. marketing_fee_amount and rebate_amount are money amounts.
 - Multiple people in one field: join with "; ".
 - confidence: high if clearly legible/typed, medium if handwriting is readable but ambiguous, low if partially illegible or inferred.
 - source_page is the package page number labeled above each image.

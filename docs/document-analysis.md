@@ -38,19 +38,19 @@ Header tags: Listing Side/Multiple Rep / Co-Operating Side / Pre-Con (admin name
 - **Top**: Your Name (agent), Property Address, Closing Date, MLS Number, Price, Firm/Conditional, Condition(s), Expiry, Multiple Offer? (+ how many)
 - **Acting for Listing Side checklist**: Listing Agreement, Schedule A to Listing Agreement, RECO Information Guide, APS/Lease, Schedule B, Confirmation of Co-operation, Form 801 (not leases), Individual ID per client (not leases), FINTRAC checklist per client (not leases)
 - **Acting for Co-Operating Side checklist**: APS/Lease, Schedule B, Confirmation of Co-operation, Buyer Rep Agreement, Schedule A to BRA, RECO Info Guide, Individual ID per client, FINTRAC checklist per client, copy of deposit cheque, Receipt of Funds Record, Form 801
-- **Seller's/Landlord Information**: name, email, lawyer, lawyer email, lawyer phone, address
+- **Seller's/Landlord Information**: name, email, phone, lawyer, lawyer email, lawyer phone, address
 - **Buyer's/Tenants Information**: name, email, lawyer, lawyer email, lawyer phone, address, phone
-- **Commission**: total commission %, your commission %, additional buyer's $?, additional commission %s, outside agent (name, co-op commission %, marketing fee)
-- **Rebate to your clients?** (Y/N + amount), **Referral?** (Y/N + to whom)
+- **Commission**: total commission %, your commission %, additional payee(s) Y/N, additional payee 1/2 names, additional payee 1/2 commission %, outside agent (name, co-op commission %, marketing fee)
+- **Rebate to your clients?** (Y/N + amount), **Referral?** (Y/N + to whom when available)
 - **Deposit info**: held by Sutton? wire transfer / direct deposit / cheque, amount, further deposit (amount + due date)
 
 ## Extraction field schema (deal_fields keys)
 
 Property: property_address, mls_number, transaction_type (purchase|lease), representation_side (listing|cooperating|both)
-Financial: sale_price (or monthly rent), deposit_amount, deposit_method, deposit_held_by, further_deposit_amount, further_deposit_due, total_commission_pct, listing_commission_pct, cooperating_commission_pct, rebate_amount, referral_to
+Financial: sale_price (or monthly rent), deposit_amount, deposit_method, deposit_held_by, further_deposit_amount, further_deposit_due, total_commission_pct, listing_commission_pct, cooperating_commission_pct, additional_payees, additional_payee_1_name, additional_payee_1_commission_pct, additional_payee_2_name, additional_payee_2_commission_pct, marketing_fee_amount, rebate_to_clients, rebate_amount, referral, referral_to
 Status: firm_or_conditional, conditions_summary, condition_expiry_date, multiple_offer (+count)
 Dates: offer_date, acceptance_date, closing_date, lease_start_date, lease_end_date, irrevocable_date
-Parties: buyer_names, buyer_emails, buyer_phone, buyer_address, seller_names, seller_emails, seller_address
+Parties: buyer_names, buyer_emails, buyer_phone, buyer_address, seller_names, seller_emails, seller_phone, seller_address
 Lawyers: buyer_lawyer_name, buyer_lawyer_firm, buyer_lawyer_email, buyer_lawyer_phone, seller_lawyer_name, seller_lawyer_firm, seller_lawyer_email, seller_lawyer_phone
 Agents: listing_agent_name, listing_brokerage, cooperating_agent_name, cooperating_brokerage, agent_name (our side)
 
