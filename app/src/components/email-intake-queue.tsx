@@ -72,6 +72,7 @@ export type EmailAttachmentForQueue = {
   original_filename: string | null;
   mime_type: string | null;
   file_size: number | null;
+  ignore_reason?: string | null;
   light_classification_type: string | null;
   light_classification_confidence: number | null;
   received_at: string | null;

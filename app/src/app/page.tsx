@@ -9,6 +9,7 @@ import {
   DealIntakeWorkflow,
   type IntakeDealOption,
   type IntakeEmailRow,
+  type IntakeLinkedDeal,
 } from "@/components/email-intake-queue";
 import { ProcessDealButton } from "@/components/process-deal-button";
 import { SignOutButton } from "@/components/sign-out-button";
@@ -98,7 +99,7 @@ export default async function DashboardPage({
   const { data: intakeData } = await supabase
     .from("inbound_emails")
     .select(
-      "id, from_email, from_name, subject, body_text, body_html, status, received_at, routing_json, error_message, email_attachments(id, status, original_filename, mime_type, file_size, light_classification_type, light_classification_confidence, received_at), deal_email_links(deal_id, match_score, match_reason, match_status, deals(id, property_address, file_name, status, page_count))",
+      "id, from_email, from_name, subject, body_text, body_html, status, received_at, routing_json, error_message, email_attachments(id, status, original_filename, mime_type, file_size, ignore_reason, light_classification_type, light_classification_confidence, received_at), deal_email_links(deal_id, match_score, match_reason, match_status, deals(id, property_address, file_name, status, page_count))",
     )
     .in("status", [
       "routing_queued",
@@ -115,11 +116,12 @@ export default async function DashboardPage({
       "error",
     ])
     .order("received_at", { ascending: false })
-    .limit(25);
+    .limit(50);
 
   const baseDeals = ((data ?? []) as DealRow[]).map(toDashboardDeal);
   const intakeEmails = (intakeData ?? []) as IntakeEmailRow[];
   const unconfirmedIntakeEmails = intakeEmails.filter((email) => !isConfirmedIntakeEmail(email) && email.status !== "ignored");
+  const recentIntakeActivity = intakeEmails.slice(0, 8);
   const linkedDealIds = Array.from(
     new Set(
       intakeEmails
@@ -199,6 +201,8 @@ export default async function DashboardPage({
       </section>
 
       <UploadDropzone />
+
+      {recentIntakeActivity.length > 0 && <InboundEmailActivity emails={recentIntakeActivity} />}
 
       <section className="space-y-4 rounded-xl border bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -498,6 +502,75 @@ function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
       pageCount={deal.page_count}
       variant={deal.complianceStatus === "Intake Review" ? "default" : "outline"}
     />
+  );
+}
+
+function InboundEmailActivity({ emails }: { emails: IntakeEmailRow[] }) {
+  return (
+    <section className="rounded-xl border bg-card p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-medium">Recent Email Intake Activity</h2>
+          <p className="text-sm text-muted-foreground">
+            Delivery receipts from Postmark, including emails hidden from the active workspace.
+          </p>
+        </div>
+        <Badge variant="outline">{emails.length} recent</Badge>
+      </div>
+      <div className="mt-3 overflow-hidden rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Email</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Attachments</TableHead>
+              <TableHead>Platform result</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {emails.map((email) => {
+              const linkedDeal = inboundActivityLinkedDeal(email);
+              return (
+                <TableRow key={email.id}>
+                  <TableCell className="min-w-72 align-top">
+                    <div className="font-medium">{email.subject || "No subject"}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {email.from_name || email.from_email || "Unknown sender"}
+                      {email.received_at ? ` | ${new Date(email.received_at).toLocaleString()}` : ""}
+                    </div>
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <Badge variant={inboundActivityVariant(email.status)}>
+                      {formatInboundActivityStatus(email.status)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="max-w-80 align-top text-sm">
+                    <div>{inboundActivityAttachmentSummary(email)}</div>
+                    {inboundActivityAttachmentReason(email) && (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {inboundActivityAttachmentReason(email)}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell className="max-w-96 align-top text-sm">
+                    {linkedDeal ? (
+                      <Link href={`/deals/${linkedDeal.id}`} className="font-medium hover:underline">
+                        Attached to {shortDealTitle(linkedDeal.property_address, linkedDeal.file_name)}
+                      </Link>
+                    ) : (
+                      <span>{inboundActivityResult(email)}</span>
+                    )}
+                    {email.error_message && (
+                      <div className="mt-1 text-xs text-muted-foreground">{email.error_message}</div>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </section>
   );
 }
 
@@ -930,6 +1003,75 @@ function isVirtualIntakeDeal(deal: DashboardDeal) {
 function shouldShowIntakeWorkflow(deal: DashboardDeal) {
   const hasIntakeSource = deal.intakeEmails.length > 0 || isVirtualIntakeDeal(deal);
   return hasIntakeSource && (deal.complianceStatus === "Intake Review" || deal.complianceStatus === "Routing Review");
+}
+
+function inboundActivityLinkedDeal(email: IntakeEmailRow): IntakeLinkedDeal | null {
+  const link = (email.deal_email_links ?? []).find((item) =>
+    item.match_status === "manually_confirmed" ||
+    item.match_status === "auto_matched" ||
+    item.match_status === "needs_review",
+  );
+  const deal = link?.deals;
+  if (Array.isArray(deal)) return deal[0] ?? null;
+  return deal ?? null;
+}
+
+function inboundActivityVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
+  if (status === "ignored") return "outline";
+  if (status === "error" || status === "routing_error") return "destructive";
+  if (status === "intake_review" || status === "needs_match_review") return "secondary";
+  if (status === "matched" || status === "draft_transaction_created") return "default";
+  return "outline";
+}
+
+function formatInboundActivityStatus(status: string) {
+  if (status === "attachments_queued") return "Storing";
+  if (status === "intake_review") return "Intake review";
+  if (status === "needs_match_review") return "Match review";
+  if (status === "draft_transaction_created") return "Draft created";
+  if (status === "routing_error") return "Routing error";
+  if (status === "ignored") return "Ignored";
+  return status.replaceAll("_", " ");
+}
+
+function inboundActivityAttachmentSummary(email: IntakeEmailRow) {
+  const attachments = email.email_attachments ?? [];
+  if (attachments.length === 0) return "No valid stored attachments";
+  const counts = attachments.reduce<Record<string, number>>((acc, attachment) => {
+    acc[attachment.status] = (acc[attachment.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const parts = [
+    counts.stored ? `${counts.stored} stored` : "",
+    counts.linked_to_transaction ? `${counts.linked_to_transaction} linked` : "",
+    counts.duplicate ? `${counts.duplicate} duplicate` : "",
+    counts.ignored ? `${counts.ignored} ignored` : "",
+    counts.failed ? `${counts.failed} failed` : "",
+  ].filter(Boolean);
+  return parts.join(" | ") || `${attachments.length} attachment${attachments.length === 1 ? "" : "s"}`;
+}
+
+function inboundActivityAttachmentReason(email: IntakeEmailRow) {
+  const reasons = Array.from(
+    new Set(
+      (email.email_attachments ?? [])
+        .map((attachment) => attachment.ignore_reason)
+        .filter((reason): reason is string => Boolean(reason)),
+    ),
+  );
+  if (reasons.length === 0) return "";
+  return reasons.map((reason) => reason.replaceAll("_", " ")).join(" | ");
+}
+
+function inboundActivityResult(email: IntakeEmailRow) {
+  if (email.status === "ignored") return "Hidden from active workspace";
+  if (email.status === "error" || email.status === "routing_error") return "Needs admin attention";
+  if (email.status === "attachments_queued") return "Stored email, preparing attachments";
+  if (email.status === "intake_review") return "Visible in Intake Review";
+  if (email.status === "needs_match_review") return "Visible in Routing Review";
+  if (email.status === "new_deal_suggested") return "Suggested as a new deal";
+  if (email.status === "not_deal_suggested") return "Suggested as not a deal package";
+  return "Stored by the platform";
 }
 
 function stringRoutingValue(routing: Record<string, unknown>, key: string) {
