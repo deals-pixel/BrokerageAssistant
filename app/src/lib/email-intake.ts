@@ -30,6 +30,7 @@ export type LightRoutingResult = {
   transaction_type_guess: "sale" | "lease" | "referral" | "co_brokerage" | "preconstruction" | "unknown";
   party_names: string[];
   agent_names: string[];
+  email_body_fields?: EmailBodyFieldGuess[];
   document_type_guesses: {
     filename: string;
     document_type: string;
@@ -37,6 +38,15 @@ export type LightRoutingResult = {
   }[];
   routing_confidence: number;
   transaction_code: string;
+};
+
+export type EmailBodyFieldGuess = {
+  field_key: string;
+  label: string;
+  raw_label: string;
+  value: string;
+  confidence: number;
+  source: "email_body";
 };
 
 const DOC_TYPE_FILENAME_HINTS: Partial<Record<DocumentType, string[]>> = {
@@ -129,9 +139,10 @@ export function buildAttachmentStoragePath({
 export function heuristicRouteEmail(email: InboundEmailInput): LightRoutingResult {
   const text = [email.subject, inboundEmailPlainText(email)].filter(Boolean).join("\n");
   const normalized = text.toLowerCase();
+  const emailBodyFields = extractEmailBodyFields(email);
   const transactionCode = text.match(/\bTX-\d{4}-\d{4,}\b/i)?.[0]?.toUpperCase() ?? "";
   const mlsNumber = text.match(/\b[A-Z]?\d{7,9}\b/i)?.[0] ?? "";
-  const propertyAddress = extractLikelyAddress(text);
+  const propertyAddress = emailBodyFields.find((field) => field.field_key === "property_address")?.value ?? extractLikelyAddress(text);
   const transactionTypeGuess = inferTransactionType(normalized, email.attachments.map((item) => item.name));
   const documentTypeGuesses = email.attachments.map((attachment) => classifyAttachmentFilename(attachment.name));
   const knownDocumentCount = documentTypeGuesses.filter((guess) => guess.confidence >= 0.55).length;
@@ -140,6 +151,7 @@ export function heuristicRouteEmail(email: InboundEmailInput): LightRoutingResul
     (transactionCode ? 0.4 : 0) +
       (mlsNumber ? 0.2 : 0) +
       (propertyAddress ? 0.25 : 0) +
+      (emailBodyFields.length > 0 ? 0.1 : 0) +
       (knownDocumentCount > 0 ? 0.15 : 0),
   );
 
@@ -149,6 +161,7 @@ export function heuristicRouteEmail(email: InboundEmailInput): LightRoutingResul
     transaction_type_guess: transactionTypeGuess,
     party_names: [],
     agent_names: [],
+    email_body_fields: emailBodyFields,
     document_type_guesses: documentTypeGuesses,
     routing_confidence: Number(routingConfidence.toFixed(2)),
     transaction_code: transactionCode,
@@ -161,6 +174,7 @@ export function hasReviewableEmailContent(email: InboundEmailInput) {
   const text = [email.subject, inboundEmailPlainText(email)].filter(Boolean).join("\n").trim();
   if (text.length < 40) return false;
 
+  if (extractEmailBodyFields(email).length > 0) return true;
   const normalized = text.toLowerCase();
   if (/\bTX-\d{4}-\d{4,}\b/i.test(text)) return true;
   if (extractLikelyAddress(text)) return true;
@@ -184,6 +198,41 @@ export function hasReviewableEmailContent(email: InboundEmailInput) {
   ];
   const signalCount = transactionSignals.filter((signal) => normalized.includes(signal)).length;
   return text.length >= 120 && signalCount >= 2;
+}
+
+export function extractEmailBodyFields(email: Pick<InboundEmailInput, "bodyText" | "bodyHtml">): EmailBodyFieldGuess[] {
+  const text = inboundEmailPlainText(email);
+  if (!text) return [];
+
+  const fields = new Map<string, EmailBodyFieldGuess>();
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim().replace(/\s+/g, " ");
+    if (!line || /^field\s+value$/i.test(line)) continue;
+
+    const match = line.match(/^([A-Za-z][A-Za-z0-9 /()&$.'-]{1,72})\s*:\s*(.+)$/);
+    if (!match) continue;
+
+    const rawLabel = match[1].trim();
+    const rawValue = match[2].trim();
+    if (!rawValue || rawValue === "-" || /^n\/?a$/i.test(rawValue)) continue;
+
+    const mapping = mapEmailBodyLabel(rawLabel);
+    if (!mapping) continue;
+
+    const value = normalizeEmailBodyFieldValue(mapping.field_key, rawValue);
+    if (!value) continue;
+
+    fields.set(mapping.field_key, {
+      field_key: mapping.field_key,
+      label: mapping.label,
+      raw_label: rawLabel,
+      value,
+      confidence: mapping.confidence,
+      source: "email_body",
+    });
+  }
+
+  return Array.from(fields.values());
 }
 
 export function inboundEmailPlainText(email: Pick<InboundEmailInput, "bodyText" | "bodyHtml">) {
@@ -259,6 +308,135 @@ function inferTransactionType(
   if (allText.includes("lease") || allText.includes("tenant") || allText.includes("landlord")) return "lease";
   if (allText.includes("purchase") || allText.includes("sale") || allText.includes("aps")) return "sale";
   return "unknown";
+}
+
+function mapEmailBodyLabel(label: string) {
+  const normalized = label.toLowerCase().replace(/\s+/g, " ").trim();
+  const mappings: {
+    field_key: string;
+    label: string;
+    confidence: number;
+    patterns: RegExp[];
+  }[] = [
+    {
+      field_key: "property_address",
+      label: "Property Address",
+      confidence: 0.9,
+      patterns: [/^property address$/, /^address$/, /^subject property$/, /^subject property address$/],
+    },
+    {
+      field_key: "closing_date",
+      label: "Closing Date",
+      confidence: 0.85,
+      patterns: [/^closing date$/, /^closing$/, /^completion date$/],
+    },
+    {
+      field_key: "representation_side",
+      label: "Representation Side",
+      confidence: 0.75,
+      patterns: [/^we represent( the)?$/, /^represented side$/, /^representation side$/, /^our side$/],
+    },
+    {
+      field_key: "seller_lawyer_name",
+      label: "Seller Lawyer Info",
+      confidence: 0.65,
+      patterns: [/^seller lawyer( info)?( \(if available\))?$/, /^seller solicitor( info)?$/],
+    },
+    {
+      field_key: "buyer_lawyer_name",
+      label: "Buyer Lawyer Info",
+      confidence: 0.65,
+      patterns: [/^buyer lawyer( info)?( \(if available\))?$/, /^buyer solicitor( info)?$/],
+    },
+    {
+      field_key: "mls_number",
+      label: "MLS Number",
+      confidence: 0.85,
+      patterns: [/^mls$/, /^mls number$/, /^listing number$/],
+    },
+    {
+      field_key: "sale_price",
+      label: "Price / Rent",
+      confidence: 0.75,
+      patterns: [/^sale price$/, /^purchase price$/, /^price$/, /^rent$/, /^lease price$/],
+    },
+    {
+      field_key: "transaction_type",
+      label: "Transaction Type",
+      confidence: 0.75,
+      patterns: [/^transaction type$/, /^deal type$/],
+    },
+  ];
+
+  return mappings.find((mapping) => mapping.patterns.some((pattern) => pattern.test(normalized))) ?? null;
+}
+
+function normalizeEmailBodyFieldValue(fieldKey: string, value: string) {
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+  if (fieldKey === "closing_date") return normalizeEmailDate(cleaned) || cleaned;
+  if (fieldKey === "representation_side") return normalizeRepresentationSide(cleaned);
+  if (fieldKey === "transaction_type") return normalizeEmailTransactionType(cleaned);
+  return cleaned.slice(0, 240);
+}
+
+function normalizeEmailDate(value: string) {
+  const numeric = value.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/);
+  if (numeric) {
+    const year = normalizeYear(numeric[3]);
+    const month = Number(numeric[1]);
+    const day = Number(numeric[2]);
+    if (isValidDateParts(year, month, day)) return formatDateParts(year, month, day);
+  }
+
+  const named = value.match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2}),?\s*(\d{2,4})\b/i,
+  );
+  if (named) {
+    const year = normalizeYear(named[3]);
+    const month = monthNumber(named[1]);
+    const day = Number(named[2]);
+    if (month && isValidDateParts(year, month, day)) return formatDateParts(year, month, day);
+  }
+
+  return "";
+}
+
+function normalizeYear(value: string) {
+  const year = Number(value);
+  return value.length === 2 ? 2000 + year : year;
+}
+
+function monthNumber(value: string) {
+  const short = value.slice(0, 3).toLowerCase();
+  return ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(short) + 1;
+}
+
+function isValidDateParts(year: number, month: number, day: number) {
+  if (year < 2000 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+function formatDateParts(year: number, month: number, day: number) {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function normalizeRepresentationSide(value: string) {
+  const normalized = value.toLowerCase();
+  if (normalized.includes("seller")) return "Seller";
+  if (normalized.includes("buyer")) return "Buyer";
+  if (normalized.includes("landlord")) return "Landlord";
+  if (normalized.includes("tenant")) return "Tenant";
+  return value.slice(0, 120);
+}
+
+function normalizeEmailTransactionType(value: string) {
+  const normalized = value.toLowerCase();
+  if (normalized.includes("lease")) return "Lease";
+  if (normalized.includes("sale") || normalized.includes("purchase")) return "Purchase";
+  if (normalized.includes("referral")) return "Referral";
+  return value.slice(0, 120);
 }
 
 function extractLikelyAddress(text: string) {

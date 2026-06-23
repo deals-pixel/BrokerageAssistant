@@ -553,6 +553,7 @@ function IntakeReviewModal({
   const emailBody = plainEmailBody(dialog.email);
   const routing = dialog.email.routing_json;
   const documentGuesses = routingDocumentGuesses(routing);
+  const emailBodyFields = routingEmailBodyFields(routing);
   const hasProcessableAttachments = hasProcessableEmailAttachments(dialog.email);
 
   return (
@@ -656,6 +657,23 @@ function IntakeReviewModal({
             </div>
           )}
         </div>
+
+        {emailBodyFields.length > 0 && (
+          <div className="rounded-lg border p-3">
+            <div className="mb-2 text-sm font-medium">Email Body Fields</div>
+            <div className="space-y-1.5">
+              {emailBodyFields.map((field) => (
+                <div key={field.field_key} className="rounded-md bg-muted/35 px-2 py-1.5 text-xs">
+                  <div className="font-medium">{field.label}</div>
+                  <div className="break-words text-muted-foreground">{field.value}</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    Needs admin review {typeof field.confidence === "number" ? `| ${Math.round(field.confidence * 100)}% signal` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="rounded-lg border p-3">
           <div className="mb-3 text-sm font-medium">Approve Destination</div>
@@ -1287,6 +1305,20 @@ export function InboundEmailActivityPanel({ emails }: { emails: IntakeEmailRow[]
                     </div>
                   </div>
 
+                  {routingEmailBodyFields(selectedEmail.routing_json).length > 0 && (
+                    <div className="rounded-lg border p-3">
+                      <div className="mb-2 text-sm font-medium">Email Body Fields</div>
+                      <div className="space-y-1.5">
+                        {routingEmailBodyFields(selectedEmail.routing_json).map((field) => (
+                          <div key={field.field_key} className="rounded-md bg-muted/35 px-2 py-1.5 text-xs">
+                            <div className="font-medium">{field.label}</div>
+                            <div className="break-words text-muted-foreground">{field.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="rounded-lg border p-3">
                     <div className="mb-2 text-sm font-medium">Attachments</div>
                     <div className="space-y-2">
@@ -1487,7 +1519,8 @@ function formatEmailAttachmentStatus(status: string) {
 
 function routingAddress(routing: Record<string, unknown> | null) {
   const value = routing?.property_address;
-  return typeof value === "string" ? value : "";
+  if (typeof value === "string" && value) return value;
+  return routingEmailBodyFields(routing).find((field) => field.field_key === "property_address")?.value ?? "";
 }
 
 function routingTransactionType(routing: Record<string, unknown> | null) {
@@ -1523,6 +1556,27 @@ function routingDocumentGuesses(routing: Record<string, unknown> | null) {
       };
     })
     .filter((item): item is { filename: string; document_type: string; confidence: number | null } => Boolean(item));
+}
+
+function routingEmailBodyFields(routing: Record<string, unknown> | null) {
+  const value = routing?.email_body_fields;
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const candidate = item as Record<string, unknown>;
+      const fieldKey = typeof candidate.field_key === "string" ? candidate.field_key : "";
+      const label = typeof candidate.label === "string" ? candidate.label : fieldKey.replaceAll("_", " ");
+      const fieldValue = typeof candidate.value === "string" ? candidate.value : "";
+      if (!fieldKey || !fieldValue) return null;
+      return {
+        field_key: fieldKey,
+        label,
+        value: fieldValue,
+        confidence: typeof candidate.confidence === "number" ? candidate.confidence : null,
+      };
+    })
+    .filter((item): item is { field_key: string; label: string; value: string; confidence: number | null } => Boolean(item));
 }
 
 function firstPreviewAttachmentId(email: IntakeEmailRow) {

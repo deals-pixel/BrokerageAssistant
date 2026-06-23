@@ -3,7 +3,12 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { PDFDocument } from "pdf-lib";
 import { z } from "zod";
 import { DOCUMENT_TYPES } from "@/lib/types";
-import { heuristicRouteEmail, type InboundAttachmentInput, type InboundEmailInput } from "@/lib/email-intake";
+import {
+  heuristicRouteEmail,
+  type EmailBodyFieldGuess,
+  type InboundAttachmentInput,
+  type InboundEmailInput,
+} from "@/lib/email-intake";
 import { anthropic, CLASSIFICATION_AI_MODEL } from "./client";
 import { logAiUsage, usageFromResponse } from "./usage";
 
@@ -39,7 +44,9 @@ const IntakeAnalysisSchema = z.object({
   recommended_action: z.enum(["existing_deal", "new_deal", "not_deal", "manual_review"]),
 });
 
-export type IntakeAnalysisResult = z.infer<typeof IntakeAnalysisSchema>;
+export type IntakeAnalysisResult = z.infer<typeof IntakeAnalysisSchema> & {
+  email_body_fields?: EmailBodyFieldGuess[];
+};
 
 export type IntakeAnalysisAttachmentInput = InboundAttachmentInput & {
   id?: string;
@@ -181,6 +188,7 @@ function mergeFallback(ai: IntakeAnalysisResult, fallback: ReturnType<typeof heu
     routing_confidence: Math.max(ai.routing_confidence, fallback.routing_confidence),
     transaction_code: ai.transaction_code || fallback.transaction_code,
     recommended_action: ai.recommended_action || fallbackAnalysisResult.recommended_action,
+    email_body_fields: fallback.email_body_fields ?? [],
   };
 }
 

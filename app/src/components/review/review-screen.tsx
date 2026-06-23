@@ -1835,6 +1835,7 @@ function formatPageRange(pages: number[]) {
 
 function documentTypeLabel(docType: string | DocumentType | null | undefined) {
   if (!docType) return "Source document";
+  if (docType === "email_body") return "Email body";
   return DOCUMENT_TYPES[docType as DocumentType] ?? docType;
 }
 

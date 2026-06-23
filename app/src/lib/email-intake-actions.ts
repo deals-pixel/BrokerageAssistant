@@ -44,6 +44,18 @@ type InboundEmailForRestore = {
   received_at: string | null;
 };
 
+type InboundEmailRouting = {
+  id: string;
+  routing_json: Partial<LightRoutingResult> | null;
+};
+
+type EmailBodyDealField = {
+  field_key: string;
+  value: string | null;
+  source_doc_type: string | null;
+  edited_at: string | null;
+};
+
 type DealForLink = {
   id: string;
   property_address: string | null;
@@ -87,6 +99,7 @@ export async function confirmInboundEmailMatch({
   );
 
   await linkAttachmentsToDeal(supabase, inboundEmailId, dealId);
+  const emailBodyFieldsApplied = await applyEmailBodyFieldsToDeal(supabase, inboundEmailId, dealId);
   await table(supabase, "inbound_emails")
     .update({ status: "matched", error_message: null })
     .eq("id", inboundEmailId);
@@ -95,7 +108,7 @@ export async function confirmInboundEmailMatch({
     user_id: userId,
     deal_id: dealId,
     action: "email_match_confirmed",
-    details: { inbound_email_id: inboundEmailId, match_score: matchScore ?? 100 },
+    details: { inbound_email_id: inboundEmailId, match_score: matchScore ?? 100, email_body_fields_applied: emailBodyFieldsApplied },
   });
 
   return { deal };
@@ -150,6 +163,7 @@ export async function createDraftDealFromInboundEmail({
   });
 
   await linkAttachmentsToDeal(supabase, inboundEmailId, deal.id);
+  const emailBodyFieldsApplied = await applyEmailBodyFieldsToDeal(supabase, inboundEmailId, deal.id);
   await table(supabase, "inbound_emails")
     .update({ status: "draft_transaction_created", error_message: null })
     .eq("id", inboundEmailId);
@@ -157,7 +171,7 @@ export async function createDraftDealFromInboundEmail({
     user_id: userId,
     deal_id: deal.id,
     action: "draft_deal_created_from_email",
-    details: { inbound_email_id: inboundEmailId, routing },
+    details: { inbound_email_id: inboundEmailId, routing, email_body_fields_applied: emailBodyFieldsApplied },
   });
 
   return { deal };
@@ -310,6 +324,77 @@ async function fetchInboundEmailForRestore(supabase: SupabaseClient, inboundEmai
     .single();
   if (error || !data) throw new Error(error?.message ?? "Inbound email not found");
   return data as InboundEmailForRestore;
+}
+
+async function fetchInboundRouting(supabase: SupabaseClient, inboundEmailId: string) {
+  const { data, error } = await table(supabase, "inbound_emails")
+    .select("id, routing_json")
+    .eq("id", inboundEmailId)
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "Inbound email not found");
+  return data as InboundEmailRouting;
+}
+
+async function applyEmailBodyFieldsToDeal(supabase: SupabaseClient, inboundEmailId: string, dealId: string) {
+  const inbound = await fetchInboundRouting(supabase, inboundEmailId);
+  const fields = emailBodyFieldsFromRouting(inbound.routing_json);
+  if (fields.length === 0) return 0;
+
+  const keys = fields.map((field) => field.field_key);
+  const { data: existingRows } = (await table(supabase, "deal_fields")
+    .select("field_key, value, source_doc_type, edited_at")
+    .eq("deal_id", dealId)
+    .in("field_key", keys)) as { data: EmailBodyDealField[] | null };
+  const existingByKey = new Map((existingRows ?? []).map((row) => [row.field_key, row]));
+  let applied = 0;
+
+  for (const field of fields) {
+    const existing = existingByKey.get(field.field_key);
+    if (existing?.edited_at) continue;
+    if (existing?.value?.trim() && existing.source_doc_type !== "email_body") continue;
+
+    const row = {
+      deal_id: dealId,
+      field_key: field.field_key,
+      value: field.value,
+      confidence: "medium",
+      source_doc_type: "email_body",
+      source_page: null,
+      source_box: null,
+      conflict_sources: null,
+      needs_review: true,
+      notes: "Extracted from email body - admin review needed",
+    };
+
+    if (existing) {
+      const { error } = await table(supabase, "deal_fields")
+        .update(row)
+        .eq("deal_id", dealId)
+        .eq("field_key", field.field_key);
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await table(supabase, "deal_fields").insert(row);
+      if (error) throw new Error(error.message);
+    }
+    applied += 1;
+  }
+
+  return applied;
+}
+
+function emailBodyFieldsFromRouting(routing: Partial<LightRoutingResult> | null | undefined) {
+  const value = routing?.email_body_fields;
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((field) => {
+      if (!field || typeof field !== "object") return null;
+      const candidate = field as Record<string, unknown>;
+      const fieldKey = typeof candidate.field_key === "string" ? candidate.field_key : "";
+      const fieldValue = typeof candidate.value === "string" ? candidate.value.trim() : "";
+      if (!fieldKey || !fieldValue) return null;
+      return { field_key: fieldKey, value: fieldValue };
+    })
+    .filter((field): field is { field_key: string; value: string } => Boolean(field));
 }
 
 function inboundEmailToInput(email: InboundEmailForRestore): InboundEmailInput {
