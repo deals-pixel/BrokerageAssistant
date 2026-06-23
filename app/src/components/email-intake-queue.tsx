@@ -343,7 +343,7 @@ export function DealIntakeWorkflow({
                 <div className="flex min-w-0 items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">AI suggestion</div>
-                    <div className="truncate text-[12px] font-semibold leading-4" title={suggestion.primary}>
+                    <div className="truncate text-[12px] font-semibold leading-4" title={suggestion.title}>
                       {suggestion.title}
                     </div>
                   </div>
@@ -352,10 +352,7 @@ export function DealIntakeWorkflow({
                   </Badge>
                 </div>
                 <div className="rounded-md bg-muted/35 px-2 py-1.5">
-                  <div className="truncate text-[12px] font-medium leading-4" title={suggestion.primary}>
-                    {suggestion.primary}
-                  </div>
-                  <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+                  <div className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">
                     {suggestion.meta}
                   </div>
                 </div>
@@ -398,10 +395,12 @@ export function DealIntakeWorkflow({
             )}
 
             <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-t pt-2">
-              <div className="min-w-0 text-[11px] leading-4">
-                <span className="font-medium text-foreground/80">Next: </span>
-                <span className="text-muted-foreground">{nextStep}</span>
-              </div>
+              {!routingReady && (
+                <div className="min-w-0 text-[11px] leading-4">
+                  <span className="font-medium text-foreground/80">Next: </span>
+                  <span className="text-muted-foreground">{nextStep}</span>
+                </div>
+              )}
               <div className="flex min-w-0 flex-wrap justify-end gap-1.5">
                 {routingReady && (
                   <>
