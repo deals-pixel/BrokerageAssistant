@@ -199,9 +199,11 @@ function fallbackAnalysis(
   const hasLikelyDoc =
     fallback.document_type_guesses.some((guess) => guess.document_type !== "unknown" && guess.confidence >= 0.55) ||
     attachments.some((attachment) => isPdfAttachment(attachment.name, attachment.contentType ?? ""));
+  const hasBodySignals = Boolean(fallback.property_address || fallback.email_body_fields?.length);
+  const isDealPackage = hasLikelyDoc || hasBodySignals;
   return {
-    is_deal_package: hasLikelyDoc,
-    not_deal_reason: hasLikelyDoc ? "" : "No clear deal-document signals found.",
+    is_deal_package: isDealPackage,
+    not_deal_reason: isDealPackage ? "" : "No clear deal-document signals found.",
     ...fallback,
     recommended_action: fallback.transaction_code || fallback.property_address ? "existing_deal" : hasLikelyDoc ? "manual_review" : "not_deal",
   };

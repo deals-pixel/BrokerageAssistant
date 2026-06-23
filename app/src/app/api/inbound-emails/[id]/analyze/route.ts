@@ -3,7 +3,7 @@ import { analyzeInboundPackage, type IntakeAnalysisAttachmentInput } from "@/lib
 import { matchDeal } from "@/lib/email-routing-job";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import type { InboundEmailInput } from "@/lib/email-intake";
+import { hasReviewableEmailContent, type InboundEmailInput } from "@/lib/email-intake";
 
 type InboundEmailRow = {
   id: string;
@@ -59,7 +59,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     if (attachmentError) throw new Error(attachmentError.message);
 
     const attachments = await downloadAttachments(admin, attachmentRows ?? []);
-    if (attachments.length === 0) {
+    const inbound = emailRowToInboundInput(email as InboundEmailRow, attachments);
+    if (attachments.length === 0 && !hasReviewableEmailContent(inbound)) {
       await admin
         .from("inbound_emails")
         .update({
@@ -71,7 +72,6 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ ok: true, status: "not_deal_suggested", analysis: null });
     }
 
-    const inbound = emailRowToInboundInput(email as InboundEmailRow, attachments);
     const analysis = await analyzeInboundPackage(inbound, attachments, { inboundEmailId: id });
     const match = await matchDeal(admin, analysis, inbound.fromEmail);
     const matchedDeal = analysis.is_deal_package && match.best && match.score >= 50 ? match.best : null;

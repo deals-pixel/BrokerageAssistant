@@ -238,6 +238,31 @@ export function DealIntakeWorkflow({
     }
   }
 
+  async function processIntakeForRouting(dialog: DialogState) {
+    setWorkingId(dialog.email.id);
+    setWorkflowProgress("Analyzing email content and attachments...");
+    try {
+      const result = await postAction(`/api/inbound-emails/${dialog.email.id}/analyze`, {});
+      const status = typeof result.status === "string" ? result.status : "";
+      if (status === "needs_match_review") {
+        toast.success("Routing review is ready with a suggested transaction match.");
+      } else if (status === "new_deal_suggested") {
+        toast.success("Routing review is ready. AI suggests creating a new transaction.");
+      } else if (status === "not_deal_suggested") {
+        toast.success("Analysis complete. AI suggests this is not a deal package.");
+      } else {
+        toast.success("Analysis complete.");
+      }
+      setDialog(null);
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not process intake");
+    } finally {
+      setWorkingId(null);
+      setWorkflowProgress("");
+    }
+  }
+
   if (emails.length === 0) {
     return (
       <div className="rounded-md border border-dashed bg-muted/20 p-2 text-[11px] leading-4 text-muted-foreground">
@@ -379,7 +404,7 @@ export function DealIntakeWorkflow({
                 <DialogTitle>{dialogTitle(dialog.mode)}</DialogTitle>
                 <DialogDescription>
                   {dialog.mode === "review"
-                    ? "Inspect the email and attachments, then approve full processing or ignore this intake."
+                    ? "Inspect the email and attachments, then process routing or confirm the AI destination."
                     : dialog.email.subject || "No subject"}
                 </DialogDescription>
               </DialogHeader>
@@ -392,8 +417,9 @@ export function DealIntakeWorkflow({
                   working={workingId === dialog.email.id}
                   progress={workflowProgress}
                   onChange={setDialog}
-                  onApproveExisting={() => approveAndProcess(dialog, "link")}
-                  onApproveNew={() => approveAndProcess(dialog, "create")}
+                  onProcessRouting={() => processIntakeForRouting(dialog)}
+                  onConfirmExisting={() => approveAndProcess(dialog, "link")}
+                  onCreateNew={() => approveAndProcess(dialog, "create")}
                   onIgnore={() => submitDialogWithMode({ ...dialog, mode: "ignore" })}
                 />
               )}
@@ -530,8 +556,9 @@ function IntakeReviewModal({
   working,
   progress,
   onChange,
-  onApproveExisting,
-  onApproveNew,
+  onProcessRouting,
+  onConfirmExisting,
+  onCreateNew,
   onIgnore,
 }: {
   dialog: DialogState;
@@ -540,8 +567,9 @@ function IntakeReviewModal({
   working: boolean;
   progress: string;
   onChange: (dialog: DialogState) => void;
-  onApproveExisting: () => void;
-  onApproveNew: () => void;
+  onProcessRouting: () => void;
+  onConfirmExisting: () => void;
+  onCreateNew: () => void;
   onIgnore: () => void;
 }) {
   const attachments = dialog.email.email_attachments ?? [];
@@ -555,6 +583,11 @@ function IntakeReviewModal({
   const documentGuesses = routingDocumentGuesses(routing);
   const emailBodyFields = routingEmailBodyFields(routing);
   const hasProcessableAttachments = hasProcessableEmailAttachments(dialog.email);
+  const primaryLink = bestLink(dialog.email);
+  const suggestedDeal = linkedDealFromRelation(primaryLink?.deals);
+  const routingReady = isRoutingReviewEmail(dialog.email, primaryLink);
+  const notDealSuggested = dialog.email.status === "not_deal_suggested";
+  const newDealSuggested = dialog.email.status === "new_deal_suggested";
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.85fr)]">
@@ -676,74 +709,121 @@ function IntakeReviewModal({
         )}
 
         <div className="rounded-lg border p-3">
-          <div className="mb-3 text-sm font-medium">Approve Destination</div>
+          <div className="mb-3 text-sm font-medium">{routingReady ? "Routing Review" : "Process Intake"}</div>
           <div className="space-y-3">
-            <div className="space-y-2">
-              <Label htmlFor={`review-existing-${dialog.email.id}`}>Existing transaction</Label>
-              <select
-                id={`review-existing-${dialog.email.id}`}
-                value={dialog.selectedDealId}
-                onChange={(event) => onChange({ ...dialog, selectedDealId: event.target.value })}
-                className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
-              >
-                {dealOptions.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-              {selectedDeal && (
-                <p className="text-xs text-muted-foreground">
-                  {selectedDeal.transactionCode ? `${selectedDeal.transactionCode} | ` : ""}
-                  {selectedDeal.transactionType} | {selectedDeal.status}
+            {!routingReady ? (
+              <>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Run intake analysis first. The system will classify routing signals, suggest an existing transaction
+                  when there is a match, or suggest a new transaction when no confident match is found.
                 </p>
-              )}
-              <Button
-                className="w-full"
-                onClick={onApproveExisting}
-                disabled={working || !dialog.selectedDealId || dealOptions.length === 0}
-              >
-                {hasProcessableAttachments ? "Approve existing & process" : "Link existing for review"}
-              </Button>
-            </div>
-
-            <div className="border-t pt-3">
-              <div className="mb-2 text-xs font-medium text-muted-foreground">Or create a new transaction</div>
-              <div className="space-y-2">
-                <Input
-                  value={dialog.propertyAddress}
-                  onChange={(event) => onChange({ ...dialog, propertyAddress: event.target.value })}
-                  placeholder="Property address"
-                />
-                <select
-                  value={dialog.transactionType}
-                  onChange={(event) => onChange({ ...dialog, transactionType: event.target.value })}
-                  className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
-                >
-                  <option value="unknown">Unknown</option>
-                  <option value="sale">Sale</option>
-                  <option value="purchase">Purchase</option>
-                  <option value="lease">Lease</option>
-                  <option value="referral">Referral</option>
-                  <option value="co_brokerage">Co-brokerage</option>
-                  <option value="preconstruction">Pre-construction</option>
-                </select>
-                <Button variant="outline" className="w-full" onClick={onApproveNew} disabled={working}>
-                  {hasProcessableAttachments ? "Create new & process" : "Create draft for review"}
+                <Button className="w-full" onClick={onProcessRouting} disabled={working}>
+                  {working ? "Processing..." : "Process intake"}
                 </Button>
-              </div>
-            </div>
+                <div className="border-t pt-3">
+                  <Textarea
+                    value={dialog.reason}
+                    onChange={(event) => onChange({ ...dialog, reason: event.target.value })}
+                    placeholder="Reason if ignored"
+                  />
+                  <Button variant="outline" className="mt-2 w-full" onClick={onIgnore} disabled={working}>
+                    Ignore intake
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                {suggestedDeal && (
+                  <div className="rounded-md bg-muted/35 px-2 py-1.5 text-xs">
+                    <div className="font-medium">Suggested match</div>
+                    <div className="text-muted-foreground">
+                      {shortDealTitle(suggestedDeal.property_address, suggestedDeal.file_name)}
+                      {primaryLink?.match_score != null ? ` | ${primaryLink.match_score}% match` : ""}
+                    </div>
+                    {primaryLink?.match_reason && (
+                      <div className="mt-1 text-muted-foreground">{primaryLink.match_reason}</div>
+                    )}
+                  </div>
+                )}
+                {newDealSuggested && (
+                  <div className="rounded-md bg-muted/35 px-2 py-1.5 text-xs text-muted-foreground">
+                    AI did not find a confident existing transaction. Confirm a new transaction or manually choose an
+                    existing one below.
+                  </div>
+                )}
+                {notDealSuggested && (
+                  <div className="rounded-md bg-muted/35 px-2 py-1.5 text-xs text-muted-foreground">
+                    AI suggests this is not a deal package. You can still override by linking or creating a transaction.
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor={`review-existing-${dialog.email.id}`}>Existing transaction</Label>
+                  <select
+                    id={`review-existing-${dialog.email.id}`}
+                    value={dialog.selectedDealId}
+                    onChange={(event) => onChange({ ...dialog, selectedDealId: event.target.value })}
+                    className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
+                  >
+                    {dealOptions.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedDeal && (
+                    <p className="text-xs text-muted-foreground">
+                      {selectedDeal.transactionCode ? `${selectedDeal.transactionCode} | ` : ""}
+                      {selectedDeal.transactionType} | {selectedDeal.status}
+                    </p>
+                  )}
+                  <Button
+                    className="w-full"
+                    onClick={onConfirmExisting}
+                    disabled={working || !dialog.selectedDealId || dealOptions.length === 0}
+                  >
+                    {hasProcessableAttachments ? "Confirm destination & process" : "Confirm destination"}
+                  </Button>
+                </div>
 
-            <div className="border-t pt-3">
-              <Textarea
-                value={dialog.reason}
-                onChange={(event) => onChange({ ...dialog, reason: event.target.value })}
-                placeholder="Reason if ignored"
-              />
-              <Button variant="outline" className="mt-2 w-full" onClick={onIgnore} disabled={working}>
-                Ignore intake
-              </Button>
-            </div>
+                <div className="border-t pt-3">
+                  <div className="mb-2 text-xs font-medium text-muted-foreground">Or create a new transaction</div>
+                  <div className="space-y-2">
+                    <Input
+                      value={dialog.propertyAddress}
+                      onChange={(event) => onChange({ ...dialog, propertyAddress: event.target.value })}
+                      placeholder="Property address"
+                    />
+                    <select
+                      value={dialog.transactionType}
+                      onChange={(event) => onChange({ ...dialog, transactionType: event.target.value })}
+                      className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
+                    >
+                      <option value="unknown">Unknown</option>
+                      <option value="sale">Sale</option>
+                      <option value="purchase">Purchase</option>
+                      <option value="lease">Lease</option>
+                      <option value="referral">Referral</option>
+                      <option value="co_brokerage">Co-brokerage</option>
+                      <option value="preconstruction">Pre-construction</option>
+                    </select>
+                    <Button variant="outline" className="w-full" onClick={onCreateNew} disabled={working}>
+                      {hasProcessableAttachments ? "Create new & process" : "Create draft for review"}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="border-t pt-3">
+                  <Textarea
+                    value={dialog.reason}
+                    onChange={(event) => onChange({ ...dialog, reason: event.target.value })}
+                    placeholder="Reason if ignored"
+                  />
+                  <Button variant="outline" className="mt-2 w-full" onClick={onIgnore} disabled={working}>
+                    Ignore intake
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
           {working && (
             <div className="mt-3 rounded-md bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
@@ -1389,6 +1469,18 @@ function bestLink(email: IntakeEmailRow) {
     links.find((link) => link.match_status === "needs_review") ??
     links[0] ??
     null
+  );
+}
+
+function isRoutingReviewEmail(
+  email: IntakeEmailRow,
+  link: IntakeEmailRow["deal_email_links"][number] | null,
+) {
+  return (
+    email.status === "needs_match_review" ||
+    email.status === "new_deal_suggested" ||
+    email.status === "not_deal_suggested" ||
+    link?.match_status === "needs_review"
   );
 }
 
