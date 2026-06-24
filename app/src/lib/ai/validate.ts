@@ -30,6 +30,7 @@ export function validateFields(
 
   const perspective = commissionPerspective(context);
   normalizeCanonicalDealSheetFields(fields, perspective);
+  normalizeSideBrokerageDisplayFields(fields);
   normalizeCommissionFields(fields, perspective);
 
   if (transactionType === "lease") {
@@ -292,6 +293,78 @@ function normalizeCanonicalDealSheetFields(fields: MergedField[], perspective: C
   deriveFromSource(fields, "deposit_holder", depositHolder, "Derived from source deposit holder.");
   const heldBySutton = depositHeldBySuttonField(depositHolder) ?? existing.get("deposit_held_by_sutton");
   if (heldBySutton) fields.push(heldBySutton);
+}
+
+function normalizeSideBrokerageDisplayFields(fields: MergedField[]) {
+  deriveSideBrokerageDisplay(
+    fields,
+    "listing_brokerage",
+    fields.find((field) => field.key === "seller_representation"),
+    "Seller/landlord side status shown because no listing brokerage name was extracted.",
+  );
+  deriveSideBrokerageDisplay(
+    fields,
+    "cooperating_brokerage",
+    fields.find((field) => field.key === "buyer_representation"),
+    "Buyer/tenant side status shown because no co-operating brokerage name was extracted.",
+  );
+}
+
+function deriveSideBrokerageDisplay(
+  fields: MergedField[],
+  brokerageKey: "listing_brokerage" | "cooperating_brokerage",
+  representation: MergedField | undefined,
+  note: string,
+) {
+  const brokerage = fields.find((field) => field.key === brokerageKey);
+  if (brokerage?.value && !isPlaceholderBrokerageValue(brokerage.value)) return;
+
+  const displayValue = representationDisplayValue(representation?.value);
+  if (!displayValue) return;
+
+  const replacement = {
+    ...(brokerage ?? representation),
+    key: brokerageKey,
+    value: displayValue,
+    confidence: brokerage?.confidence ?? representation?.confidence ?? "medium",
+    sourceDocumentType: brokerage?.sourceDocumentType ?? representation?.sourceDocumentType,
+    sourcePage: brokerage?.sourcePage ?? representation?.sourcePage,
+    sourceBox: brokerage?.sourceBox ?? representation?.sourceBox,
+    conflictSources: brokerage?.conflictSources ?? representation?.conflictSources,
+    needsReview: brokerage?.needsReview ?? representation?.needsReview ?? true,
+    notes: appendNote(brokerage?.notes ?? representation?.notes, note),
+  };
+
+  if (brokerage) {
+    Object.assign(brokerage, replacement);
+  } else {
+    fields.push(replacement);
+  }
+}
+
+function representationDisplayValue(value: string | null | undefined) {
+  const text = normalizeText(value);
+  if (!text) return null;
+  if (text.includes("self represented") || text.includes("self-represented") || text.includes("unrepresented")) {
+    return "Self-represented";
+  }
+  if (text.includes("sutton") || text.includes("sga")) return "Sutton Group-Admiral";
+  if (text.includes("other brokerage") || text.includes("another brokerage")) return "Other brokerage";
+  return null;
+}
+
+function isPlaceholderBrokerageValue(value: string) {
+  const text = normalizeText(value);
+  return ["", "unknown", "n/a", "na", "none"].includes(text);
+}
+
+function normalizeText(value: string | null | undefined) {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[.,()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function deriveFromSource(fields: MergedField[], key: string, source: MergedField | undefined, note: string) {

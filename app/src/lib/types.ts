@@ -137,12 +137,10 @@ export const FIELD_SECTIONS: FieldSection[] = [
     title: "Brokerage Sides",
     fields: [
       { key: "representation_side", label: "Our Side" },
-      { key: "seller_representation", label: "Seller/Landlord Side Representation" },
-      { key: "buyer_representation", label: "Buyer/Tenant Side Representation" },
       { key: "listing_agent_name", label: "Listing/Seller-Side Agent" },
-      { key: "listing_brokerage", label: "Listing/Seller-Side Brokerage" },
+      { key: "listing_brokerage", label: "Listing Side Brokerage / Status" },
       { key: "cooperating_agent_name", label: "Co-operating/Buyer-Side Agent" },
-      { key: "cooperating_brokerage", label: "Co-operating/Buyer-Side Brokerage" },
+      { key: "cooperating_brokerage", label: "Co-operating Side Brokerage / Status" },
       { key: "scenario_hint", label: "Scenario Notes", wide: true, multiline: true },
     ],
   },
@@ -202,6 +200,8 @@ export const SOURCE_FIELD_SECTIONS: FieldSection[] = [
       { key: "buyer_is_corporation", label: "Source Buyer/Tenant Corporation?" },
       { key: "buyer_address", label: "Source Buyer/Tenant Address" },
       { key: "deposit_held_by", label: "Source Deposit Holder" },
+      { key: "seller_representation", label: "Source Seller/Landlord Representation Status" },
+      { key: "buyer_representation", label: "Source Buyer/Tenant Representation Status" },
     ],
   },
 ];
