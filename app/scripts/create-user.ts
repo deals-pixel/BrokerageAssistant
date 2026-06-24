@@ -1,5 +1,6 @@
-/* Creates a staff user with the admin role. Usage:
-   npx tsx --env-file=.env.local scripts/create-user.ts <email> <password> [role] */
+/* Creates a signed-in app user. Usage:
+   npx tsx --env-file=.env.local scripts/create-user.ts <email> <password> [role]
+   Roles: admin, brokerage_user, developer_superadmin, template_editor */
 import { createClient } from "@supabase/supabase-js";
 
 const [email, password, role = "admin"] = process.argv.slice(2);

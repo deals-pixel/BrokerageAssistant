@@ -45,9 +45,25 @@ export async function proxy(request: NextRequest) {
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
+
+  const { data: profile } = user
+    ? await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle()
+    : { data: null };
+  const role = profile?.role ?? null;
+  const isTemplateEditor = role === "template_editor";
+
   if (user && isLogin) {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = isTemplateEditor ? "/admin/templates" : "/";
+    return NextResponse.redirect(url);
+  }
+
+  if (isTemplateEditor && !request.nextUrl.pathname.startsWith("/admin/templates")) {
+    if (request.nextUrl.pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = "/admin/templates";
     return NextResponse.redirect(url);
   }
 
