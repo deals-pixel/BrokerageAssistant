@@ -96,6 +96,7 @@ const FIELD_OPTIONS = FIELD_SECTIONS.flatMap((section) =>
 export function FormTemplateEditor() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pageSurfaceRef = useRef<HTMLDivElement>(null);
+  const autoLoadRequestRef = useRef(0);
   const [selectedFormKey, setSelectedFormKey] = useState(STANDARD_FORMS[0]?.key ?? "");
   const [selectedFieldKey, setSelectedFieldKey] = useState(FIELD_OPTIONS[0]?.key ?? "");
   const [customLabel, setCustomLabel] = useState("");
@@ -151,7 +152,9 @@ export function FormTemplateEditor() {
 
   useEffect(() => {
     if (!selectedForm) return;
-    void refreshSavedTemplateMeta(selectedForm.key);
+    const requestId = autoLoadRequestRef.current + 1;
+    autoLoadRequestRef.current = requestId;
+    void loadSelectedFormWorkspace(selectedForm, requestId);
   }, [selectedForm]);
 
   function updatePages(nextPages: RenderedPage[]) {
@@ -336,15 +339,7 @@ export function FormTemplateEditor() {
       toast.info("This form does not have existing regions yet.");
       return;
     }
-    const nextRegions = selectedForm.fieldRegions.flatMap((region) =>
-      region.boxes.map((box) => ({
-        id: crypto.randomUUID(),
-        fieldKey: region.fieldKey,
-        label: region.label,
-        page: region.page ?? activePage,
-        box,
-      })),
-    );
+    const nextRegions = regionsFromStandardForm(selectedForm, activePage);
     setRegions(nextRegions);
     setSelectedRegionId(nextRegions[0]?.id ?? null);
     toast.success(`Loaded ${nextRegions.length} existing region${nextRegions.length === 1 ? "" : "s"}.`);
@@ -389,6 +384,50 @@ export function FormTemplateEditor() {
       );
     } catch {
       setSavedTemplate(null);
+    }
+  }
+
+  async function loadSelectedFormWorkspace(form: StandardFormDefinition, requestId: number) {
+    setInteraction(null);
+    setDraftBox(null);
+    setProgress("Loading standard form...");
+
+    const nextRegions = regionsFromStandardForm(form, 1);
+    setRegions(nextRegions);
+    setSelectedRegionId(nextRegions[0]?.id ?? null);
+    setActivePage(1);
+
+    try {
+      const saved = await loadSavedTemplateFile(form.key);
+      if (autoLoadRequestRef.current !== requestId) return;
+
+      if (saved) {
+        updatePages(
+          saved.pages.map((page) => ({
+            pageNumber: page.pageNumber,
+            url: URL.createObjectURL(page.blob),
+            blob: page.blob,
+          })),
+        );
+        setFileName(saved.fileName);
+        setSavedTemplate({
+          fileName: saved.fileName,
+          savedAt: saved.savedAt,
+          pageCount: saved.pages.length,
+        });
+        return;
+      }
+
+      updatePages([]);
+      setFileName("");
+      setSavedTemplate(null);
+    } catch {
+      if (autoLoadRequestRef.current !== requestId) return;
+      updatePages([]);
+      setFileName("");
+      setSavedTemplate(null);
+    } finally {
+      if (autoLoadRequestRef.current === requestId) setProgress("");
     }
   }
 
@@ -934,6 +973,18 @@ export function FormTemplateEditor() {
 
 function draftKey(formKey: string) {
   return `${DRAFT_PREFIX}${formKey}`;
+}
+
+function regionsFromStandardForm(form: StandardFormDefinition, fallbackPage: number) {
+  return (form.fieldRegions ?? []).flatMap((region) =>
+    region.boxes.map((box) => ({
+      id: crypto.randomUUID(),
+      fieldKey: region.fieldKey,
+      label: region.label,
+      page: region.page ?? fallbackPage,
+      box,
+    })),
+  );
 }
 
 function openSavedTemplateDb() {
