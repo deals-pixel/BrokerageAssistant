@@ -27,6 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 type RenderedPage = {
   pageNumber: number;
   url: string;
+  blob: Blob;
 };
 
 type EditableRegion = {
@@ -62,7 +63,22 @@ type DraftState = {
   regions: EditableRegion[];
 };
 
+type SavedTemplatePage = {
+  pageNumber: number;
+  blob: Blob;
+};
+
+type SavedTemplateFile = {
+  formKey: string;
+  formTitle: string;
+  fileName: string;
+  savedAt: string;
+  pages: SavedTemplatePage[];
+};
+
 const DRAFT_PREFIX = "brokerage-form-template:";
+const SAVED_TEMPLATE_DB = "brokerage-standard-form-templates";
+const SAVED_TEMPLATE_STORE = "forms";
 const MIN_BOX_SIZE = 0.004;
 const HANDLE_SIZE_CLASS = "size-3";
 const NUDGE_SMALL = 0.002;
@@ -91,6 +107,9 @@ export function FormTemplateEditor() {
   const [interaction, setInteraction] = useState<BoxInteraction | null>(null);
   const [draftBox, setDraftBox] = useState<SourceBox | null>(null);
   const [progress, setProgress] = useState("");
+  const [savedTemplate, setSavedTemplate] = useState<{ fileName: string; savedAt: string; pageCount: number } | null>(
+    null,
+  );
 
   const selectedForm = useMemo(
     () => STANDARD_FORMS.find((form) => form.key === selectedFormKey) ?? STANDARD_FORMS[0],
@@ -130,6 +149,11 @@ export function FormTemplateEditor() {
     };
   }, [pages]);
 
+  useEffect(() => {
+    if (!selectedForm) return;
+    void refreshSavedTemplateMeta(selectedForm.key);
+  }, [selectedForm]);
+
   function updatePages(nextPages: RenderedPage[]) {
     setPages((previous) => {
       for (const page of previous) URL.revokeObjectURL(page.url);
@@ -167,6 +191,7 @@ export function FormTemplateEditor() {
       const nextPages = rendered.map((page, index) => ({
         pageNumber: index + 1,
         url: URL.createObjectURL(page.blob),
+        blob: page.blob,
       }));
       updatePages(nextPages);
       setFileName(`${file.name} (${formatSize(file.size)})`);
@@ -350,6 +375,89 @@ export function FormTemplateEditor() {
     toast.success("Draft loaded.");
   }
 
+  async function refreshSavedTemplateMeta(formKey: string) {
+    try {
+      const saved = await loadSavedTemplateFile(formKey);
+      setSavedTemplate(
+        saved
+          ? {
+              fileName: saved.fileName,
+              savedAt: saved.savedAt,
+              pageCount: saved.pages.length,
+            }
+          : null,
+      );
+    } catch {
+      setSavedTemplate(null);
+    }
+  }
+
+  async function saveBlankForm() {
+    if (!selectedForm) return;
+    if (!pages.length) {
+      toast.info("Upload or load a blank form before saving it.");
+      return;
+    }
+
+    try {
+      const saved: SavedTemplateFile = {
+        formKey: selectedForm.key,
+        formTitle: selectedForm.title,
+        fileName: fileName || selectedForm.title,
+        savedAt: new Date().toISOString(),
+        pages: pages.map((page) => ({
+          pageNumber: page.pageNumber,
+          blob: page.blob,
+        })),
+      };
+      await saveTemplateFile(saved);
+      await refreshSavedTemplateMeta(selectedForm.key);
+      toast.success("Blank form saved for this standard form.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save the blank form.");
+    }
+  }
+
+  async function loadBlankForm() {
+    if (!selectedForm) return;
+    try {
+      const saved = await loadSavedTemplateFile(selectedForm.key);
+      if (!saved) {
+        toast.info("No saved blank form for this standard form yet.");
+        return;
+      }
+      updatePages(
+        saved.pages.map((page) => ({
+          pageNumber: page.pageNumber,
+          url: URL.createObjectURL(page.blob),
+          blob: page.blob,
+        })),
+      );
+      setFileName(saved.fileName);
+      setActivePage(1);
+      setSelectedRegionId(null);
+      setSavedTemplate({
+        fileName: saved.fileName,
+        savedAt: saved.savedAt,
+        pageCount: saved.pages.length,
+      });
+      toast.success(`Loaded saved blank form with ${saved.pages.length} page${saved.pages.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not load the saved blank form.");
+    }
+  }
+
+  async function deleteBlankForm() {
+    if (!selectedForm) return;
+    try {
+      await deleteSavedTemplateFile(selectedForm.key);
+      setSavedTemplate(null);
+      toast.success("Saved blank form removed.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not remove the saved blank form.");
+    }
+  }
+
   async function copy(text: string, label: string) {
     await navigator.clipboard.writeText(text);
     toast.success(`${label} copied.`);
@@ -470,6 +578,35 @@ export function FormTemplateEditor() {
               <p className="mt-2 text-xs text-muted-foreground">
                 {progress || fileName || "PDF and JPEG blank forms are supported."}
               </p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <Button variant="outline" onClick={loadBlankForm}>
+                  <Upload />
+                  Load saved
+                </Button>
+                <Button variant="outline" onClick={saveBlankForm} disabled={!pages.length}>
+                  <Save />
+                  Save blank
+                </Button>
+              </div>
+              {savedTemplate && (
+                <div className="mt-3 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">Saved blank form</p>
+                  <p className="truncate">{savedTemplate.fileName}</p>
+                  <p>
+                    {savedTemplate.pageCount} page{savedTemplate.pageCount === 1 ? "" : "s"} saved{" "}
+                    {formatSavedAt(savedTemplate.savedAt)}
+                  </p>
+                  <Button
+                    className="mt-2"
+                    variant="ghost"
+                    size="sm"
+                    onClick={deleteBlankForm}
+                  >
+                    <Trash2 />
+                    Remove saved blank
+                  </Button>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -797,6 +934,74 @@ export function FormTemplateEditor() {
 
 function draftKey(formKey: string) {
   return `${DRAFT_PREFIX}${formKey}`;
+}
+
+function openSavedTemplateDb() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(SAVED_TEMPLATE_DB, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(SAVED_TEMPLATE_STORE)) {
+        db.createObjectStore(SAVED_TEMPLATE_STORE, { keyPath: "formKey" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("Could not open saved template storage."));
+  });
+}
+
+async function saveTemplateFile(template: SavedTemplateFile) {
+  const db = await openSavedTemplateDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(SAVED_TEMPLATE_STORE, "readwrite");
+      const store = transaction.objectStore(SAVED_TEMPLATE_STORE);
+      store.put(template);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error("Could not save the blank form."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function loadSavedTemplateFile(formKey: string) {
+  const db = await openSavedTemplateDb();
+  try {
+    return await new Promise<SavedTemplateFile | null>((resolve, reject) => {
+      const transaction = db.transaction(SAVED_TEMPLATE_STORE, "readonly");
+      const request = transaction.objectStore(SAVED_TEMPLATE_STORE).get(formKey);
+      request.onsuccess = () => resolve((request.result as SavedTemplateFile | undefined) ?? null);
+      request.onerror = () => reject(request.error ?? new Error("Could not load the saved blank form."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function deleteSavedTemplateFile(formKey: string) {
+  const db = await openSavedTemplateDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(SAVED_TEMPLATE_STORE, "readwrite");
+      transaction.objectStore(SAVED_TEMPLATE_STORE).delete(formKey);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error("Could not remove the saved blank form."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function formatSavedAt(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function buildTypeScriptSnippet(regions: EditableRegion[], form: StandardFormDefinition | undefined) {
