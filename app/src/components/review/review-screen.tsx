@@ -179,6 +179,16 @@ type FieldStatus = {
   className: string;
 };
 
+const CHECKBOX_FIELD_KEYS = new Set(["additional_payees", "rebate_to_clients", "referral"]);
+const CONDITIONAL_FIELD_GATES: Record<string, string> = {
+  additional_payee_1_name: "additional_payees",
+  additional_payee_1_commission_pct: "additional_payees",
+  additional_payee_2_name: "additional_payees",
+  additional_payee_2_commission_pct: "additional_payees",
+  rebate_amount: "rebate_to_clients",
+  referral_to: "referral",
+};
+
 export function ReviewScreen({
   deal,
   pages,
@@ -272,6 +282,20 @@ export function ReviewScreen({
 
   const dirty = Object.keys(edited).length > 0;
 
+  function setCheckboxFieldEdit(fieldKey: string, checked: boolean) {
+    setEdited((prev) => {
+      const next = { ...prev, [fieldKey]: checked ? "yes" : "no" };
+      for (const dependentKey of dependentFieldsForGate(fieldKey)) {
+        if (checked) {
+          if (next[dependentKey] === "") delete next[dependentKey];
+        } else {
+          next[dependentKey] = "";
+        }
+      }
+      return next;
+    });
+  }
+
   function jumpToFieldSource(row: FieldRow | undefined, fieldKey?: string) {
     if (row?.source_page == null) return;
     setSelectedFieldKey(fieldKey ?? row.field_key);
@@ -352,11 +376,11 @@ export function ReviewScreen({
     if (edited[fieldKey] === undefined) return;
     setSavingFieldKey(fieldKey);
     try {
-      await persistFieldEdits([[fieldKey, edited[fieldKey]]]);
+      await persistFieldEdits(fieldEditEntriesForSave(fieldKey, edited));
       toast.success("Field override saved.");
       setEdited((prev) => {
         const next = { ...prev };
-        delete next[fieldKey];
+        for (const [key] of fieldEditEntriesForSave(fieldKey, prev)) delete next[key];
         return next;
       });
       router.refresh();
@@ -758,17 +782,20 @@ export function ReviewScreen({
               </CardHeader>
               <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 {section.fields.map((f) => {
+                  if (isConditionalFieldHidden(f.key, currentValue)) return null;
                   const row = fieldMap.get(f.key);
                   const inputId = `field-${f.key}`;
+                  const value = currentValue(f.key);
                   const sourceLabel = row?.source_doc_type
                     ? documentTypeLabel(row.source_doc_type)
                     : row?.source_page != null
                       ? pageLabelByNumber.get(row.source_page)
                       : null;
                   const conflictSources = validConflictSources(row?.conflict_sources);
-                  const fieldStatus = getFieldStatus(f.key, row, conflictSources.length, fieldMap);
+                  const fieldStatus = getFieldStatus(f.key, row, conflictSources.length, fieldMap, value);
                   const fieldDirty = edited[f.key] !== undefined;
                   const fieldSaving = savingFieldKey === f.key;
+                  const isCheckboxField = CHECKBOX_FIELD_KEYS.has(f.key);
                   const inputClassName =
                     fieldStatus.className +
                     (fieldDirty ? " ring-2 ring-blue-300" : "");
@@ -788,7 +815,19 @@ export function ReviewScreen({
                         </label>
                       </div>
                       <div className={f.multiline ? "flex items-start gap-2" : "flex items-center gap-2"}>
-                        {f.multiline ? (
+                        {isCheckboxField ? (
+                          <div className="flex min-h-9 flex-1 items-center gap-3 rounded-md border border-input bg-background px-3 text-sm">
+                            <input
+                              id={inputId}
+                              type="checkbox"
+                              className="size-4 rounded border-input accent-primary"
+                              checked={isCheckedValue(value)}
+                              onFocus={() => jumpToFieldSource(row, f.key)}
+                              onChange={(event) => setCheckboxFieldEdit(f.key, event.target.checked)}
+                            />
+                            <span>{isCheckedValue(value) ? "Yes" : "No"}</span>
+                          </div>
+                        ) : f.multiline ? (
                           <Textarea
                             id={inputId}
                             className={`min-h-20 flex-1 ${inputClassName}`}
@@ -797,7 +836,7 @@ export function ReviewScreen({
                                 ? `Source: ${sourceLabel ?? "uploaded document"}`
                                 : undefined
                             }
-                            value={currentValue(f.key)}
+                            value={value}
                             onFocus={() => jumpToFieldSource(row, f.key)}
                             onChange={(e) =>
                               setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))
@@ -812,7 +851,7 @@ export function ReviewScreen({
                                 ? `Source: ${sourceLabel ?? "uploaded document"}`
                                 : undefined
                             }
-                            value={currentValue(f.key)}
+                            value={value}
                             onFocus={() => jumpToFieldSource(row, f.key)}
                             onChange={(e) =>
                               setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))
@@ -1285,8 +1324,9 @@ function getFieldStatus(
   row: FieldRow | undefined,
   conflictCount: number,
   fieldMap: Map<string, FieldRow>,
+  currentFieldValue?: string,
 ): FieldStatus {
-  const value = row?.value?.trim();
+  const value = (currentFieldValue ?? row?.value ?? "").trim();
   const hasValue = Boolean(value);
   const note = row?.notes?.toLowerCase() ?? "";
   const requiredMissing =
@@ -1336,6 +1376,33 @@ function getFieldStatus(
       : "Confirmed from source",
     className: "border-green-200 bg-green-50/60 focus-visible:ring-green-200",
   };
+}
+
+function isConditionalFieldHidden(fieldKey: string, currentValue: (key: string) => string) {
+  const gateKey = CONDITIONAL_FIELD_GATES[fieldKey];
+  if (!gateKey) return false;
+  return !isCheckedValue(currentValue(gateKey));
+}
+
+function isCheckedValue(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+  return normalized === "yes" || normalized === "true" || normalized === "checked" || normalized === "1";
+}
+
+function dependentFieldsForGate(fieldKey: string) {
+  return Object.entries(CONDITIONAL_FIELD_GATES)
+    .filter(([, gateKey]) => gateKey === fieldKey)
+    .map(([dependentKey]) => dependentKey);
+}
+
+function fieldEditEntriesForSave(fieldKey: string, edited: Record<string, string>) {
+  const entries: [string, string][] = [[fieldKey, edited[fieldKey] ?? ""]];
+  if (CHECKBOX_FIELD_KEYS.has(fieldKey) && !isCheckedValue(edited[fieldKey])) {
+    for (const dependentKey of dependentFieldsForGate(fieldKey)) {
+      entries.push([dependentKey, edited[dependentKey] ?? ""]);
+    }
+  }
+  return entries;
 }
 
 const ALWAYS_REQUIRED_REVIEW_FIELDS = new Set([
