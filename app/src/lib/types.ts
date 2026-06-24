@@ -130,7 +130,7 @@ export const FIELD_SECTIONS: FieldSection[] = [
       { key: "buyer_lawyer_email", label: "Lawyer Email" },
       { key: "buyer_lawyer_phone", label: "Lawyer Phone" },
       { key: "buyer_tenant_address", label: "Address", wide: true },
-      { key: "buyer_tenant_phone", label: "Phone" },
+      { key: "buyer_tenant_phone", label: "Buyer/Tenant Phone" },
     ],
   },
   {
