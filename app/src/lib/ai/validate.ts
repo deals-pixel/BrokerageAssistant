@@ -31,6 +31,7 @@ export function validateFields(
   const perspective = commissionPerspective(context);
   normalizeCanonicalDealSheetFields(fields, perspective);
   normalizeSideBrokerageDisplayFields(fields);
+  normalizeConditionalGateFields(fields);
   normalizeCommissionFields(fields, perspective);
 
   if (transactionType === "lease") {
@@ -308,6 +309,31 @@ function normalizeSideBrokerageDisplayFields(fields: MergedField[]) {
     fields.find((field) => field.key === "buyer_representation"),
     "Buyer/tenant side status shown because no co-operating brokerage name was extracted.",
   );
+}
+
+function normalizeConditionalGateFields(fields: MergedField[]) {
+  deriveYesNoGate(fields, "additional_payees", [
+    "additional_payee_1_name",
+    "additional_payee_1_commission_pct",
+    "additional_payee_2_name",
+    "additional_payee_2_commission_pct",
+  ]);
+  deriveYesNoGate(fields, "marketing_fee", ["marketing_fee_amount"]);
+  deriveYesNoGate(fields, "rebate_to_clients", ["rebate_amount"]);
+  deriveYesNoGate(fields, "referral", ["referral_to"]);
+}
+
+function deriveYesNoGate(fields: MergedField[], gateKey: string, dependentKeys: string[]) {
+  if (fields.some((field) => field.key === gateKey && field.value?.trim())) return;
+  const source = dependentKeys.map((key) => fields.find((field) => field.key === key)).find((field) => field?.value?.trim());
+  if (!source) return;
+  fields.push({
+    ...source,
+    key: gateKey,
+    value: "yes",
+    needsReview: source.needsReview,
+    notes: appendNote(source.notes, "Derived from related detail field."),
+  });
 }
 
 function deriveSideBrokerageDisplay(

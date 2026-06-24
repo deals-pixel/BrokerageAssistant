@@ -179,12 +179,13 @@ type FieldStatus = {
   className: string;
 };
 
-const CHECKBOX_FIELD_KEYS = new Set(["additional_payees", "rebate_to_clients", "referral"]);
+const CHECKBOX_FIELD_KEYS = new Set(["additional_payees", "marketing_fee", "rebate_to_clients", "referral"]);
 const CONDITIONAL_FIELD_GATES: Record<string, string> = {
   additional_payee_1_name: "additional_payees",
   additional_payee_1_commission_pct: "additional_payees",
   additional_payee_2_name: "additional_payees",
   additional_payee_2_commission_pct: "additional_payees",
+  marketing_fee_amount: "marketing_fee",
   rebate_amount: "rebate_to_clients",
   referral_to: "referral",
 };
@@ -277,8 +278,16 @@ export function ReviewScreen({
     activeSource?.sourcePage === selectedPage && isSourceBox(activeSource.sourceBox)
       ? activeSource.sourceBox
       : null;
-  const currentValue = (key: string) =>
-    edited[key] !== undefined ? edited[key] : (fieldMap.get(key)?.value ?? "");
+  const currentValue = (key: string) => {
+    if (edited[key] !== undefined) return edited[key];
+    const saved = fieldMap.get(key)?.value;
+    if (saved != null) return saved;
+    if (CHECKBOX_FIELD_KEYS.has(key) && dependentFieldsForGate(key).some((dependentKey) => fieldMap.get(dependentKey)?.value?.trim())) {
+      return "yes";
+    }
+    if (CHECKBOX_FIELD_KEYS.has(key)) return "no";
+    return "";
+  };
 
   const dirty = Object.keys(edited).length > 0;
 
@@ -780,7 +789,7 @@ export function ReviewScreen({
               <CardHeader className="py-4">
                 <CardTitle className="text-base">{section.title}</CardTitle>
               </CardHeader>
-              <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                 {section.fields.map((f) => {
                   if (isConditionalFieldHidden(f.key, currentValue)) return null;
                   const row = fieldMap.get(f.key);
@@ -803,7 +812,7 @@ export function ReviewScreen({
                     <div
                       key={f.key}
                       className={`rounded-md border p-3 ${fieldShellClass(fieldStatus.tone)} ${
-                        f.wide ? "md:col-span-2" : ""
+                        fieldGridSpanClass(f.wide, isCheckboxField)
                       }`}
                     >
                       <div className="mb-2">
@@ -1355,6 +1364,18 @@ function getFieldStatus(
     };
   }
 
+  if (CHECKBOX_FIELD_KEYS.has(fieldKey)) {
+    const checked = isCheckedValue(value);
+    return {
+      tone: row?.needs_review ? "review" : "confirmed",
+      label: checked ? "Checked" : "Unchecked",
+      detail: checked ? "Related detail fields are enabled" : "Related detail fields are hidden",
+      className: row?.needs_review
+        ? "border-amber-200 bg-amber-50/70 focus-visible:ring-amber-200"
+        : "border-green-200 bg-green-50/60 focus-visible:ring-green-200",
+    };
+  }
+
   if (row?.needs_review || row?.confidence !== "high" || conflictCount > 1) {
     return {
       tone: "review",
@@ -1403,6 +1424,12 @@ function fieldEditEntriesForSave(fieldKey: string, edited: Record<string, string
     }
   }
   return entries;
+}
+
+function fieldGridSpanClass(wide: boolean | undefined, isCheckboxField: boolean) {
+  if (wide) return "md:col-span-2 xl:col-span-4";
+  if (isCheckboxField) return "";
+  return "xl:col-span-2";
 }
 
 const ALWAYS_REQUIRED_REVIEW_FIELDS = new Set([
