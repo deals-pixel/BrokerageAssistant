@@ -13,7 +13,7 @@ import { logAiUsage, usageFromResponse } from "./usage";
 
 const FIELD_GUIDE = ALL_FIELD_KEYS.map((key) => `- ${key}: ${FIELD_LABELS[key]}`).join("\n");
 
-const SYSTEM = `You extract deal fields from scanned Ontario real estate documents. The goal is to fill the brokerage's Deal Information Sheet and compliance workflow from source documents. Values may be handwritten or typed.
+const SYSTEM = `You extract deal fields from scanned Ontario real estate documents for Sutton Group-Admiral Realty. The goal is to fill the brokerage's Deal Information Sheet and compliance workflow from source documents. Values may be handwritten or typed.
 
 Extract only fields visibly present in the supplied pages. Allowed field keys:
 
@@ -22,13 +22,18 @@ ${FIELD_GUIDE}
 Rules:
 - Return one entry per field you can read from these pages; omit fields not shown.
 - Dates in YYYY-MM-DD. Money as plain numbers without $ or commas, for example 850000. Percentages as numbers, for example 2.5. If a commission is written as text, return that visible text.
-- Commission fields are directional. listing_commission_pct is the brokerage's "Your Commission" for the SGA side of this scenario: on seller/landlord-side deals this is the listing brokerage commission, and on buyer/tenant-side deals this is the buyer/tenant/co-operating brokerage commission. cooperating_commission_pct is the commission payable/offered to the other brokerage when applicable. total_commission_pct is only the combined total of both side amounts when the document explicitly gives a total or the two side amounts can be safely added. Do not copy a one-sided commission into total_commission_pct.
+- Agent and side fields are from Sutton Group-Admiral's perspective. agent_name is the Sutton Group-Admiral agent shown as "Your Name" or the SGA-side representative. listing_agent_name/listing_brokerage are the listing/seller/landlord side shown in the source. cooperating_agent_name/cooperating_brokerage are the co-operating/buyer/tenant side shown in the source. If a source document uses "selling brokerage" or "selling agent", treat that wording as the co-operating side, not the seller side.
+- representation_side means which side Sutton Group-Admiral represents: listing, cooperating, or both. Use listing for seller/landlord-side SGA representation, cooperating for buyer/tenant-side SGA representation, and both only when Sutton Group-Admiral is shown on both sides.
+- When both listing and co-operating sides are visible, extract listing_agent_name and cooperating_agent_name exactly as shown. Same-name vs different-name determines whether the both-side scenario is same-agent or different-agent.
+- A visible other-side brokerage name means that side is represented by a brokerage, not self-represented. Only mark seller_representation or buyer_representation as self-represented when the source explicitly says self-represented/unrepresented or the self-represented disclosure applies and no brokerage name is visible for that side.
+- Commission extraction fields are source-side facts, not scenario-derived results. listing_commission_pct is the commission payable to the listing/seller/landlord-side brokerage. cooperating_commission_pct is the commission payable/offered to the co-operating/buyer/tenant-side brokerage. total_commission_pct is only the combined total of both side amounts when the document explicitly gives a total or the two side amounts can be safely added. Do not copy a one-sided commission into total_commission_pct.
+- Do not extract your_commission_pct or outside_brokerage_commission_pct directly from source documents. Those are derived later after scenario detection decides which side Sutton Group-Admiral represents.
 - transaction_type is purchase or lease. firm_or_conditional is firm or conditional. multiple_offer is yes (N) or no.
-- representation_side: listing, cooperating, or both. seller_representation and buyer_representation can be SGA, other brokerage, self-represented, or unknown when visible.
+- seller_representation and buyer_representation can be Sutton Group-Admiral, other brokerage, self-represented, or unknown when visible. For leases, seller_representation means landlord representation and buyer_representation means tenant representation.
 - scenario_hint should capture explicit phrases such as referral, co-brokerage, pre-construction, buyer self-represented, tenant self-represented, or multiple representation when visible.
 - seller_is_corporation and buyer_is_corporation should be yes, no, or unknown when visible.
 - additional_payees, rebate_to_clients, and referral should be yes or no when visible.
-- additional_payee_1_commission_pct, additional_payee_2_commission_pct, cooperating_commission_pct, listing_commission_pct, and total_commission_pct are percentages. marketing_fee_amount and rebate_amount are money amounts.
+- additional_payee_1_commission_pct, additional_payee_2_commission_pct, cooperating_commission_pct, listing_commission_pct, your_commission_pct, outside_brokerage_commission_pct, and total_commission_pct are percentages. marketing_fee_amount and rebate_amount are money amounts.
 - Multiple people in one field: join with "; ".
 - confidence: high if clearly legible/typed, medium if handwriting is readable but ambiguous, low if partially illegible or inferred.
 - source_page is the package page number labeled above each image.
@@ -84,7 +89,7 @@ const DOC_HINTS: Partial<Record<DocumentType, string>> = {
   form_635_receipt_of_funds:
     "Receipt of funds records show the payer, recipient, amount, deposit source, and method.",
   listing_agreement:
-    "The listing agreement shows listing period, seller/landlord names, listing agent, listing brokerage, and commission terms. In the commission section, the amount payable to the Listing Brokerage is listing_commission_pct only when this package is seller/landlord-side SGA representation; otherwise it is not automatically Your Commission. The amount offered/payable to any co-operating brokerage may be Your Commission on buyer/tenant-side SGA representation. Only fill total_commission_pct if the form explicitly gives a combined total or you can safely add both side amounts.",
+    "The listing agreement shows listing period, seller/landlord names, listing agent, listing brokerage, and commission terms. In the commission section, the amount payable to the Listing Brokerage is listing_commission_pct. The amount offered/payable to any co-operating brokerage is cooperating_commission_pct. These are source-side facts; the app derives Your Commission after scenario detection. Only fill total_commission_pct if the form explicitly gives a combined total or you can safely add both side amounts.",
   buyer_representation_agreement:
     "The buyer representation agreement shows buyer names, buyer contact details, representation dates, and commission payable to the buyer brokerage.",
   tenant_representation_agreement:

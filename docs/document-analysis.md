@@ -40,19 +40,63 @@ Header tags: Listing Side/Multiple Rep / Co-Operating Side / Pre-Con (admin name
 - **Acting for Co-Operating Side checklist**: APS/Lease, Schedule B, Confirmation of Co-operation, Buyer Rep Agreement, Schedule A to BRA, RECO Info Guide, Individual ID per client, FINTRAC checklist per client, copy of deposit cheque, Receipt of Funds Record, Form 801
 - **Seller's/Landlord Information**: name, email, phone, lawyer, lawyer email, lawyer phone, address
 - **Buyer's/Tenants Information**: name, email, lawyer, lawyer email, lawyer phone, address, phone
-- **Commission**: total commission %, your commission %, additional payee(s) Y/N, additional payee 1/2 names, additional payee 1/2 commission %, outside agent (name, co-op commission %, marketing fee)
+- **Commission**: total commission %, your commission %, additional payee(s) Y/N, additional payee 1/2 names, additional payee 1/2 commission %, outside agent (name, outside brokerage commission %, marketing fee)
 - **Rebate to your clients?** (Y/N + amount), **Referral?** (Y/N + to whom when available)
 - **Deposit info**: held by Sutton? wire transfer / direct deposit / cheque, amount, further deposit (amount + due date)
 
 ## Extraction field schema (deal_fields keys)
 
 Property: property_address, mls_number, transaction_type (purchase|lease), representation_side (listing|cooperating|both)
-Financial: sale_price (or monthly rent), deposit_amount, deposit_method, deposit_held_by, further_deposit_amount, further_deposit_due, total_commission_pct, listing_commission_pct, cooperating_commission_pct, additional_payees, additional_payee_1_name, additional_payee_1_commission_pct, additional_payee_2_name, additional_payee_2_commission_pct, marketing_fee_amount, rebate_to_clients, rebate_amount, referral, referral_to
+Financial: sale_price (or monthly rent), deposit_amount, deposit_method, deposit_held_by, further_deposit_amount, further_deposit_due, total_commission_pct, your_commission_pct, outside_brokerage_commission_pct, listing_commission_pct, cooperating_commission_pct, additional_payees, additional_payee_1_name, additional_payee_1_commission_pct, additional_payee_2_name, additional_payee_2_commission_pct, marketing_fee_amount, rebate_to_clients, rebate_amount, referral, referral_to
 Status: firm_or_conditional, conditions_summary, condition_expiry_date, multiple_offer (+count)
 Dates: offer_date, acceptance_date, closing_date, lease_start_date, lease_end_date, irrevocable_date
 Parties: buyer_names, buyer_emails, buyer_phone, buyer_address, seller_names, seller_emails, seller_phone, seller_address
 Lawyers: buyer_lawyer_name, buyer_lawyer_firm, buyer_lawyer_email, buyer_lawyer_phone, seller_lawyer_name, seller_lawyer_firm, seller_lawyer_email, seller_lawyer_phone
 Agents: listing_agent_name, listing_brokerage, cooperating_agent_name, cooperating_brokerage, agent_name (our side)
+
+## Scenario and commission rule
+
+Scenario selection is based on which side is represented by Sutton Group-Admiral:
+
+- Listing side means the SGA agent is representing the seller/landlord.
+- Co-operating side means the SGA agent is representing the buyer/tenant side.
+- Both means SGA appears on both sides. The listing-side and co-operating-side agent names separate same-agent both-side scenarios from different-SGA-agent both-side scenarios; multiple-representation consent is fallback evidence when both agent names are not available.
+- A visible other-side brokerage name means that side is represented by another brokerage, not self-represented.
+- A missing other-side brokerage name is not enough by itself to prove self-represented. Use explicit self-represented wording or the self-represented disclosure, and only when no brokerage name is visible for that side.
+
+`agent_name`, `your_commission_pct`, and `outside_brokerage_commission_pct` are Deal Information Sheet fields derived from the scenario. Source-side fields keep their literal meaning: `listing_agent_name` / `listing_brokerage` / `listing_commission_pct` describe the seller/landlord side, and `cooperating_agent_name` / `cooperating_brokerage` / `cooperating_commission_pct` describe the buyer/tenant side. If a source document says "selling brokerage" or "selling agent", that wording is treated as the co-operating side.
+
+Scenario matrix:
+
+| Transaction | Listing side | Co-operating side | Scenario |
+|---|---|---|---|
+| Sale | SGA | other brokerage or unknown | 1 - seller rep only |
+| Sale | SGA | self-represented | 3 - seller rep / buyer self-represented |
+| Sale | SGA same agent | SGA same agent | 2 - same SGA agent both sides |
+| Sale | SGA different agent | SGA different agent | 4 - seller rep / buyer different SGA agent |
+| Sale | other brokerage or unknown | SGA | 9 - buyer rep only |
+| Sale | self-represented | SGA | 10 - buyer rep / seller self-represented |
+| Lease | SGA | other brokerage or unknown | 5 - landlord rep only |
+| Lease | SGA | self-represented | 7 - landlord rep / tenant self-represented |
+| Lease | SGA same agent | SGA same agent | 6 - same SGA agent both sides |
+| Lease | SGA different agent | SGA different agent | 8 - landlord rep / tenant different SGA agent |
+| Lease | other brokerage or unknown | SGA | 11 - tenant rep only |
+| Lease | self-represented | SGA | 12 - tenant rep / landlord self-represented |
+
+Client and commission mapping:
+
+| SGA side | Our client(s) | Other side / agent | Derived Your Commission % | Derived outside commission % |
+|---|---|---|---|---|
+| Listing sale | seller_names | buyer_names, cooperating_agent_name, cooperating_brokerage | listing_commission_pct | cooperating_commission_pct when visible |
+| Co-operating sale | buyer_names | seller_names, listing_agent_name, listing_brokerage | cooperating_commission_pct | listing_commission_pct when visible |
+| Listing lease | seller_names (landlord) | buyer_names (tenant), cooperating_agent_name, cooperating_brokerage | listing_commission_pct | cooperating_commission_pct when visible |
+| Co-operating lease | buyer_names (tenant) | seller_names (landlord), listing_agent_name, listing_brokerage | cooperating_commission_pct | listing_commission_pct when visible |
+
+Commission extraction rule:
+
+- `listing_commission_pct` and `cooperating_commission_pct` should point to the actual field regions on the source forms.
+- `your_commission_pct` and `outside_brokerage_commission_pct` are not source-form regions. They are derived after scenario detection.
+- When SGA is on both sides, `your_commission_pct` is calculated from both source-side commissions when possible and marked for review so the admin can verify side split and payees.
 
 ## Required-document rules
 

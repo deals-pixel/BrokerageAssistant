@@ -215,6 +215,7 @@ export function DealIntakeWorkflow({
         return;
       }
 
+      await updateInboundEmailStatus(dialog.email.id, "processing_from_routing");
       setWorkflowProgress("Preparing email attachments...");
       await prepareEmailAttachmentsForProcessing({
         supabase,
@@ -231,6 +232,7 @@ export function DealIntakeWorkflow({
         throw new Error(body?.error ?? "Full processing failed");
       }
 
+      await updateInboundEmailStatus(dialog.email.id, action === "link" ? "matched" : "draft_transaction_created");
       toast.success("Email package approved and processed.");
       setDialog(null);
       router.refresh();
@@ -240,6 +242,14 @@ export function DealIntakeWorkflow({
       setWorkingId(null);
       setWorkflowProgress("");
     }
+  }
+
+  async function updateInboundEmailStatus(emailId: string, status: string) {
+    const { error } = await supabase
+      .from("inbound_emails")
+      .update({ status, error_message: null })
+      .eq("id", emailId);
+    if (error) throw new Error(error.message);
   }
 
   async function processIntakeForRouting(dialog: DialogState) {
@@ -1044,6 +1054,7 @@ function intakeNextStep(
   renderedAttachmentIds: string[],
 ) {
   if (email.status === "routing_error" || email.status === "error") return "Review the intake error, then link, create, or ignore.";
+  if (email.status === "processing_from_routing") return "Processing routed intake.";
   if (email.status === "not_deal_suggested") return "AI suggests this is not a deal package. Ignore it or choose another action.";
   if (email.status === "new_deal_suggested") return "AI suggests this is a new deal. Create a draft or link it to an existing one.";
   if (!hasProcessableEmailAttachments(email)) return "Review the email body, link or create a draft, or ignore it.";
@@ -1624,6 +1635,7 @@ function isRoutingReviewEmail(
   link: IntakeEmailRow["deal_email_links"][number] | null,
 ) {
   return (
+    email.status === "processing_from_routing" ||
     email.status === "needs_match_review" ||
     email.status === "new_deal_suggested" ||
     email.status === "not_deal_suggested" ||
@@ -1735,6 +1747,7 @@ function dialogSubmitLabel(mode: DialogMode) {
 function intakeStatusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
   if (status === "matched" || status === "draft_transaction_created") return "default";
   if (
+    status === "processing_from_routing" ||
     status === "needs_match_review" ||
     status === "new_deal_suggested" ||
     status === "attachments_queued" ||
@@ -1749,6 +1762,7 @@ function intakeStatusVariant(status: string): "default" | "secondary" | "destruc
 
 function formatIntakeStatus(status: string) {
   if (status === "intake_review") return "Intake review";
+  if (status === "processing_from_routing") return "Processing";
   if (status === "needs_match_review") return "Needs match review";
   if (status === "new_deal_suggested") return "New deal suggested";
   if (status === "not_deal_suggested") return "Not a deal?";

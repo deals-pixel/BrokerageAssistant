@@ -110,6 +110,7 @@ export default async function DashboardPage({
       "needs_match_review",
       "new_deal_suggested",
       "not_deal_suggested",
+      "processing_from_routing",
       "matched",
       "draft_transaction_created",
       "ignored",
@@ -155,11 +156,13 @@ export default async function DashboardPage({
     }
     return acc;
   }, {});
-  const realDeals = baseDeals.map((deal) => ({
-    ...deal,
-    intakeEmails: intakeEmailsByDealId[deal.id] ?? [],
-    renderedAttachmentIds: renderedAttachmentIdsByDeal[deal.id] ?? [],
-  }));
+  const realDeals = baseDeals.map((deal) =>
+    applyLinkedIntakeState({
+      ...deal,
+      intakeEmails: intakeEmailsByDealId[deal.id] ?? [],
+      renderedAttachmentIds: renderedAttachmentIdsByDeal[deal.id] ?? [],
+    }),
+  );
   const dealOptions = realDeals.map<IntakeDealOption>((deal) => ({
     id: deal.id,
     label: deal.property_address ?? deal.file_name,
@@ -940,6 +943,16 @@ function shouldShowIntakeWorkflow(deal: DashboardDeal) {
   return hasIntakeSource && (deal.complianceStatus === "Intake Review" || deal.complianceStatus === "Routing Review");
 }
 
+function applyLinkedIntakeState(deal: DashboardDeal): DashboardDeal {
+  if (!deal.intakeEmails.some((email) => email.status === "processing_from_routing")) return deal;
+  return {
+    ...deal,
+    complianceStatus: "Routing Review",
+    scenarioLabel: "Processing routed intake",
+    scenarioShortLabel: "Processing",
+  };
+}
+
 function stringRoutingValue(routing: Record<string, unknown>, key: string) {
   const value = routing[key];
   return typeof value === "string" ? value : "";
@@ -952,6 +965,7 @@ function transactionTypeFromRouting(value: string): TransactionType {
 }
 
 function intakeScenarioLabel(status: string) {
+  if (status === "processing_from_routing") return "Processing routed intake";
   if (status === "needs_match_review") return "Likely existing deal";
   if (status === "new_deal_suggested") return "New deal suggested";
   if (status === "not_deal_suggested") return "Not a deal?";
@@ -960,7 +974,12 @@ function intakeScenarioLabel(status: string) {
 }
 
 function intakeComplianceStatus(status: string): ComplianceStatus {
-  if (status === "needs_match_review" || status === "new_deal_suggested" || status === "not_deal_suggested") {
+  if (
+    status === "processing_from_routing" ||
+    status === "needs_match_review" ||
+    status === "new_deal_suggested" ||
+    status === "not_deal_suggested"
+  ) {
     return "Routing Review";
   }
   return "Intake Review";

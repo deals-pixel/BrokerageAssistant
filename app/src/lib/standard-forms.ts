@@ -55,31 +55,78 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
       "completion date",
     ],
     scenarioNumbers: [1, 2, 3, 4, 9, 10],
-    fieldRegions: [
-      {
-        fieldKey: "property_address",
-        label: "Property address",
-        boxes: [{ x: 0.12, y: 0.18, width: 0.76, height: 0.06 }],
-        note: roughRegionNote,
-      },
-      {
-        fieldKey: "sale_price",
-        label: "Purchase price",
-        boxes: [{ x: 0.0662, y: 0.484, width: 0.8657, height: 0.05 }],
-        note: calibratedRegionNote,
-      },
-      {
-        fieldKey: "deposit_amount",
-        label: "Deposit",
-        boxes: [{ x: 0.0662, y: 0.5472, width: 0.8663, height: 0.05 }],
-        note: calibratedRegionNote,
-      },
-      {
-        fieldKey: "closing_date",
-        label: "Completion date",
-        boxes: [{ x: 0.0662, y: 0.7652, width: 0.8677, height: 0.05 }],
-        note: calibratedRegionNote,
-      },
+    // Paste into STANDARD_FORMS -> form_100_aps -> fieldRegions
+fieldRegions: [
+  {
+    fieldKey: "property_address",
+    label: "Property address",
+    page: 1,
+    boxes: [{ x: 0.0597, y: 0.2374, width: 0.8834, height: 0.1131 }],
+    note: calibratedRegionNote,
+  },
+  {
+    fieldKey: "sale_price",
+    label: "Purchase price",
+    page: 1,
+    boxes: [{ x: 0.0634, y: 0.458, width: 0.8713, height: 0.0554 }],
+    note: calibratedRegionNote,
+  },
+  {
+    fieldKey: "deposit_amount",
+    label: "Deposit",
+    page: 1,
+    boxes: [{ x: 0.0662, y: 0.5179, width: 0.8663, height: 0.0652 }],
+    note: calibratedRegionNote,
+  },
+  {
+    fieldKey: "closing_date",
+    label: "Completion date",
+    page: 1,
+    boxes: [{ x: 0.0662, y: 0.8129, width: 0.8677, height: 0.0641 }],
+    note: calibratedRegionNote,
+  },
+  {
+    fieldKey: "buyer_names",
+    label: "Buyer Name(s)",
+    page: 1,
+    boxes: [{ x: 0.0599, y: 0.1466, width: 0.7457, height: 0.0444 }],
+    note: calibratedRegionNote,
+  },
+  {
+    fieldKey: "seller_names",
+    label: "Seller Name(s)",
+    page: 1,
+    boxes: [{ x: 0.0599, y: 0.1878, width: 0.8031, height: 0.0423 }],
+    note: calibratedRegionNote,
+  },
+  {
+    fieldKey: "seller_emails",
+    label: "Seller Email",
+    page: 2,
+    boxes: [{ x: 0.0893, y: 0.2333, width: 0.4163, height: 0.0423 }],
+    note: calibratedRegionNote,
+  },
+  {
+    fieldKey: "buyer_emails",
+    label: "Buyer Email",
+    page: 2,
+    boxes: [{ x: 0.514, y: 0.2333, width: 0.4261, height: 0.0412 }],
+    note: calibratedRegionNote,
+  },
+  {
+    fieldKey: "irrevocable_date",
+    label: "Irrevocable Until",
+    page: 1,
+    boxes: [{ x: 0.0641, y: 0.734, width: 0.8746, height: 0.0737 }],
+    note: calibratedRegionNote,
+  },
+  {
+    fieldKey: "listing_brokerage",
+    label: "Listing Brokerage",
+    page: 5,
+    boxes: [{ x: 0.0781, y: 0.4511, width: 0.8508, height: 0.0596 }],
+    note: calibratedRegionNote,
+  },
     ],
   },
   {
@@ -458,3 +505,5 @@ export function extractionTemplateGuide(matches: StandardFormMatch[]) {
   }
   return lines.join("\n");
 }
+
+

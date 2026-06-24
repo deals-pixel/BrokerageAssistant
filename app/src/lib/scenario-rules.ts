@@ -26,6 +26,12 @@ export type ScenarioDefinition = {
 
 type PageLike = { doc_type: string | null };
 type FieldLike = { field_key: string; value: string | null };
+type SgaDealSide = "listing" | "cooperating" | "both" | "unknown";
+type SideRepresentation = "sga" | "other" | "self" | "unknown";
+type DealSideEvidence = {
+  listing: SideRepresentation;
+  cooperating: SideRepresentation;
+};
 
 const noticeDocs: DocumentType[] = [
   "form_124_notice_fulfillment",
@@ -544,10 +550,28 @@ export function inferScenario(
   const hasBuyerRep = docs.has("buyer_representation_agreement");
   const hasTenantRep = docs.has("tenant_representation_agreement");
   const hasSelfRep = docs.has("reco_self_represented_disclosure");
-  const hasMultipleRep = docs.has("multiple_representation_consent") || representation.includes("both");
+  const hasMultipleRep = docs.has("multiple_representation_consent") || representation.includes("multiple");
+  const sideEvidence = inferDealSideEvidence(docs, fieldText);
+  const hasSameAgentBothSides = sameAgentBothSides(fieldText) || (hasMultipleRep && !differentAgentsBothSides(fieldText));
 
   if (transactionType === "lease" || hasLeaseDoc(docs)) {
-    if (hasListing && hasTenantRep && hasMultipleRep) return SCENARIO_BY_KEY.lease_same_agent_both_sides;
+    if (sideEvidence.listing === "sga" && sideEvidence.cooperating === "sga") {
+      return hasSameAgentBothSides
+        ? SCENARIO_BY_KEY.lease_same_agent_both_sides
+        : SCENARIO_BY_KEY.lease_landlord_rep_tenant_sga;
+    }
+    if (sideEvidence.cooperating === "sga") {
+      return isSideSelfRepresented(sideEvidence.listing, fieldText.listing_brokerage, hasSelfRep)
+        ? SCENARIO_BY_KEY.lease_tenant_rep_landlord_self
+        : SCENARIO_BY_KEY.lease_tenant_only;
+    }
+    if (sideEvidence.listing === "sga") {
+      return isSideSelfRepresented(sideEvidence.cooperating, fieldText.cooperating_brokerage, hasSelfRep)
+        ? SCENARIO_BY_KEY.lease_landlord_rep_tenant_self
+        : SCENARIO_BY_KEY.lease_landlord_only;
+    }
+
+    if (hasListing && hasTenantRep && hasSameAgentBothSides) return SCENARIO_BY_KEY.lease_same_agent_both_sides;
     if (hasListing && hasTenantRep) return SCENARIO_BY_KEY.lease_landlord_rep_tenant_sga;
     if (hasListing && hasSelfRep) return SCENARIO_BY_KEY.lease_landlord_rep_tenant_self;
     if (hasTenantRep && hasSelfRep) return SCENARIO_BY_KEY.lease_tenant_rep_landlord_self;
@@ -555,12 +579,160 @@ export function inferScenario(
     return SCENARIO_BY_KEY.lease_landlord_only;
   }
 
-  if (hasListing && hasBuyerRep && hasMultipleRep) return SCENARIO_BY_KEY.sale_same_agent_both_sides;
+  if (sideEvidence.listing === "sga" && sideEvidence.cooperating === "sga") {
+    return hasSameAgentBothSides
+      ? SCENARIO_BY_KEY.sale_same_agent_both_sides
+      : SCENARIO_BY_KEY.sale_seller_rep_buyer_sga;
+  }
+  if (sideEvidence.cooperating === "sga") {
+    return isSideSelfRepresented(sideEvidence.listing, fieldText.listing_brokerage, hasSelfRep)
+      ? SCENARIO_BY_KEY.sale_buyer_rep_seller_self
+      : SCENARIO_BY_KEY.sale_buyer_only;
+  }
+  if (sideEvidence.listing === "sga") {
+    return isSideSelfRepresented(sideEvidence.cooperating, fieldText.cooperating_brokerage, hasSelfRep)
+      ? SCENARIO_BY_KEY.sale_seller_rep_buyer_self
+      : SCENARIO_BY_KEY.sale_seller_only;
+  }
+
+  if (hasListing && hasBuyerRep && hasSameAgentBothSides) return SCENARIO_BY_KEY.sale_same_agent_both_sides;
   if (hasListing && hasBuyerRep) return SCENARIO_BY_KEY.sale_seller_rep_buyer_sga;
   if (hasListing && hasSelfRep) return SCENARIO_BY_KEY.sale_seller_rep_buyer_self;
   if (hasBuyerRep && hasSelfRep) return SCENARIO_BY_KEY.sale_buyer_rep_seller_self;
   if (hasBuyerRep) return SCENARIO_BY_KEY.sale_buyer_only;
   return SCENARIO_BY_KEY.sale_seller_only;
+}
+
+export function inferSgaDealSide(docs: Set<string>, fieldText: Record<string, string>): SgaDealSide {
+  const evidence = inferDealSideEvidence(docs, fieldText);
+  if (evidence.listing === "sga" && evidence.cooperating === "sga") return "both";
+  if (evidence.listing === "sga") return "listing";
+  if (evidence.cooperating === "sga") return "cooperating";
+  return "unknown";
+}
+
+function inferDealSideEvidence(docs: Set<string>, fieldText: Record<string, string>): DealSideEvidence {
+  const representedSide = sideFromRepresentationText(fieldText.representation_side);
+  return {
+    listing: inferSideRepresentation("listing", docs, fieldText, representedSide),
+    cooperating: inferSideRepresentation("cooperating", docs, fieldText, representedSide),
+  };
+}
+
+function inferSideRepresentation(
+  side: "listing" | "cooperating",
+  docs: Set<string>,
+  fieldText: Record<string, string>,
+  representedSide: SgaDealSide,
+): SideRepresentation {
+  const repText = side === "listing" ? fieldText.seller_representation : fieldText.buyer_representation;
+  const brokerage = side === "listing" ? fieldText.listing_brokerage : fieldText.cooperating_brokerage;
+  const sideAgent = side === "listing" ? fieldText.listing_agent_name : fieldText.cooperating_agent_name;
+
+  if (representedSide === "both" || representedSide === side) return "sga";
+  if (isSgaText(repText) || isSgaText(brokerage) || agentNamesMatch(fieldText.agent_name, sideAgent)) {
+    return "sga";
+  }
+  if (isSelfRepresented(repText)) return "self";
+  if (hasBrokerageName(brokerage) || isOtherBrokerageText(repText)) return "other";
+  if (side === "listing" && docs.has("listing_agreement")) return "sga";
+  if (side === "cooperating" && (docs.has("buyer_representation_agreement") || docs.has("tenant_representation_agreement"))) {
+    return "sga";
+  }
+  return "unknown";
+}
+
+function sideFromRepresentationText(value: string | undefined): SgaDealSide {
+  const text = normalizeText(value);
+  if (!text) return "unknown";
+  if (text.includes("both") || text.includes("multiple")) return "both";
+  if (text.includes("listing") || text.includes("seller") || text.includes("landlord")) return "listing";
+  if (
+    text.includes("cooperating") ||
+    text.includes("co-operating") ||
+    text.includes("co op") ||
+    // OREA/industry wording: "selling brokerage" means the buyer/co-operating side.
+    text.includes("selling") ||
+    text.includes("buyer") ||
+    text.includes("tenant")
+  ) {
+    return "cooperating";
+  }
+  return "unknown";
+}
+
+function isSgaText(value: string | undefined) {
+  const text = normalizeText(value);
+  if (!text) return false;
+  if (text.includes("sutton") && (text.includes("admiral") || text.includes("group"))) return true;
+  return /\bsga\b/.test(text) || text.includes("sutton group-admiral");
+}
+
+function isSelfRepresented(value: string | undefined) {
+  const text = normalizeText(value);
+  return text.includes("self represented") || text.includes("self-represented") || text.includes("unrepresented");
+}
+
+function isSideSelfRepresented(
+  representation: SideRepresentation,
+  brokerage: string | undefined,
+  hasSelfRepDocument: boolean,
+) {
+  if (hasBrokerageName(brokerage)) return false;
+  return representation === "self" || (representation === "unknown" && hasSelfRepDocument);
+}
+
+function hasBrokerageName(value: string | undefined) {
+  const text = normalizeText(value);
+  if (!text) return false;
+  if (["unknown", "n/a", "na", "none", "self", "self represented", "self-represented"].includes(text)) {
+    return false;
+  }
+  return true;
+}
+
+function isOtherBrokerageText(value: string | undefined) {
+  const text = normalizeText(value);
+  return (
+    text.includes("other brokerage") ||
+    text.includes("another brokerage") ||
+    text.includes("different brokerage") ||
+    text.includes("outside brokerage")
+  );
+}
+
+function agentNamesMatch(agentName: string | undefined, sideAgentName: string | undefined) {
+  const agent = normalizeName(agentName);
+  const sideAgent = normalizeName(sideAgentName);
+  if (!agent || !sideAgent) return false;
+  return agent === sideAgent || agent.includes(sideAgent) || sideAgent.includes(agent);
+}
+
+function sameAgentBothSides(fieldText: Record<string, string>) {
+  return agentNamesMatch(fieldText.listing_agent_name, fieldText.cooperating_agent_name);
+}
+
+function differentAgentsBothSides(fieldText: Record<string, string>) {
+  const listingAgent = normalizeName(fieldText.listing_agent_name);
+  const cooperatingAgent = normalizeName(fieldText.cooperating_agent_name);
+  if (!listingAgent || !cooperatingAgent) return false;
+  return !agentNamesMatch(listingAgent, cooperatingAgent);
+}
+
+function normalizeName(value: string | undefined) {
+  return normalizeText(value)
+    .replace(/\b(salesperson|broker|brokerage|realty|inc|ltd)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeText(value: string | undefined) {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[.,()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function hasPurchaseDoc(docs: Set<string>) {

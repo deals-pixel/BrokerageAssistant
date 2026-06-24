@@ -75,7 +75,13 @@ export function validateFields(
   if (ls && le && ls >= le) flag(get("lease_end_date"), "Lease end not after start");
 
   // Commission sanity
-  for (const k of ["total_commission_pct", "listing_commission_pct", "cooperating_commission_pct"]) {
+  for (const k of [
+    "total_commission_pct",
+    "your_commission_pct",
+    "outside_brokerage_commission_pct",
+    "listing_commission_pct",
+    "cooperating_commission_pct",
+  ]) {
     const v = num(get(k)?.value);
     if (v !== null && (v <= 0 || v > 10)) flag(get(k), "Unusual commission % — verify");
   }
@@ -102,68 +108,27 @@ function normalizeCommissionFields(fields: MergedField[], perspective: Commissio
     const index = fields.indexOf(field);
     if (index >= 0) fields.splice(index, 1);
   };
-
-  let total = get("total_commission_pct");
-  let listing = get("listing_commission_pct");
-  let cooperating = get("cooperating_commission_pct");
-
-  if (perspective.listingSide && total?.sourceDocumentType === "listing_agreement" && !listing) {
-    listing = {
-      ...total,
-      key: "listing_commission_pct",
-      notes: appendNote(
-        total.notes,
-        "Commission from listing agreement moved to Your Commission; listing-side commission is not the total commission.",
-      ),
-    };
-    fields.push(listing);
-  }
-
-  if (!perspective.listingSide && total?.sourceDocumentType === "listing_agreement") {
-    total.notes = appendNote(
-      total.notes,
-      "Listing agreement commission is not treated as Your Commission for this scenario.",
-    );
-    remove(total);
-  }
-
-  total = get("total_commission_pct");
-  listing = get("listing_commission_pct");
-  cooperating = get("cooperating_commission_pct");
-
-  if (perspective.cooperatingSide && !perspective.listingSide && cooperating && !listing) {
-    listing = {
-      ...cooperating,
-      key: "listing_commission_pct",
-      notes: appendNote(
-        cooperating.notes,
-        "Co-operating side commission moved to Your Commission for this scenario.",
-      ),
-    };
-    fields.push(listing);
-    remove(cooperating);
-    cooperating = undefined;
-  }
-
-  total = get("total_commission_pct");
-  listing = get("listing_commission_pct");
-  cooperating = get("cooperating_commission_pct");
-
-  if (!listing || !cooperating) {
-    if (listing && total?.sourceDocumentType === "listing_agreement" && valuesEquivalent(total.value, listing.value)) {
-      remove(total);
+  const removeDerived = () => {
+    for (const field of fields.filter(
+      (candidate) =>
+        candidate.key === "your_commission_pct" || candidate.key === "outside_brokerage_commission_pct",
+    )) {
+      remove(field);
     }
-    return;
-  }
+  };
+
+  removeDerived();
+
+  const total = get("total_commission_pct");
+  const listing = get("listing_commission_pct");
+  const cooperating = get("cooperating_commission_pct");
+
+  deriveScenarioCommissionFields(fields, perspective, listing, cooperating, total);
+
+  if (!listing || !cooperating) return;
 
   const calculatedTotal = addCommissionValues(listing.value, cooperating.value);
   if (!calculatedTotal) {
-    if (
-      total?.sourceDocumentType === "listing_agreement" &&
-      (valuesEquivalent(total.value, listing.value) || valuesEquivalent(total.value, cooperating.value))
-    ) {
-      remove(total);
-    }
     return;
   }
 
@@ -188,6 +153,94 @@ function normalizeCommissionFields(fields: MergedField[], perspective: Commissio
     needsReview: true,
     notes: "Total commission calculated from listing and co-operating commission.",
   });
+}
+
+function deriveScenarioCommissionFields(
+  fields: MergedField[],
+  perspective: CommissionPerspective,
+  listing: MergedField | undefined,
+  cooperating: MergedField | undefined,
+  total: MergedField | undefined,
+) {
+  if (perspective.specialSide) return;
+
+  if (perspective.listingSide && perspective.cooperatingSide) {
+    const combined = calculatedCombinedCommission(listing, cooperating) ?? total;
+    if (combined) {
+      fields.push(derivedCommissionField(
+        "your_commission_pct",
+        combined,
+        "Derived after scenario detection: Sutton Group-Admiral is on both sides; verify side split and payees.",
+        true,
+      ));
+    }
+    return;
+  }
+
+  if (perspective.listingSide) {
+    if (listing) {
+      fields.push(derivedCommissionField(
+        "your_commission_pct",
+        listing,
+        "Derived after scenario detection from listing-side commission.",
+      ));
+    }
+    if (cooperating) {
+      fields.push(derivedCommissionField(
+        "outside_brokerage_commission_pct",
+        cooperating,
+        "Derived after scenario detection from co-operating-side commission.",
+      ));
+    }
+    return;
+  }
+
+  if (perspective.cooperatingSide) {
+    if (cooperating) {
+      fields.push(derivedCommissionField(
+        "your_commission_pct",
+        cooperating,
+        "Derived after scenario detection from co-operating-side commission.",
+      ));
+    }
+    if (listing) {
+      fields.push(derivedCommissionField(
+        "outside_brokerage_commission_pct",
+        listing,
+        "Derived after scenario detection from listing-side commission.",
+      ));
+    }
+  }
+}
+
+function calculatedCombinedCommission(
+  listing: MergedField | undefined,
+  cooperating: MergedField | undefined,
+): MergedField | undefined {
+  if (!listing || !cooperating) return undefined;
+  const calculated = addCommissionValues(listing.value, cooperating.value);
+  if (!calculated) return undefined;
+  return {
+    ...listing,
+    value: calculated,
+    confidence: lowerConfidence(listing.confidence, cooperating.confidence),
+    needsReview: true,
+    notes: appendNote(listing.notes, "Calculated from listing-side and co-operating-side commissions."),
+  };
+}
+
+function derivedCommissionField(
+  key: "your_commission_pct" | "outside_brokerage_commission_pct",
+  source: MergedField,
+  note: string,
+  needsReview = source.needsReview,
+): MergedField {
+  return {
+    ...source,
+    key,
+    needsReview,
+    notes: appendNote(source.notes, note),
+  };
 }
 
 function commissionPerspective(context: ValidationContext): CommissionPerspective {
