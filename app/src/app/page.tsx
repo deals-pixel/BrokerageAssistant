@@ -209,8 +209,6 @@ export default async function DashboardPage({
 
       <UploadDropzone />
 
-      {recentIntakeActivity.length > 0 && <InboundEmailActivityPanel emails={recentIntakeActivity} />}
-
       <section className="space-y-4 rounded-xl border bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -295,6 +293,8 @@ export default async function DashboardPage({
         {activeView === "table" && <RecordsTable deals={filteredDeals} />}
         {activeView === "archive" && <RecordsTable deals={filteredDeals} archive />}
       </section>
+
+      {recentIntakeActivity.length > 0 && <InboundEmailActivityPanel emails={recentIntakeActivity} />}
     </div>
   );
 }
