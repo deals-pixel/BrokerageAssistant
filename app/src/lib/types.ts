@@ -152,8 +152,6 @@ export const FIELD_SECTIONS: FieldSection[] = [
       { key: "outside_brokerage_commission_pct", label: "Outside Brokerage Commission %" },
       { key: "listing_commission_pct", label: "Listing/Seller-Side Commission %" },
       { key: "cooperating_commission_pct", label: "Co-operating/Buyer-Side Commission %" },
-      { key: "outside_agent_name", label: "Outside Agent Name" },
-      { key: "outside_brokerage", label: "Outside Brokerage" },
       { key: "additional_payees", label: "Additional Payee(s)?" },
       { key: "additional_payee_1_name", label: "Additional Payee 1" },
       { key: "additional_payee_1_commission_pct", label: "Additional Payee 1 Commission %" },
@@ -202,6 +200,8 @@ export const SOURCE_FIELD_SECTIONS: FieldSection[] = [
       { key: "deposit_held_by", label: "Source Deposit Holder" },
       { key: "seller_representation", label: "Source Seller/Landlord Representation Status" },
       { key: "buyer_representation", label: "Source Buyer/Tenant Representation Status" },
+      { key: "outside_agent_name", label: "Derived Outside Agent Name" },
+      { key: "outside_brokerage", label: "Derived Outside Brokerage" },
     ],
   },
 ];
