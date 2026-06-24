@@ -10,12 +10,13 @@ import {
   Download,
   FileText,
   MousePointer2,
+  Plus,
   Save,
   Trash2,
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
-import { FIELD_SECTIONS, type SourceBox } from "@/lib/types";
+import { DOCUMENT_TYPES, FIELD_SECTIONS, type DocumentType, type SourceBox } from "@/lib/types";
 import { STANDARD_FORMS, type StandardFormDefinition } from "@/lib/standard-forms";
 import { formatSize, isJpeg, isPdf, renderFilePages } from "@/lib/pdf-render-client";
 import { Badge } from "@/components/ui/badge";
@@ -77,6 +78,7 @@ type SavedTemplateFile = {
 };
 
 const DRAFT_PREFIX = "brokerage-form-template:";
+const CUSTOM_FORMS_KEY = "brokerage-custom-standard-forms";
 const SAVED_TEMPLATE_DB = "brokerage-standard-form-templates";
 const SAVED_TEMPLATE_STORE = "forms";
 const MIN_BOX_SIZE = 0.004;
@@ -98,6 +100,11 @@ export function FormTemplateEditor() {
   const pageSurfaceRef = useRef<HTMLDivElement>(null);
   const autoLoadRequestRef = useRef(0);
   const [selectedFormKey, setSelectedFormKey] = useState(STANDARD_FORMS[0]?.key ?? "");
+  const [customForms, setCustomForms] = useState<StandardFormDefinition[]>(() => loadCustomForms());
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newFormTitle, setNewFormTitle] = useState("");
+  const [newFormNumber, setNewFormNumber] = useState("");
+  const [newFormDocumentType, setNewFormDocumentType] = useState<DocumentType>("other");
   const [selectedFieldKey, setSelectedFieldKey] = useState(FIELD_OPTIONS[0]?.key ?? "");
   const [customLabel, setCustomLabel] = useState("");
   const [fileName, setFileName] = useState("");
@@ -112,10 +119,12 @@ export function FormTemplateEditor() {
     null,
   );
 
+  const allForms = useMemo(() => [...STANDARD_FORMS, ...customForms], [customForms]);
   const selectedForm = useMemo(
-    () => STANDARD_FORMS.find((form) => form.key === selectedFormKey) ?? STANDARD_FORMS[0],
-    [selectedFormKey],
+    () => allForms.find((form) => form.key === selectedFormKey) ?? allForms[0],
+    [allForms, selectedFormKey],
   );
+  const selectedFormIsCustom = customForms.some((form) => form.key === selectedForm?.key);
   const activePageImage = pages.find((page) => page.pageNumber === activePage) ?? pages[0];
   const activeField = FIELD_OPTIONS.find((field) => field.key === selectedFieldKey);
   const currentDraftKey = selectedForm ? draftKey(selectedForm.key) : "";
@@ -156,6 +165,10 @@ export function FormTemplateEditor() {
     autoLoadRequestRef.current = requestId;
     void loadSelectedFormWorkspace(selectedForm, requestId);
   }, [selectedForm]);
+
+  useEffect(() => {
+    saveCustomForms(customForms);
+  }, [customForms]);
 
   function updatePages(nextPages: RenderedPage[]) {
     setPages((previous) => {
@@ -358,16 +371,61 @@ export function FormTemplateEditor() {
   }
 
   function loadDraft() {
-    const raw = localStorage.getItem(currentDraftKey);
-    if (!raw) {
+    if (!selectedForm) return;
+    const draft = loadDraftState(selectedForm.key);
+    if (!draft) {
       toast.info("No saved draft for this form.");
       return;
     }
-    const draft = JSON.parse(raw) as DraftState;
     setRegions(draft.regions ?? []);
     setFileName(draft.fileName ?? fileName);
     setSelectedRegionId(draft.regions?.[0]?.id ?? null);
     toast.success("Draft loaded.");
+  }
+
+  function addCustomForm() {
+    const title = newFormTitle.trim();
+    if (!title) {
+      toast.error("Enter a form title.");
+      return;
+    }
+
+    const baseKey = slugifyFormKey(newFormNumber.trim() || title);
+    let key = baseKey;
+    let suffix = 2;
+    while (allForms.some((form) => form.key === key)) {
+      key = `${baseKey}_${suffix}`;
+      suffix += 1;
+    }
+
+    const formNumber = newFormNumber.trim();
+    const form: StandardFormDefinition = {
+      key,
+      documentType: newFormDocumentType,
+      title,
+      formNumbers: formNumber ? [formNumber] : undefined,
+      aliases: [title, formNumber ? `Form ${formNumber}` : ""].filter(Boolean),
+      signatures: [title, formNumber ? `FORM ${formNumber}` : ""].filter(Boolean),
+      fieldRegions: [],
+    };
+
+    setCustomForms((current) => [...current, form]);
+    setSelectedFormKey(form.key);
+    setNewFormTitle("");
+    setNewFormNumber("");
+    setNewFormDocumentType("other");
+    setShowAddForm(false);
+    toast.success("Custom standard form added.");
+  }
+
+  function removeCustomForm() {
+    if (!selectedForm || !selectedFormIsCustom) return;
+    const nextForms = customForms.filter((form) => form.key !== selectedForm.key);
+    setCustomForms(nextForms);
+    setSelectedFormKey(STANDARD_FORMS[0]?.key ?? nextForms[0]?.key ?? "");
+    localStorage.removeItem(draftKey(selectedForm.key));
+    void deleteSavedTemplateFile(selectedForm.key).catch(() => undefined);
+    toast.success("Custom standard form removed from this browser.");
   }
 
   async function refreshSavedTemplateMeta(formKey: string) {
@@ -392,7 +450,8 @@ export function FormTemplateEditor() {
     setDraftBox(null);
     setProgress("Loading standard form...");
 
-    const nextRegions = regionsFromStandardForm(form, 1);
+    const savedDraft = loadDraftState(form.key);
+    const nextRegions = savedDraft?.regions ?? regionsFromStandardForm(form, 1);
     setRegions(nextRegions);
     setSelectedRegionId(nextRegions[0]?.id ?? null);
     setActivePage(1);
@@ -419,12 +478,12 @@ export function FormTemplateEditor() {
       }
 
       updatePages([]);
-      setFileName("");
+      setFileName(savedDraft?.fileName ?? "");
       setSavedTemplate(null);
     } catch {
       if (autoLoadRequestRef.current !== requestId) return;
       updatePages([]);
-      setFileName("");
+      setFileName(savedDraft?.fileName ?? "");
       setSavedTemplate(null);
     } finally {
       if (autoLoadRequestRef.current === requestId) setProgress("");
@@ -556,7 +615,7 @@ export function FormTemplateEditor() {
                   setSelectedRegionId(null);
                 }}
               >
-                {STANDARD_FORMS.map((form) => (
+                {allForms.map((form) => (
                   <option key={form.key} value={form.key}>
                     {form.formNumbers?.length ? `Form ${form.formNumbers.join("/")} - ` : ""}
                     {form.title}
@@ -568,7 +627,57 @@ export function FormTemplateEditor() {
                   <p className="font-medium text-foreground">{selectedForm.key}</p>
                   <p>{selectedForm.documentType}</p>
                   <p>{selectedForm.fieldRegions?.length ?? 0} existing region groups</p>
+                  {selectedFormIsCustom && <p>Custom form saved in this browser</p>}
                 </div>
+              )}
+            </div>
+
+            <div className="rounded-md border bg-muted/20 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium">Custom standard forms</p>
+                  <p className="text-xs text-muted-foreground">{customForms.length} saved in this browser</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setShowAddForm((current) => !current)}>
+                  <Plus />
+                  Add
+                </Button>
+              </div>
+
+              {showAddForm && (
+                <div className="mt-3 space-y-2">
+                  <Input
+                    value={newFormTitle}
+                    onChange={(event) => setNewFormTitle(event.target.value)}
+                    placeholder="Form title"
+                  />
+                  <Input
+                    value={newFormNumber}
+                    onChange={(event) => setNewFormNumber(event.target.value)}
+                    placeholder="Form number, if any"
+                  />
+                  <select
+                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                    value={newFormDocumentType}
+                    onChange={(event) => setNewFormDocumentType(event.target.value as DocumentType)}
+                  >
+                    {Object.entries(DOCUMENT_TYPES).map(([key, label]) => (
+                      <option key={key} value={key}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <Button className="w-full" onClick={addCustomForm}>
+                    Create form
+                  </Button>
+                </div>
+              )}
+
+              {selectedFormIsCustom && (
+                <Button className="mt-3 w-full" variant="ghost" onClick={removeCustomForm}>
+                  <Trash2 />
+                  Remove selected custom form
+                </Button>
               )}
             </div>
 
@@ -973,6 +1082,80 @@ export function FormTemplateEditor() {
 
 function draftKey(formKey: string) {
   return `${DRAFT_PREFIX}${formKey}`;
+}
+
+function loadDraftState(formKey: string) {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem(draftKey(formKey));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as DraftState;
+  } catch {
+    return null;
+  }
+}
+
+function loadCustomForms() {
+  if (typeof window === "undefined") return [];
+  const raw = localStorage.getItem(CUSTOM_FORMS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((candidate) => normalizeCustomForm(candidate))
+      .filter((form): form is StandardFormDefinition => Boolean(form));
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomForms(forms: StandardFormDefinition[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(CUSTOM_FORMS_KEY, JSON.stringify(forms));
+}
+
+function normalizeCustomForm(candidate: unknown): StandardFormDefinition | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const form = candidate as Record<string, unknown>;
+  const key = typeof form.key === "string" ? form.key : "";
+  const title = typeof form.title === "string" ? form.title : "";
+  const documentType =
+    typeof form.documentType === "string" && form.documentType in DOCUMENT_TYPES
+      ? (form.documentType as DocumentType)
+      : "other";
+  if (!key || !title) return null;
+
+  return {
+    key,
+    documentType,
+    title,
+    formNumbers: stringArray(form.formNumbers),
+    aliases: stringArray(form.aliases) ?? [title],
+    scenarioNumbers: numberArray(form.scenarioNumbers),
+    signatures: stringArray(form.signatures),
+    fieldRegions: [],
+  };
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.length > 0)
+    : undefined;
+}
+
+function numberArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is number => typeof item === "number" && Number.isFinite(item))
+    : undefined;
+}
+
+function slugifyFormKey(value: string) {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return `custom_${slug || "standard_form"}`;
 }
 
 function regionsFromStandardForm(form: StandardFormDefinition, fallbackPage: number) {
