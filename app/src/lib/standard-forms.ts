@@ -28,8 +28,6 @@ export type StandardFormMatch = {
   source: "classifier" | "document_type";
 };
 
-const roughRegionNote =
-  "Template region is a standard-form fallback. Prefer AI source_box when it is present.";
 const calibratedRegionNote =
   "Template region measured from the blank standard form calibration report. Prefer AI source_box when it is present.";
 

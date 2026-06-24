@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import {
   ArrowDown,
   ArrowLeft,
@@ -160,22 +160,15 @@ export function FormTemplateEditor() {
   }, [pages]);
 
   useEffect(() => {
-    if (!selectedForm) return;
-    const requestId = autoLoadRequestRef.current + 1;
-    autoLoadRequestRef.current = requestId;
-    void loadSelectedFormWorkspace(selectedForm, requestId);
-  }, [selectedForm]);
-
-  useEffect(() => {
     saveCustomForms(customForms);
   }, [customForms]);
 
-  function updatePages(nextPages: RenderedPage[]) {
+  const updatePages = useCallback((nextPages: RenderedPage[]) => {
     setPages((previous) => {
       for (const page of previous) URL.revokeObjectURL(page.url);
       return nextPages;
     });
-  }
+  }, []);
 
   function updateRegionBox(regionId: string, updater: (box: SourceBox) => SourceBox) {
     setRegions((current) =>
@@ -445,7 +438,7 @@ export function FormTemplateEditor() {
     }
   }
 
-  async function loadSelectedFormWorkspace(form: StandardFormDefinition, requestId: number) {
+  const loadSelectedFormWorkspace = useCallback(async (form: StandardFormDefinition, requestId: number) => {
     setInteraction(null);
     setDraftBox(null);
     setProgress("Loading standard form...");
@@ -488,7 +481,14 @@ export function FormTemplateEditor() {
     } finally {
       if (autoLoadRequestRef.current === requestId) setProgress("");
     }
-  }
+  }, [updatePages]);
+
+  useEffect(() => {
+    if (!selectedForm) return;
+    const requestId = autoLoadRequestRef.current + 1;
+    autoLoadRequestRef.current = requestId;
+    void loadSelectedFormWorkspace(selectedForm, requestId);
+  }, [loadSelectedFormWorkspace, selectedForm]);
 
   async function saveBlankForm() {
     if (!selectedForm) return;

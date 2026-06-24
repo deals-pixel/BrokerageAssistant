@@ -465,11 +465,6 @@ function lowerConfidence(a: MergedField["confidence"], b: MergedField["confidenc
   return rank[a] <= rank[b] ? a : b;
 }
 
-function valuesEquivalent(a: string | null | undefined, b: string | null | undefined) {
-  if (!a || !b) return false;
-  return normalizeCommissionText(a) === normalizeCommissionText(b);
-}
-
 function addCommissionValues(a: string | null | undefined, b: string | null | undefined) {
   const numericA = num(a);
   const numericB = num(b);

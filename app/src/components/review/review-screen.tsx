@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeftIcon, ChevronRightIcon, CheckIcon, Clock3Icon, DownloadIcon, FileTextIcon } from "lucide-react";
@@ -1721,9 +1722,12 @@ function ClassificationReviewDialog({
               </div>
               <div className="max-h-[62vh] overflow-auto p-3">
                 {activePage ? (
-                  <img
+                  <Image
                     src={`/api/deals/${dealId}/pages/${activePage.page_number}/image`}
                     alt={`Page ${activePage.page_number}`}
+                    width={900}
+                    height={1200}
+                    unoptimized
                     className="mx-auto max-h-none w-full max-w-3xl rounded border bg-white"
                   />
                 ) : (

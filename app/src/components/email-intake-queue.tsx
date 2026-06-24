@@ -319,16 +319,8 @@ export function DealIntakeWorkflow({
               primaryLink?.match_status === "auto_matched" ||
               primaryLink?.match_status === "manually_confirmed"),
         );
-        const needsReview = email.status === "needs_match_review" || primaryLink?.match_status === "needs_review";
         const isWorking = workingId === email.id;
         const routingReady = isRoutingReviewEmail(email, primaryLink);
-        const dealTitle = suggestedDeal
-          ? shortDealTitle(suggestedDeal.property_address, suggestedDeal.file_name)
-          : routingAddress(email.routing_json) || "Needs admin review";
-        const routeMeta = primaryLink
-          ? `${primaryLink.match_score ?? 0}% | ${formatMatchStatus(primaryLink.match_status)}`
-          : routingSummary(email.routing_json) || "No match signal";
-        const nextStep = intakeNextStep(email, isConfirmed, needsReview, renderedAttachmentIds);
         const suggestion = routingSuggestion(email, primaryLink, suggestedDeal);
 
         return (
@@ -375,7 +367,6 @@ export function DealIntakeWorkflow({
                 </div>
 
                 <div className="min-w-0 space-y-1.5 text-[11px] leading-4">
-                  <IntakeInfo label="Match" value={dealTitle || routingAddress(email.routing_json) || "Needs admin review"} meta={routeMeta} />
                   <IntakeInfo label="Files" value={attachmentWorkflowSummary(email.email_attachments ?? [])} />
                   <IntakeInfo
                     label="Received"
@@ -393,12 +384,6 @@ export function DealIntakeWorkflow({
             )}
 
             <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-t pt-2">
-              {!routingReady && (
-                <div className="min-w-0 text-[11px] leading-4">
-                  <span className="font-medium text-foreground/80">Next: </span>
-                  <span className="text-muted-foreground">{nextStep}</span>
-                </div>
-              )}
               <div className="flex min-w-0 flex-wrap justify-end gap-1.5">
                 {routingReady && (
                   <>
@@ -1045,31 +1030,6 @@ function activityResult(email: IntakeEmailRow) {
   if (email.status === "new_deal_suggested") return "Suggested as a new deal";
   if (email.status === "not_deal_suggested") return "Suggested as not a deal package";
   return "Stored by the platform";
-}
-
-function intakeNextStep(
-  email: IntakeEmailRow,
-  isConfirmed: boolean,
-  needsReview: boolean,
-  renderedAttachmentIds: string[],
-) {
-  if (email.status === "routing_error" || email.status === "error") return "Review the intake error, then link, create, or ignore.";
-  if (email.status === "processing_from_routing") return "Processing routed intake.";
-  if (email.status === "not_deal_suggested") return "AI suggests this is not a deal package. Ignore it or choose another action.";
-  if (email.status === "new_deal_suggested") return "AI suggests this is a new deal. Create a draft or link it to an existing one.";
-  if (!hasProcessableEmailAttachments(email)) return "Review the email body, link or create a draft, or ignore it.";
-  if (email.status === "intake_review" || email.status === "routing_queued") return "Review intake, approve it for processing, or ignore it.";
-  if (needsReview) return "Confirm the suggested match or change it.";
-  if (!isConfirmed) return "Link this email or create a draft deal.";
-
-  const pendingAttachments = (email.email_attachments ?? []).filter(
-    (attachment) =>
-      attachment.status !== "ignored" &&
-      attachment.status !== "duplicate" &&
-      !renderedAttachmentIds.includes(attachment.id),
-  );
-  if (pendingAttachments.length > 0) return "Prepare email files for processing.";
-  return "Run full processing when ready.";
 }
 
 function hasProcessableEmailAttachments(email: IntakeEmailRow) {
