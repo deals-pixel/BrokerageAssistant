@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { ALL_FIELD_KEYS, FIELD_LABELS, type DocumentType } from "@/lib/types";
+import { ALL_FIELD_KEYS, DERIVED_DEAL_SHEET_FIELD_KEYS, FIELD_LABELS, type DocumentType } from "@/lib/types";
 import { extractionTemplateGuide, type StandardFormMatch } from "@/lib/standard-forms";
 import { anthropic, EXTRACTION_AI_MODEL } from "./client";
 import {
@@ -11,7 +11,8 @@ import {
 import { FieldExtractionSchema, type FieldExtraction } from "./schemas";
 import { logAiUsage, usageFromResponse } from "./usage";
 
-const FIELD_GUIDE = ALL_FIELD_KEYS.map((key) => `- ${key}: ${FIELD_LABELS[key]}`).join("\n");
+const EXTRACTABLE_FIELD_KEYS = ALL_FIELD_KEYS.filter((key) => !DERIVED_DEAL_SHEET_FIELD_KEYS.has(key));
+const FIELD_GUIDE = EXTRACTABLE_FIELD_KEYS.map((key) => `- ${key}: ${FIELD_LABELS[key]}`).join("\n");
 
 const SYSTEM = `You extract deal fields from scanned Ontario real estate documents for Sutton Group-Admiral Realty. The goal is to fill the brokerage's Deal Information Sheet and compliance workflow from source documents. Values may be handwritten or typed.
 
@@ -27,13 +28,13 @@ Rules:
 - When both listing and co-operating sides are visible, extract listing_agent_name and cooperating_agent_name exactly as shown. Same-name vs different-name determines whether the both-side scenario is same-agent or different-agent.
 - A visible other-side brokerage name means that side is represented by a brokerage, not self-represented. Only mark seller_representation or buyer_representation as self-represented when the source explicitly says self-represented/unrepresented or the self-represented disclosure applies and no brokerage name is visible for that side.
 - Commission extraction fields are source-side facts, not scenario-derived results. listing_commission_pct is the commission payable to the listing/seller/landlord-side brokerage. cooperating_commission_pct is the commission payable/offered to the co-operating/buyer/tenant-side brokerage. total_commission_pct is only the combined total of both side amounts when the document explicitly gives a total or the two side amounts can be safely added. Do not copy a one-sided commission into total_commission_pct.
-- Do not extract your_commission_pct or outside_brokerage_commission_pct directly from source documents. Those are derived later after scenario detection decides which side Sutton Group-Admiral represents.
+- Do not extract derived Deal Information Sheet fields directly from source documents, including price_or_rent, seller_landlord_*, buyer_tenant_*, your_commission_pct, outside_agent_name, outside_brokerage, outside_brokerage_commission_pct, deposit_holder, or deposit_held_by_sutton. Those are derived later after scenario detection and source-field normalization.
 - transaction_type is purchase or lease. firm_or_conditional is firm or conditional. multiple_offer is yes (N) or no.
 - seller_representation and buyer_representation can be Sutton Group-Admiral, other brokerage, self-represented, or unknown when visible. For leases, seller_representation means landlord representation and buyer_representation means tenant representation.
 - scenario_hint should capture explicit phrases such as referral, co-brokerage, pre-construction, buyer self-represented, tenant self-represented, or multiple representation when visible.
 - seller_is_corporation and buyer_is_corporation should be yes, no, or unknown when visible.
 - additional_payees, rebate_to_clients, and referral should be yes or no when visible.
-- additional_payee_1_commission_pct, additional_payee_2_commission_pct, cooperating_commission_pct, listing_commission_pct, your_commission_pct, outside_brokerage_commission_pct, and total_commission_pct are percentages. marketing_fee_amount and rebate_amount are money amounts.
+- additional_payee_1_commission_pct, additional_payee_2_commission_pct, cooperating_commission_pct, listing_commission_pct, and total_commission_pct are percentages. marketing_fee_amount and rebate_amount are money amounts.
 - Multiple people in one field: join with "; ".
 - confidence: high if clearly legible/typed, medium if handwriting is readable but ambiguous, low if partially illegible or inferred.
 - source_page is the package page number labeled above each image.

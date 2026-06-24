@@ -355,7 +355,7 @@ function mapEmailBodyLabel(label: string) {
       patterns: [/^mls$/, /^mls number$/, /^listing number$/],
     },
     {
-      field_key: "sale_price",
+      field_key: "price_or_rent",
       label: "Price / Rent",
       confidence: 0.75,
       patterns: [/^sale price$/, /^purchase price$/, /^price$/, /^rent$/, /^lease price$/],

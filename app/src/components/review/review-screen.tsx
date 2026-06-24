@@ -1342,20 +1342,21 @@ const ALWAYS_REQUIRED_REVIEW_FIELDS = new Set([
   "agent_name",
   "property_address",
   "closing_date",
-  "sale_price",
+  "price_or_rent",
   "transaction_type",
   "representation_side",
   "seller_representation",
   "buyer_representation",
-  "seller_names",
-  "buyer_names",
+  "seller_landlord_names",
+  "buyer_tenant_names",
 ]);
 
 function isRequiredReviewField(fieldKey: string, fieldMap: Map<string, FieldRow>) {
   if (ALWAYS_REQUIRED_REVIEW_FIELDS.has(fieldKey)) return true;
 
-  if (fieldKey === "deposit_held_by" || fieldKey === "deposit_method" || fieldKey === "deposit_amount") {
-    return hasFieldValue(fieldMap, "deposit_held_by") ||
+  if (fieldKey === "deposit_holder" || fieldKey === "deposit_held_by_sutton" || fieldKey === "deposit_method" || fieldKey === "deposit_amount") {
+    return hasFieldValue(fieldMap, "deposit_holder") ||
+      hasFieldValue(fieldMap, "deposit_held_by") ||
       hasFieldValue(fieldMap, "deposit_method") ||
       hasFieldValue(fieldMap, "deposit_amount");
   }
