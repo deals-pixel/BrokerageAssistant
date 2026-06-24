@@ -222,12 +222,16 @@ function classificationFromStoredPages(
     page_number: number;
     doc_type?: string | null;
     doc_confidence?: string | null;
+    source?: string | null;
+    processing_status?: string | null;
+    light_classification_type?: string | null;
     standard_form_key?: string | null;
     standard_form_number?: string | null;
     standard_form_title?: string | null;
     standard_form_confidence?: string | null;
   }>,
 ): PageClassification | null {
+  if (pages.some((page) => isEmailLightClassifiedPage(page))) return null;
   if (!pages.every((page) => page.doc_type && isReusableConfidence(page.doc_confidence))) return null;
 
   return {
@@ -244,6 +248,18 @@ function classificationFromStoredPages(
         : null,
     })),
   };
+}
+
+function isEmailLightClassifiedPage(page: {
+  source?: string | null;
+  processing_status?: string | null;
+  light_classification_type?: string | null;
+}) {
+  return (
+    page.source === "email" &&
+    page.processing_status === "awaiting_admin_process" &&
+    Boolean(page.light_classification_type)
+  );
 }
 
 function transactionTypeFromStoredDeal(value: string | null | undefined): TransactionType | null {

@@ -414,8 +414,8 @@ function TransactionCard({
   dealOptions: IntakeDealOption[];
 }) {
   const isVirtualIntake = isVirtualIntakeDeal(deal);
-  const isProcessing = deal.status === "processing";
-  const hasIntakeWorkflow = shouldShowIntakeWorkflow(deal);
+  const isProcessing = deal.status === "processing" || hasProcessingRoutedIntake(deal);
+  const hasIntakeWorkflow = shouldShowIntakeWorkflow(deal) && !hasProcessingRoutedIntake(deal);
 
   return (
     <div className={`min-w-0 overflow-hidden rounded-lg border bg-background p-2 ${column.cardClassName}`}>
@@ -463,7 +463,7 @@ function TransactionCard({
             dealOptions={dealOptions}
             renderedAttachmentIds={deal.renderedAttachmentIds}
           />
-        ) : (
+        ) : !isProcessing ? (
           <>
             <MissingBadges deal={deal} limit={2} />
             <CompletionMeter deal={deal} />
@@ -474,7 +474,7 @@ function TransactionCard({
               <DashboardDealAction deal={deal} />
             </div>
           </>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -629,7 +629,8 @@ function TimeListDealRow({
   dealOptions: IntakeDealOption[];
   kind: "intake" | "date";
 }) {
-  const hasIntakeWorkflow = shouldShowIntakeWorkflow(deal);
+  const isProcessing = deal.status === "processing" || hasProcessingRoutedIntake(deal);
+  const hasIntakeWorkflow = shouldShowIntakeWorkflow(deal) && !hasProcessingRoutedIntake(deal);
 
   return (
     <div
@@ -668,12 +669,17 @@ function TimeListDealRow({
           />
         ) : (
           <div className="min-w-0 space-y-2 rounded-lg border bg-background/65 p-3">
-            {deal.status === "processing" && <ProcessingStepProgress />}
-            <MissingBadges deal={deal} limit={3} />
-            <CompletionMeter deal={deal} />
-            <div className="flex items-center justify-end">
-              <DashboardDealAction deal={deal} />
-            </div>
+            {isProcessing ? (
+              <ProcessingStepProgress />
+            ) : (
+              <>
+                <MissingBadges deal={deal} limit={3} />
+                <CompletionMeter deal={deal} />
+                <div className="flex items-center justify-end">
+                  <DashboardDealAction deal={deal} />
+                </div>
+              </>
+            )}
           </div>
         )
       ) : (
@@ -943,8 +949,12 @@ function shouldShowIntakeWorkflow(deal: DashboardDeal) {
   return hasIntakeSource && (deal.complianceStatus === "Intake Review" || deal.complianceStatus === "Routing Review");
 }
 
+function hasProcessingRoutedIntake(deal: DashboardDeal) {
+  return deal.intakeEmails.some((email) => email.status === "processing_from_routing");
+}
+
 function applyLinkedIntakeState(deal: DashboardDeal): DashboardDeal {
-  if (!deal.intakeEmails.some((email) => email.status === "processing_from_routing")) return deal;
+  if (!hasProcessingRoutedIntake(deal)) return deal;
   return {
     ...deal,
     complianceStatus: "Routing Review",

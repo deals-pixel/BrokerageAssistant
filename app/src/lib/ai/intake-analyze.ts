@@ -130,15 +130,15 @@ async function buildAnalysisContent(
     const name = attachment.name;
     const contentType = attachment.contentType ?? "";
     if (isPdfAttachment(name, contentType)) {
-      const pdf = await firstPagesPdf(attachment.buffer, MAX_PDF_PAGES);
+      const { buffer, context } = await pdfForAnalysis(attachment, MAX_PDF_PAGES);
       content.push({
         type: "document",
         source: {
           type: "base64",
           media_type: "application/pdf",
-          data: pdf.toString("base64"),
+          data: buffer.toString("base64"),
         },
-        context: `First ${MAX_PDF_PAGES} page(s) for attachment: ${name}`,
+        context,
         title: name,
       });
       continue;
@@ -163,6 +163,20 @@ async function buildAnalysisContent(
   });
 
   return content;
+}
+
+async function pdfForAnalysis(attachment: IntakeAnalysisAttachmentInput, maxPages: number) {
+  try {
+    return {
+      buffer: await firstPagesPdf(attachment.buffer, maxPages),
+      context: `First ${maxPages} page(s) for attachment: ${attachment.name}`,
+    };
+  } catch {
+    return {
+      buffer: attachment.buffer,
+      context: `Full stored PDF for attachment: ${attachment.name}. First-page extraction failed; analyze the document as provided.`,
+    };
+  }
 }
 
 async function firstPagesPdf(buffer: Buffer, maxPages: number) {

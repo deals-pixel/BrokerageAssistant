@@ -341,15 +341,16 @@ export function DealIntakeWorkflow({
             }}
           >
             {routingReady ? (
-              <div className="min-w-0 space-y-2">
+              <div className="flex min-w-0 items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">AI suggestion</div>
                   <div className="truncate text-[12px] font-semibold leading-4" title={suggestion.title}>
                     {suggestion.title}
                   </div>
                 </div>
-                <div className="grid grid-cols-1 gap-1.5 text-[10px]">
-                  <SuggestionMeta label="Confidence" value={routingConfidence(email.routing_json)} />
+                <div className="shrink-0 text-right text-[10px] leading-4">
+                  <div className="uppercase tracking-wide text-muted-foreground">Confidence</div>
+                  <div className="font-semibold text-foreground">{routingConfidence(email.routing_json)}</div>
                 </div>
               </div>
             ) : (

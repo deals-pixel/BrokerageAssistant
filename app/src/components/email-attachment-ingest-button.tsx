@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import {
-  confidenceFromLightClassification,
-  documentTypeFromLightClassification,
   renderFilePages,
 } from "@/lib/pdf-render-client";
 import { toast } from "sonner";
@@ -80,11 +78,6 @@ export async function prepareEmailAttachmentsForProcessing({
       type: attachment.mime_type ?? blob.type ?? "application/pdf",
     });
     const pages = await renderFilePages(file, (message) => onProgress?.(message));
-    const docType = documentTypeFromLightClassification(attachment.light_classification_type);
-    const docConfidence = confidenceFromLightClassification(
-      attachment.light_classification_confidence,
-    );
-
     for (const pageUpload of pages) {
       const pageNumber = nextPageNumber++;
       const imagePath = `${dealId}/pages/p${String(pageNumber).padStart(3, "0")}-${attachment.id}.jpg`;
@@ -99,12 +92,12 @@ export async function prepareEmailAttachmentsForProcessing({
         deal_id: dealId,
         page_number: pageNumber,
         image_path: imagePath,
-        doc_type: docType,
-        doc_confidence: docConfidence,
+        doc_type: null,
+        doc_confidence: null,
         email_attachment_id: attachment.id,
         source: "email",
         received_at: attachment.received_at,
-        classification_status: docType ? "light_classified" : "unclassified",
+        classification_status: "unclassified",
         light_classification_type: attachment.light_classification_type,
         light_classification_confidence: attachment.light_classification_confidence,
         processing_status: "awaiting_admin_process",
