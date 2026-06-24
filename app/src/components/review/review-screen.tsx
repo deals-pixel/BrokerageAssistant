@@ -747,8 +747,7 @@ export function ReviewScreen({
             <CardContent className="flex flex-wrap gap-x-5 gap-y-2 p-3">
               <FieldStatusLegendItem tone="confirmed" label="Confirmed" />
               <FieldStatusLegendItem tone="review" label="Needs review" />
-              <FieldStatusLegendItem tone="missing" label="Missing - required" />
-              <FieldStatusLegendItem tone="neutral" label="Not applicable" />
+              <FieldStatusLegendItem tone="missing" label="Missing" />
             </CardContent>
           </Card>
 
@@ -1309,10 +1308,10 @@ function getFieldStatus(
 
   if (!hasValue) {
     return {
-      tone: "neutral",
-      label: "Not applicable",
-      detail: "Not required for this transaction type",
-      className: "border-border bg-muted/30 text-muted-foreground",
+      tone: "missing",
+      label: "Missing",
+      detail: "No value found in the source documents",
+      className: "border-red-200 bg-red-50/60 focus-visible:ring-red-200",
     };
   }
 
