@@ -39,7 +39,7 @@ export type SourceBox = { x: number; y: number; width: number; height: number };
 export type FieldSourceCandidate = {
   value: string;
   confidence: Confidence;
-  sourceDocumentType?: DocumentType;
+  sourceDocumentType?: DocumentType | string;
   sourcePage?: number | null;
   sourceBox?: SourceBox | null;
 };
@@ -58,7 +58,7 @@ export type DealStatus =
 export type FieldReview = {
   value: string | null;
   confidence: Confidence;
-  sourceDocumentType?: DocumentType;
+  sourceDocumentType?: DocumentType | string;
   sourcePage?: number;
   sourceBox?: SourceBox | null;
   conflictSources?: FieldSourceCandidate[];
@@ -66,9 +66,8 @@ export type FieldReview = {
   notes?: string;
 };
 
-// Field sections drive the review-screen layout and CSV/PDF export order.
-// Sections mirror the brokerage's Deal Information Sheet, top to bottom.
 export type FieldDef = { key: string; label: string; wide?: boolean; multiline?: boolean };
+export type FieldSection = { title: string; fields: FieldDef[] };
 
 export const DERIVED_DEAL_SHEET_FIELD_KEYS = new Set([
   "price_or_rent",
@@ -90,12 +89,13 @@ export const DERIVED_DEAL_SHEET_FIELD_KEYS = new Set([
   "deposit_held_by_sutton",
 ]);
 
-export const FIELD_SECTIONS: { title: string; fields: FieldDef[] }[] = [
+export const FIELD_SECTIONS: FieldSection[] = [
   {
-    title: "Deal Information",
+    title: "Deal Summary",
     fields: [
       { key: "agent_name", label: "Your Name (Agent)" },
       { key: "property_address", label: "Property Address", wide: true },
+      { key: "transaction_type", label: "Transaction Type" },
       { key: "closing_date", label: "Closing Date" },
       { key: "mls_number", label: "MLS Number" },
       { key: "price_or_rent", label: "Price / Rent" },
@@ -103,11 +103,10 @@ export const FIELD_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: "conditions_summary", label: "Condition(s)", wide: true, multiline: true },
       { key: "condition_expiry_date", label: "Expiry" },
       { key: "multiple_offer", label: "Multiple Offer? (how many)" },
-      { key: "scenario_hint", label: "Scenario Hint" },
     ],
   },
   {
-    title: "Seller's / Landlord Information",
+    title: "Seller / Landlord",
     fields: [
       { key: "seller_landlord_names", label: "Seller/Landlord Name(s)" },
       { key: "seller_landlord_emails", label: "Seller/Landlord Email" },
@@ -121,7 +120,7 @@ export const FIELD_SECTIONS: { title: string; fields: FieldDef[] }[] = [
     ],
   },
   {
-    title: "Buyer's / Tenants Information",
+    title: "Buyer / Tenant",
     fields: [
       { key: "buyer_tenant_names", label: "Buyer/Tenant Name(s)" },
       { key: "buyer_tenant_emails", label: "Buyer/Tenant Email" },
@@ -135,20 +134,33 @@ export const FIELD_SECTIONS: { title: string; fields: FieldDef[] }[] = [
     ],
   },
   {
-    title: "Commission Information",
+    title: "Brokerage Sides",
+    fields: [
+      { key: "representation_side", label: "Our Side" },
+      { key: "seller_representation", label: "Seller/Landlord Side Representation" },
+      { key: "buyer_representation", label: "Buyer/Tenant Side Representation" },
+      { key: "listing_agent_name", label: "Listing/Seller-Side Agent" },
+      { key: "listing_brokerage", label: "Listing/Seller-Side Brokerage" },
+      { key: "cooperating_agent_name", label: "Co-operating/Buyer-Side Agent" },
+      { key: "cooperating_brokerage", label: "Co-operating/Buyer-Side Brokerage" },
+      { key: "scenario_hint", label: "Scenario Notes", wide: true, multiline: true },
+    ],
+  },
+  {
+    title: "Commission",
     fields: [
       { key: "total_commission_pct", label: "Total Commission %" },
       { key: "your_commission_pct", label: "Your Commission %" },
       { key: "outside_brokerage_commission_pct", label: "Outside Brokerage Commission %" },
+      { key: "listing_commission_pct", label: "Listing/Seller-Side Commission %" },
+      { key: "cooperating_commission_pct", label: "Co-operating/Buyer-Side Commission %" },
+      { key: "outside_agent_name", label: "Outside Agent Name" },
+      { key: "outside_brokerage", label: "Outside Brokerage" },
       { key: "additional_payees", label: "Additional Payee(s)?" },
       { key: "additional_payee_1_name", label: "Additional Payee 1" },
       { key: "additional_payee_1_commission_pct", label: "Additional Payee 1 Commission %" },
       { key: "additional_payee_2_name", label: "Additional Payee 2" },
       { key: "additional_payee_2_commission_pct", label: "Additional Payee 2 Commission %" },
-      { key: "listing_commission_pct", label: "Listing/Seller-Side Commission %" },
-      { key: "cooperating_commission_pct", label: "Co-operating/Selling-Side Commission %" },
-      { key: "outside_agent_name", label: "Outside Agent Name" },
-      { key: "outside_brokerage", label: "Outside Agent Brokerage" },
       { key: "marketing_fee_amount", label: "Marketing Fee $" },
       { key: "rebate_to_clients", label: "Rebate to Your Clients?" },
       { key: "rebate_amount", label: "Rebate to Your Clients $" },
@@ -157,7 +169,7 @@ export const FIELD_SECTIONS: { title: string; fields: FieldDef[] }[] = [
     ],
   },
   {
-    title: "Deposit Info",
+    title: "Deposit & Key Dates",
     fields: [
       { key: "deposit_holder", label: "Held By" },
       { key: "deposit_held_by_sutton", label: "Held by Sutton?" },
@@ -165,15 +177,19 @@ export const FIELD_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: "deposit_amount", label: "Amount $" },
       { key: "further_deposit_amount", label: "Further Deposit $" },
       { key: "further_deposit_due", label: "Further Deposit Due" },
+      { key: "offer_date", label: "Offer Date" },
+      { key: "acceptance_date", label: "Acceptance Date" },
+      { key: "irrevocable_date", label: "Irrevocable Until" },
+      { key: "lease_start_date", label: "Lease Start" },
+      { key: "lease_end_date", label: "Lease End" },
     ],
   },
+];
+
+export const SOURCE_FIELD_SECTIONS: FieldSection[] = [
   {
-    title: "Other Details (not on the printed form)",
+    title: "Source Party Fields",
     fields: [
-      { key: "transaction_type", label: "Transaction Type" },
-      { key: "representation_side", label: "Representation Side" },
-      { key: "seller_representation", label: "Seller/Landlord Representation" },
-      { key: "buyer_representation", label: "Buyer/Tenant Representation" },
       { key: "sale_price", label: "Source Price / Rent" },
       { key: "seller_names", label: "Source Seller/Landlord Names" },
       { key: "seller_emails", label: "Source Seller/Landlord Email" },
@@ -186,23 +202,16 @@ export const FIELD_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: "buyer_is_corporation", label: "Source Buyer/Tenant Corporation?" },
       { key: "buyer_address", label: "Source Buyer/Tenant Address" },
       { key: "deposit_held_by", label: "Source Deposit Holder" },
-      { key: "offer_date", label: "Offer Date" },
-      { key: "acceptance_date", label: "Acceptance Date" },
-      { key: "irrevocable_date", label: "Irrevocable Until" },
-      { key: "lease_start_date", label: "Lease Start" },
-      { key: "lease_end_date", label: "Lease End" },
-      { key: "listing_agent_name", label: "Listing/Seller-Side Agent" },
-      { key: "listing_brokerage", label: "Listing/Seller-Side Brokerage" },
-      { key: "cooperating_agent_name", label: "Co-operating/Selling-Side Agent" },
-      { key: "cooperating_brokerage", label: "Co-operating/Selling-Side Brokerage" },
     ],
   },
 ];
 
-export const ALL_FIELD_KEYS = FIELD_SECTIONS.flatMap((s) => s.fields.map((f) => f.key));
+export const FIELD_REGISTRY_SECTIONS: FieldSection[] = [...FIELD_SECTIONS, ...SOURCE_FIELD_SECTIONS];
+
+export const ALL_FIELD_KEYS = FIELD_REGISTRY_SECTIONS.flatMap((s) => s.fields.map((f) => f.key));
 
 export const FIELD_LABELS: Record<string, string> = Object.fromEntries(
-  FIELD_SECTIONS.flatMap((s) => s.fields.map((f) => [f.key, f.label])),
+  FIELD_REGISTRY_SECTIONS.flatMap((s) => s.fields.map((f) => [f.key, f.label])),
 );
 
 // Document checklist rules per transaction type.

@@ -536,7 +536,7 @@ export function inferScenario(
     fieldText.buyer_representation,
   ].join(" ");
 
-  if (docs.has("builder_confirmation_cooperation") || docs.has("first_page_aps") || scenarioHint.includes("pre")) {
+  if (docs.has("builder_confirmation_cooperation") || docs.has("first_page_aps") || hasPreConstructionHint(scenarioHint)) {
     return SCENARIO_BY_KEY.pre_construction;
   }
   if (docs.has("co_brokerage_agreement") && !hasPurchaseDoc(docs) && !hasLeaseDoc(docs)) {
@@ -698,6 +698,17 @@ function isOtherBrokerageText(value: string | undefined) {
     text.includes("another brokerage") ||
     text.includes("different brokerage") ||
     text.includes("outside brokerage")
+  );
+}
+
+function hasPreConstructionHint(value: string | undefined) {
+  const text = normalizeText(value);
+  return (
+    /\bpre\s*construction\b/.test(text) ||
+    /\bprecon\b/.test(text) ||
+    /\bpre\s*con\b/.test(text) ||
+    text.includes("builder confirmation") ||
+    text.includes("new construction")
   );
 }
 

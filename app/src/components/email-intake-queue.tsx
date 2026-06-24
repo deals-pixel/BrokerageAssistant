@@ -237,17 +237,21 @@ export function DealIntakeWorkflow({
       setDialog(null);
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Approval failed");
+      const message = err instanceof Error ? err.message : "Approval failed";
+      await updateInboundEmailStatus(dialog.email.id, "error", message).catch((statusErr) => {
+        console.error("Could not mark intake approval as failed", statusErr);
+      });
+      toast.error(message);
     } finally {
       setWorkingId(null);
       setWorkflowProgress("");
     }
   }
 
-  async function updateInboundEmailStatus(emailId: string, status: string) {
+  async function updateInboundEmailStatus(emailId: string, status: string, errorMessage: string | null = null) {
     const { error } = await supabase
       .from("inbound_emails")
-      .update({ status, error_message: null })
+      .update({ status, error_message: errorMessage })
       .eq("id", emailId);
     if (error) throw new Error(error.message);
   }

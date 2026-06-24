@@ -16,7 +16,7 @@ import {
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
-import { DOCUMENT_TYPES, FIELD_SECTIONS, type DocumentType, type SourceBox } from "@/lib/types";
+import { DOCUMENT_TYPES, FIELD_REGISTRY_SECTIONS, type DocumentType, type SourceBox } from "@/lib/types";
 import { STANDARD_FORMS, type StandardFormDefinition } from "@/lib/standard-forms";
 import { formatSize, isJpeg, isPdf, renderFilePages } from "@/lib/pdf-render-client";
 import { Badge } from "@/components/ui/badge";
@@ -87,7 +87,7 @@ const NUDGE_SMALL = 0.002;
 const NUDGE_LARGE = 0.01;
 const RESIZE_HANDLES: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
-const FIELD_OPTIONS = FIELD_SECTIONS.flatMap((section) =>
+const FIELD_OPTIONS = FIELD_REGISTRY_SECTIONS.flatMap((section) =>
   section.fields.map((field) => ({
     key: field.key,
     label: field.label,

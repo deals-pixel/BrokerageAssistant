@@ -15,6 +15,7 @@ type CacheIdentity = {
   docType: DocumentType;
   pages: CachePage[];
   standardFormKeys?: string[];
+  promptSignature?: string;
 };
 
 export function extractionCacheKey(identity: CacheIdentity) {
@@ -32,6 +33,7 @@ export function extractionCacheKey(identity: CacheIdentity) {
         docType: identity.docType,
         pages: pageParts,
         standardFormKeys: identity.standardFormKeys ?? [],
+        promptSignature: identity.promptSignature ?? null,
       }),
     )
     .digest("hex");

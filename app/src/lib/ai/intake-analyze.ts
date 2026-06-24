@@ -109,6 +109,7 @@ async function buildAnalysisContent(
   const usableAttachments = attachments
     .filter((attachment) => attachment.buffer.byteLength <= MAX_FILE_BYTES)
     .slice(0, MAX_ATTACHMENTS);
+  const usableAttachmentNames = new Set(usableAttachments.map((attachment) => attachment.name));
   const text = [
     "Inbound email metadata:",
     `From: ${email.fromName ?? ""} <${email.fromEmail ?? ""}>`,
@@ -118,10 +119,16 @@ async function buildAnalysisContent(
     "Body text:",
     truncate(email.bodyText ?? "", 6000),
     "",
-    "Attachments:",
+    "All attachment filenames:",
     ...email.attachments.map((attachment) =>
       `- ${attachment.name} (${attachment.contentType ?? "unknown"}, ${attachment.contentLength ?? "unknown"} bytes)`,
     ),
+    "",
+    "Attachments provided for document analysis:",
+    ...usableAttachments.map((attachment) => `- ${attachment.name}`),
+    ...email.attachments
+      .filter((attachment) => !usableAttachmentNames.has(attachment.name))
+      .map((attachment) => `- ${attachment.name} (filename only, not provided as document content)`),
   ].join("\n");
 
   const content: Anthropic.ContentBlockParam[] = [{ type: "text", text }];
@@ -159,7 +166,9 @@ async function buildAnalysisContent(
 
   content.push({
     type: "text",
-    text: "Analyze this inbound package. Return one document_type_guess for every attachment filename listed above.",
+    text:
+      "Analyze this inbound package. Return document_type_guess entries only for attachments provided as document content. " +
+      "For filename-only attachments, leave classification to the filename heuristic fallback.",
   });
 
   return content;

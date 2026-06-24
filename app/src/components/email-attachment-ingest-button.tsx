@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   renderFilePages,
 } from "@/lib/pdf-render-client";
+import { DOCUMENT_TYPES, type Confidence, type DocumentType } from "@/lib/types";
 import { toast } from "sonner";
 
 export type EmailAttachmentForIngest = {
@@ -78,6 +79,7 @@ export async function prepareEmailAttachmentsForProcessing({
       type: attachment.mime_type ?? blob.type ?? "application/pdf",
     });
     const pages = await renderFilePages(file, (message) => onProgress?.(message));
+    const reusableClassification = reusableLightClassification(attachment, pages.length);
     for (const pageUpload of pages) {
       const pageNumber = nextPageNumber++;
       const imagePath = `${dealId}/pages/p${String(pageNumber).padStart(3, "0")}-${attachment.id}.jpg`;
@@ -92,8 +94,8 @@ export async function prepareEmailAttachmentsForProcessing({
         deal_id: dealId,
         page_number: pageNumber,
         image_path: imagePath,
-        doc_type: null,
-        doc_confidence: null,
+        doc_type: reusableClassification?.docType ?? null,
+        doc_confidence: reusableClassification?.confidence ?? null,
         email_attachment_id: attachment.id,
         source: "email",
         received_at: attachment.received_at,
@@ -144,6 +146,19 @@ export async function prepareEmailAttachmentsForProcessing({
     uploadedPages,
     pageCount: count ?? uploadedPages,
     preparedFiles,
+  };
+}
+
+function reusableLightClassification(attachment: EmailAttachmentForIngest, renderedPageCount: number) {
+  const docType = attachment.light_classification_type;
+  const confidence = attachment.light_classification_confidence ?? 0;
+  if (!docType || docType === "unknown" || docType === "other") return null;
+  if (!(docType in DOCUMENT_TYPES)) return null;
+  if (confidence < 0.9 || renderedPageCount > 6) return null;
+
+  return {
+    docType: docType as DocumentType,
+    confidence: confidence >= 0.97 ? ("high" as Confidence) : ("medium" as Confidence),
   };
 }
 

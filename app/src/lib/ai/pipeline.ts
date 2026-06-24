@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { classifyPages } from "./classify";
-import { extractFromDocument, EXTRACTABLE_DOCS } from "./extract";
-import { mergeExtractions } from "./merge";
+import { extractFromDocument, extractFromStandardFormRegions, EXTRACTABLE_DOCS } from "./extract";
+import { mergeExtractions, type MergedField } from "./merge";
 import { validateFields } from "./validate";
 import {
   applyTemplateSourceFallbacks,
@@ -14,9 +14,32 @@ import { syncMissingDocumentTasks } from "@/lib/workflow";
 import { CLASSIFICATION_AI_MODEL } from "./client";
 import { logAiUsage } from "./usage";
 import type { Confidence, DocumentType, TransactionType } from "@/lib/types";
-import type { FieldExtraction, PageClassification } from "./schemas";
+import type { PageClassification } from "./schemas";
 
 type PageImage = { pageNumber: number; base64: string; mediaType: "image/jpeg"; pageHash: string };
+type ExistingDealFieldRow = {
+  field_key: string;
+  value: string | null;
+  confidence: Confidence | null;
+  source_doc_type: string | null;
+  source_page: number | null;
+  source_box: unknown;
+  conflict_sources: unknown;
+  needs_review: boolean | null;
+  notes: string | null;
+  edited_at: string | null;
+  edited_by: string | null;
+};
+type PipelineField = MergedField & {
+  editedAt?: string | null;
+  editedBy?: string | null;
+};
+type ExtractionModeSummary = {
+  docType: DocumentType;
+  mode: "region_first" | "full_page" | "region_fallback_full_page";
+  regions?: number;
+  regionFields?: number;
+};
 
 /**
  * Full pipeline for one deal: download page images from storage,
@@ -111,19 +134,54 @@ export async function processDeal(dealId: string): Promise<void> {
       byDoc.set(dt, [...(byDoc.get(dt) ?? []), img]);
     }
 
-    const extractions: { docType: DocumentType; extraction: FieldExtraction }[] = [];
-    for (const [docType, docImages] of byDoc) {
+    const extractionModes: ExtractionModeSummary[] = [];
+    const extractions = await runWithConcurrency([...byDoc.entries()], 3, async ([docType, docImages]) => {
+      const regionResult = await extractFromStandardFormRegions(
+        docType,
+        docImages,
+        pageFormMatches.filter((pageMatch) => pageMatch.docType === docType),
+        {
+          dealId,
+          metadata: { source: "full_processing" },
+        },
+      );
+      if (regionResult && shouldUseRegionExtraction(regionResult)) {
+        extractionModes.push({
+          docType,
+          mode: "region_first",
+          regions: regionResult.regionCount,
+          regionFields: regionResult.extractedCount,
+        });
+        return { docType, extraction: regionResult.extraction };
+      }
+
       const extraction = await extractFromDocument(docType, docImages, {
         standardForms: standardFormMatchesForDocument(docType, pageFormMatches),
         dealId,
-        metadata: { source: "full_processing" },
+        metadata: {
+          source: "full_processing",
+          region_first_fallback:
+            regionResult && !shouldUseRegionExtraction(regionResult)
+              ? `${regionResult.extractedCount}/${regionResult.regionCount}`
+              : null,
+        },
       });
-      extractions.push({ docType, extraction });
-    }
+      extractionModes.push({
+        docType,
+        mode: regionResult ? "region_fallback_full_page" : "full_page",
+        regions: regionResult?.regionCount,
+        regionFields: regionResult?.extractedCount,
+      });
+      return { docType, extraction };
+    });
 
     // Steps 4–5: merge + validate
     const templateFallbacks = applyTemplateSourceFallbacks(extractions, pageFormMatches);
-    let merged = mergeExtractions(templateFallbacks.extractions);
+    const existingRows = await loadExistingDealFields(supabase, dealId);
+    let merged: PipelineField[] = mergeExistingFields(
+      mergeExtractions(templateFallbacks.extractions),
+      existingRowsToMergedFields(existingRows),
+    );
     const preliminaryChecklist = buildChecklistResult(
       classification.transaction_type,
       classification.pages.map((page) => ({
@@ -136,23 +194,12 @@ export async function processDeal(dealId: string): Promise<void> {
     merged = validateFields(merged, classification.transaction_type, {
       scenarioKey: preliminaryChecklist.scenario.key,
       scenarioLabel: preliminaryChecklist.scenario.label,
-    });
+    }) as PipelineField[];
 
     // Persist fields
     await supabase.from("deal_fields").delete().eq("deal_id", dealId);
     if (merged.length > 0) {
-      const rows = merged.map((f) => ({
-        deal_id: dealId,
-        field_key: f.key,
-        value: f.value,
-        confidence: f.confidence,
-        source_doc_type: f.sourceDocumentType ?? null,
-        source_page: f.sourcePage ?? null,
-        source_box: f.sourceBox ?? null,
-        conflict_sources: f.conflictSources ?? null,
-        needs_review: f.needsReview,
-        notes: f.notes ?? null,
-      }));
+      const rows = fieldRowsForPersistence(dealId, merged, existingRows);
       const { error: insErr } = await supabase.from("deal_fields").insert(rows);
       if (insErr) throw new Error(`Failed to save fields: ${insErr.message}`);
     }
@@ -187,7 +234,11 @@ export async function processDeal(dealId: string): Promise<void> {
         pages: classification.pages.length,
         classification_source: storedClassification ? "stored_deal_pages" : "ai",
         documents: [...byDoc.keys()],
+        extraction_modes: extractionModes,
         fields: merged.length,
+        existing_fields_preserved: merged.filter(
+          (field) => field.editedAt || field.sourceDocumentType === "email_body",
+        ).length,
         scenario: checklist.scenario.key,
         standard_forms: pageFormMatches
           .filter((pageMatch) => pageMatch.match)
@@ -216,6 +267,162 @@ export async function processDeal(dealId: string): Promise<void> {
   }
 }
 
+async function loadExistingDealFields(
+  supabase: ReturnType<typeof createAdminClient>,
+  dealId: string,
+): Promise<ExistingDealFieldRow[]> {
+  const { data, error } = await supabase
+    .from("deal_fields")
+    .select(
+      "field_key, value, confidence, source_doc_type, source_page, source_box, conflict_sources, needs_review, notes, edited_at, edited_by",
+    )
+    .eq("deal_id", dealId);
+  if (error) throw new Error(`Failed to load existing fields: ${error.message}`);
+  return (data ?? []) as ExistingDealFieldRow[];
+}
+
+function shouldUseRegionExtraction(result: { regionCount: number; extractedCount: number }) {
+  if (process.env.REGION_FIRST_EXTRACTION === "0") return false;
+  if (result.extractedCount <= 0) return false;
+  if (result.regionCount < 4) return true;
+  return result.extractedCount / result.regionCount >= 0.2;
+}
+
+function existingRowsToMergedFields(rows: ExistingDealFieldRow[]): PipelineField[] {
+  return rows
+    .filter((row) => row.value?.trim())
+    .map((row) => ({
+      key: row.field_key,
+      value: row.value?.trim() ?? null,
+      confidence: isConfidence(row.confidence) ? row.confidence : "medium",
+      sourceDocumentType: row.source_doc_type ?? undefined,
+      sourcePage: row.source_page ?? undefined,
+      sourceBox: sourceBoxFromUnknown(row.source_box),
+      conflictSources: Array.isArray(row.conflict_sources) ? row.conflict_sources : undefined,
+      needsReview: row.needs_review ?? true,
+      notes: row.notes ?? undefined,
+      editedAt: row.edited_at,
+      editedBy: row.edited_by,
+    }));
+}
+
+function mergeExistingFields(aiFields: MergedField[], existingFields: PipelineField[]): PipelineField[] {
+  const byKey = new Map<string, PipelineField>(aiFields.map((field) => [field.key, { ...field }]));
+
+  for (const existing of existingFields) {
+    const current = byKey.get(existing.key);
+    if (!current) {
+      byKey.set(existing.key, existing);
+      continue;
+    }
+
+    if (existing.editedAt) {
+      byKey.set(existing.key, {
+        ...existing,
+        conflictSources: conflictSourcesFor(existing, current),
+        needsReview: existing.needsReview || !valuesAgree(existing.value, current.value),
+        notes: appendNote(existing.notes, "Manual edit preserved during AI reprocessing."),
+      });
+      continue;
+    }
+
+    if (existing.sourceDocumentType === "email_body" && !valuesAgree(existing.value, current.value)) {
+      byKey.set(existing.key, {
+        ...current,
+        conflictSources: conflictSourcesFor(current, existing),
+        needsReview: true,
+        notes: appendNote(current.notes, "Email body had a different value; verify against documents."),
+      });
+    }
+  }
+
+  return [...byKey.values()];
+}
+
+function fieldRowsForPersistence(dealId: string, fields: PipelineField[], existingRows: ExistingDealFieldRow[]) {
+  const existingByKey = new Map(existingRows.map((row) => [row.field_key, row]));
+  return fields.map((field) => {
+    const existing = existingByKey.get(field.key);
+    const preserveEdit = Boolean(existing?.edited_at) && valuesAgree(existing?.value ?? null, field.value);
+    return {
+      deal_id: dealId,
+      field_key: field.key,
+      value: field.value,
+      confidence: field.confidence,
+      source_doc_type: field.sourceDocumentType ?? null,
+      source_page: field.sourcePage ?? null,
+      source_box: field.sourceBox ?? null,
+      conflict_sources: field.conflictSources ?? null,
+      needs_review: field.needsReview,
+      notes: field.notes ?? null,
+      edited_at: preserveEdit ? existing?.edited_at : field.editedAt ?? null,
+      edited_by: preserveEdit ? existing?.edited_by : field.editedBy ?? null,
+    };
+  });
+}
+
+async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  let index = 0;
+  async function runNext() {
+    const current = index;
+    index += 1;
+    if (current >= items.length) return;
+    results[current] = await worker(items[current]);
+    await runNext();
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runNext));
+  return results;
+}
+
+function conflictSourcesFor(primary: PipelineField, secondary: PipelineField) {
+  return [primary, secondary].map((field) => ({
+    value: field.value ?? "",
+    confidence: field.confidence,
+    sourceDocumentType: field.sourceDocumentType,
+    sourcePage: field.sourcePage,
+    sourceBox: field.sourceBox,
+  }));
+}
+
+function sourceBoxFromUnknown(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const box = value as { x?: unknown; y?: unknown; width?: unknown; height?: unknown };
+  if (
+    typeof box.x !== "number" ||
+    typeof box.y !== "number" ||
+    typeof box.width !== "number" ||
+    typeof box.height !== "number"
+  ) {
+    return null;
+  }
+  return { x: box.x, y: box.y, width: box.width, height: box.height };
+}
+
+function appendNote(existing: string | undefined, note: string) {
+  return existing ? `${existing}; ${note}` : note;
+}
+
+function valuesAgree(a: string | null | undefined, b: string | null | undefined) {
+  const left = (a ?? "").trim();
+  const right = (b ?? "").trim();
+  if (!left && !right) return true;
+  const leftNumber = normalizeNumber(left);
+  const rightNumber = normalizeNumber(right);
+  if (leftNumber !== null && rightNumber !== null) return Math.abs(leftNumber - rightNumber) < 0.005;
+  return left.toLowerCase().replace(/\s+/g, " ") === right.toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeNumber(value: string) {
+  const cleaned = value.replace(/[$,%\s]/g, "");
+  if (cleaned === "" || Number.isNaN(Number(cleaned))) return null;
+  return Number(cleaned);
+}
+
 function classificationFromStoredPages(
   deal: { transaction_type?: string | null },
   pages: Array<{
@@ -231,7 +438,6 @@ function classificationFromStoredPages(
     standard_form_confidence?: string | null;
   }>,
 ): PageClassification | null {
-  if (pages.some((page) => isEmailLightClassifiedPage(page))) return null;
   if (!pages.every((page) => page.doc_type && isReusableConfidence(page.doc_confidence))) return null;
 
   return {
@@ -248,18 +454,6 @@ function classificationFromStoredPages(
         : null,
     })),
   };
-}
-
-function isEmailLightClassifiedPage(page: {
-  source?: string | null;
-  processing_status?: string | null;
-  light_classification_type?: string | null;
-}) {
-  return (
-    page.source === "email" &&
-    page.processing_status === "awaiting_admin_process" &&
-    Boolean(page.light_classification_type)
-  );
 }
 
 function transactionTypeFromStoredDeal(value: string | null | undefined): TransactionType | null {

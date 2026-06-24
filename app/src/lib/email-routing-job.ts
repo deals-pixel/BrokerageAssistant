@@ -57,11 +57,7 @@ export async function processQueuedInboundEmails(limit = 5) {
     .limit(limit);
   if (error) throw new Error(error.message);
 
-  const results = [];
-  for (const email of emails ?? []) {
-    results.push(await processInboundEmailRouting(email.id));
-  }
-  return results;
+  return runWithConcurrency(emails ?? [], 3, (email) => processInboundEmailRouting(email.id));
 }
 
 export async function processInboundEmailRouting(inboundEmailId: string) {
@@ -86,7 +82,7 @@ export async function processInboundEmailRouting(inboundEmailId: string) {
     return { inboundEmailId, status: "skipped", reason: "not claimable" };
   }
 
-  const { data: claimed, error: claimError } = await supabase
+  let claimQuery = supabase
     .from("inbound_emails")
     .update({
       status: "routing",
@@ -95,9 +91,15 @@ export async function processInboundEmailRouting(inboundEmailId: string) {
       error_message: null,
     })
     .eq("id", inboundEmailId)
-    .in("status", ["routing_queued", "routing_error", "routing"])
-    .select("id, routing_attempts")
-    .single();
+    .eq("routing_attempts", current.routing_attempts);
+
+  if (staleRouting) {
+    claimQuery = claimQuery.eq("status", "routing").eq("routing_started_at", current.routing_started_at);
+  } else {
+    claimQuery = claimQuery.in("status", ["routing_queued", "routing_error"]);
+  }
+
+  const { data: claimed, error: claimError } = await claimQuery.select("id, routing_attempts").single();
   if (claimError || !claimed) {
     return { inboundEmailId, status: "skipped", reason: claimError?.message ?? "not claimable" };
   }
@@ -340,4 +342,22 @@ function nameMatches(candidate: string, values: string[]) {
       normalizedCandidate.includes(normalizedValue)
     );
   });
+}
+
+async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  let index = 0;
+  async function runNext() {
+    const current = index;
+    index += 1;
+    if (current >= items.length) return;
+    results[current] = await worker(items[current]);
+    await runNext();
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runNext));
+  return results;
 }

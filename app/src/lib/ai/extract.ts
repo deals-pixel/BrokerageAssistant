@@ -1,7 +1,19 @@
+import { createHash } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { ALL_FIELD_KEYS, DERIVED_DEAL_SHEET_FIELD_KEYS, FIELD_LABELS, type DocumentType } from "@/lib/types";
-import { extractionTemplateGuide, type StandardFormMatch } from "@/lib/standard-forms";
+import sharp from "sharp";
+import {
+  ALL_FIELD_KEYS,
+  DERIVED_DEAL_SHEET_FIELD_KEYS,
+  FIELD_LABELS,
+  type DocumentType,
+  type SourceBox,
+} from "@/lib/types";
+import {
+  extractionTemplateGuide,
+  standardFormByKey,
+  type StandardFormMatch,
+} from "@/lib/standard-forms";
 import { anthropic, EXTRACTION_AI_MODEL } from "./client";
 import {
   extractionCacheKey,
@@ -104,8 +116,255 @@ const DOC_HINTS: Partial<Record<DocumentType, string>> = {
 };
 
 const MAX_PAGES_PER_CALL = 12;
+const PROMPT_SIGNATURE = createHash("sha256")
+  .update(SYSTEM)
+  .update("|field-extraction-schema-v2")
+  .digest("hex");
+const REGION_SYSTEM = `You read small cropped field regions from known Ontario real estate standard forms.
+
+Each image is already cropped to one labelled field region. Read only the handwritten or typed value inside that crop.
+
+Rules:
+- Return one field entry only when a value is visible in the crop.
+- Omit blank fields, labels-only crops, boilerplate text, and unreadable marks.
+- Use exactly the provided field_key.
+- Dates in YYYY-MM-DD when clear. Money as plain numbers without $ or commas. Percentages as numbers.
+- Multiple people in one field: join with "; ".
+- confidence is high when clearly legible, medium when readable but ambiguous, low when partially illegible.
+- source_page must be the package page number supplied for the region.
+- source_box can be null; the application will restore the calibrated full-page region.`;
+const REGION_PROMPT_SIGNATURE = createHash("sha256")
+  .update(REGION_SYSTEM)
+  .update("|region-field-extraction-v1")
+  .digest("hex");
+
+export type RegionPageMatch = {
+  pageNumber: number;
+  templatePageNumber: number | null;
+  match: StandardFormMatch | null;
+};
 
 export async function extractFromDocument(
+  docType: DocumentType,
+  pageImages: { pageNumber: number; base64: string; mediaType: "image/jpeg" | "image/png"; pageHash?: string | null }[],
+  options: {
+    standardForms?: StandardFormMatch[];
+    dealId?: string | null;
+    metadata?: Record<string, unknown>;
+  } = {},
+): Promise<FieldExtraction> {
+  if (pageImages.length > MAX_PAGES_PER_CALL) {
+    const chunks: FieldExtraction[] = [];
+    for (let index = 0; index < pageImages.length; index += MAX_PAGES_PER_CALL) {
+      chunks.push(
+        await extractDocumentChunk(docType, pageImages.slice(index, index + MAX_PAGES_PER_CALL), {
+          ...options,
+          metadata: {
+            ...options.metadata,
+            chunk_index: Math.floor(index / MAX_PAGES_PER_CALL) + 1,
+            chunk_count: Math.ceil(pageImages.length / MAX_PAGES_PER_CALL),
+          },
+        }),
+      );
+    }
+    return { fields: chunks.flatMap((chunk) => chunk.fields) };
+  }
+
+  return extractDocumentChunk(docType, pageImages, options);
+}
+
+export async function extractFromStandardFormRegions(
+  docType: DocumentType,
+  pageImages: { pageNumber: number; base64: string; mediaType: "image/jpeg" | "image/png"; pageHash?: string | null }[],
+  pageMatches: RegionPageMatch[],
+  options: {
+    dealId?: string | null;
+    metadata?: Record<string, unknown>;
+  } = {},
+): Promise<{ extraction: FieldExtraction; regionCount: number; extractedCount: number } | null> {
+  const regionInputs = await regionInputsForPages(pageImages, pageMatches);
+  if (regionInputs.length === 0) return null;
+
+  const cacheKey = extractionCacheKey({
+    model: EXTRACTION_AI_MODEL,
+    docType,
+    pages: pageImages,
+    standardFormKeys: [...new Set(regionInputs.map((input) => input.formKey))].sort(),
+    promptSignature: REGION_PROMPT_SIGNATURE,
+  });
+
+  if (cacheKey) {
+    const cached = await readCachedExtraction(cacheKey);
+    if (cached) {
+      await logAiUsage({
+        layer: "extraction",
+        model: EXTRACTION_AI_MODEL,
+        dealId: options.dealId,
+        cached: true,
+        inputPages: pageImages.length,
+        metadata: {
+          doc_type: docType,
+          cache_key: cacheKey,
+          extraction_mode: "region_first",
+          regions: regionInputs.length,
+          ...options.metadata,
+        },
+      });
+      return { extraction: cached, regionCount: regionInputs.length, extractedCount: cached.fields.length };
+    }
+  }
+
+  const content: Anthropic.ContentBlockParam[] = [];
+  for (const [index, input] of regionInputs.entries()) {
+    content.push({
+      type: "text",
+      text:
+        `Region ${index + 1}: field_key=${input.fieldKey}; label=${input.label}; ` +
+        `package_page=${input.pageNumber}; form=${input.formTitle}; template_page=${input.templatePageNumber ?? "unknown"}.`,
+    });
+    content.push({
+      type: "image",
+      source: { type: "base64", media_type: "image/jpeg", data: input.cropBase64 },
+    });
+  }
+  content.push({
+    type: "text",
+    text: "Read the visible values in these cropped regions. Return only nonblank values.",
+  });
+
+  const response = await anthropic.messages.parse({
+    model: EXTRACTION_AI_MODEL,
+    max_tokens: Math.min(8000, 600 + regionInputs.length * 120),
+    system: REGION_SYSTEM,
+    messages: [{ role: "user", content }],
+    output_config: { format: zodOutputFormat(FieldExtractionSchema) },
+  });
+  await logAiUsage({
+    layer: "extraction",
+    model: EXTRACTION_AI_MODEL,
+    dealId: options.dealId,
+    usage: usageFromResponse(response),
+    inputPages: pageImages.length,
+    metadata: {
+      doc_type: docType,
+      cache_key: cacheKey,
+      extraction_mode: "region_first",
+      regions: regionInputs.length,
+      ...options.metadata,
+    },
+  });
+
+  const parsed = response.parsed_output;
+  if (!parsed) throw new Error(`Region extraction returned no parseable output for ${docType}`);
+  const fields: FieldExtraction["fields"] = [];
+  for (const field of parsed.fields) {
+    const input = regionInputs.find(
+      (region) => region.fieldKey === field.field_key && region.pageNumber === field.source_page,
+    ) ?? regionInputs.find((region) => region.fieldKey === field.field_key);
+    const value = field.value?.trim();
+    if (!input || !value || !EXTRACTABLE_FIELD_KEYS.includes(field.field_key)) continue;
+    fields.push({
+      ...field,
+      value,
+      source_page: input.pageNumber,
+      source_box: input.sourceBox,
+      source_box_origin: "template",
+    });
+  }
+
+  const extraction = { fields };
+  if (cacheKey) {
+    await writeCachedExtraction({
+      cacheKey,
+      model: EXTRACTION_AI_MODEL,
+      docType,
+      pageHashes: pageImages.map((page) => page.pageHash).filter((hash): hash is string => Boolean(hash)),
+      extraction,
+    });
+  }
+  return { extraction, regionCount: regionInputs.length, extractedCount: extraction.fields.length };
+}
+
+type RegionInput = {
+  fieldKey: string;
+  label: string;
+  pageNumber: number;
+  templatePageNumber: number | null;
+  formKey: string;
+  formTitle: string;
+  sourceBox: SourceBox;
+  cropBase64: string;
+};
+
+async function regionInputsForPages(
+  pageImages: { pageNumber: number; base64: string; mediaType: "image/jpeg" | "image/png"; pageHash?: string | null }[],
+  pageMatches: RegionPageMatch[],
+): Promise<RegionInput[]> {
+  const inputs: RegionInput[] = [];
+  const imageByPage = new Map(pageImages.map((image) => [image.pageNumber, image]));
+
+  for (const pageMatch of pageMatches) {
+    const match = pageMatch.match;
+    const image = imageByPage.get(pageMatch.pageNumber);
+    if (!match || !image) continue;
+
+    const form = standardFormByKey(match.key);
+    if (!form?.fieldRegions?.length) continue;
+
+    const regions = form.fieldRegions.filter(
+      (region) =>
+        EXTRACTABLE_FIELD_KEYS.includes(region.fieldKey) &&
+        (pageMatch.templatePageNumber == null || region.page == null || region.page === pageMatch.templatePageNumber),
+    );
+    if (regions.length === 0) continue;
+
+    const buffer = Buffer.from(image.base64, "base64");
+    const metadata = await sharp(buffer).metadata();
+    if (!metadata.width || !metadata.height) continue;
+
+    for (const region of regions) {
+      for (const box of region.boxes) {
+        const crop = cropBox(metadata.width, metadata.height, box);
+        if (!crop) continue;
+        const cropBuffer = await sharp(buffer)
+          .extract(crop)
+          .jpeg({ quality: 86, mozjpeg: true })
+          .toBuffer();
+        inputs.push({
+          fieldKey: region.fieldKey,
+          label: region.label,
+          pageNumber: pageMatch.pageNumber,
+          templatePageNumber: pageMatch.templatePageNumber,
+          formKey: form.key,
+          formTitle: form.title,
+          sourceBox: box,
+          cropBase64: cropBuffer.toString("base64"),
+        });
+      }
+    }
+  }
+
+  return inputs;
+}
+
+function cropBox(width: number, height: number, box: SourceBox) {
+  const paddingX = Math.max(4, Math.round(width * 0.004));
+  const paddingY = Math.max(4, Math.round(height * 0.004));
+  const left = clamp(Math.floor(box.x * width) - paddingX, 0, width - 1);
+  const top = clamp(Math.floor(box.y * height) - paddingY, 0, height - 1);
+  const right = clamp(Math.ceil((box.x + box.width) * width) + paddingX, left + 1, width);
+  const bottom = clamp(Math.ceil((box.y + box.height) * height) + paddingY, top + 1, height);
+  const cropWidth = right - left;
+  const cropHeight = bottom - top;
+  if (cropWidth < 8 || cropHeight < 8) return null;
+  return { left, top, width: cropWidth, height: cropHeight };
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+async function extractDocumentChunk(
   docType: DocumentType,
   pageImages: { pageNumber: number; base64: string; mediaType: "image/jpeg" | "image/png"; pageHash?: string | null }[],
   options: {
@@ -124,6 +383,7 @@ export async function extractFromDocument(
     docType,
     pages,
     standardFormKeys,
+    promptSignature: PROMPT_SIGNATURE,
   });
 
   if (cacheKey) {
