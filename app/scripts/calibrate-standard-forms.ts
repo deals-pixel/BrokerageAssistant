@@ -63,7 +63,7 @@ const mdOut = join(docsRoot, "standard-form-calibration.md");
 const FIELD_PATTERNS: Record<string, { fieldKey: string; label: string; phrases: string[] }[]> = {
   form_100_aps: [
     { fieldKey: "property_address", label: "Property address", phrases: ["real property known as", "municipally known as"] },
-    { fieldKey: "sale_price", label: "Purchase price", phrases: ["purchase price", "dollars"] },
+    { fieldKey: "price_or_rent", label: "Purchase price", phrases: ["purchase price", "dollars"] },
     { fieldKey: "deposit_amount", label: "Deposit amount", phrases: ["deposit", "upon acceptance"] },
     { fieldKey: "closing_date", label: "Completion date", phrases: ["completion date", "completion"] },
   ],
@@ -72,20 +72,20 @@ const FIELD_PATTERNS: Record<string, { fieldKey: string; label: string; phrases:
     { fieldKey: "cooperating_commission_pct", label: "Co-operating commission", phrases: ["commission", "co-operating brokerage"] },
   ],
   form_371_buyer_rep: [
-    { fieldKey: "buyer_names", label: "Buyer names", phrases: ["buyer", "client"] },
+    { fieldKey: "buyer_tenant_names", label: "Buyer names", phrases: ["buyer", "client"] },
     { fieldKey: "cooperating_commission_pct", label: "Commission", phrases: ["commission", "remuneration"] },
   ],
   form_372_tenant_rep: [
-    { fieldKey: "buyer_names", label: "Tenant names", phrases: ["tenant", "client"] },
+    { fieldKey: "buyer_tenant_names", label: "Tenant names", phrases: ["tenant", "client"] },
   ],
   form_400_agreement_to_lease: [
     { fieldKey: "property_address", label: "Leased premises", phrases: ["premises", "municipally known"] },
-    { fieldKey: "sale_price", label: "Monthly rent", phrases: ["rent", "monthly"] },
+    { fieldKey: "price_or_rent", label: "Monthly rent", phrases: ["rent", "monthly"] },
     { fieldKey: "lease_start_date", label: "Lease start", phrases: ["commencing", "term of lease"] },
   ],
   form_630_individual_id: [
-    { fieldKey: "buyer_names", label: "Individual name", phrases: ["name of individual", "individual"] },
-    { fieldKey: "seller_names", label: "Individual name", phrases: ["name of individual", "individual"] },
+    { fieldKey: "buyer_tenant_names", label: "Individual name", phrases: ["name of individual", "individual"] },
+    { fieldKey: "seller_landlord_names", label: "Individual name", phrases: ["name of individual", "individual"] },
   ],
   form_635_receipt_funds: [
     { fieldKey: "deposit_amount", label: "Amount received", phrases: ["amount", "funds received"] },

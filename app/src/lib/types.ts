@@ -70,22 +70,10 @@ export type FieldDef = { key: string; label: string; wide?: boolean; multiline?:
 export type FieldSection = { title: string; fields: FieldDef[] };
 
 export const DERIVED_DEAL_SHEET_FIELD_KEYS = new Set([
-  "price_or_rent",
-  "seller_landlord_names",
-  "seller_landlord_emails",
-  "seller_landlord_phone",
-  "seller_landlord_is_corporation",
-  "seller_landlord_address",
-  "buyer_tenant_names",
-  "buyer_tenant_emails",
-  "buyer_tenant_phone",
-  "buyer_tenant_is_corporation",
-  "buyer_tenant_address",
   "your_commission_pct",
   "outside_agent_name",
   "outside_brokerage",
   "outside_brokerage_commission_pct",
-  "deposit_holder",
   "deposit_held_by_sutton",
 ]);
 
@@ -185,22 +173,10 @@ export const FIELD_SECTIONS: FieldSection[] = [
 
 export const SOURCE_FIELD_SECTIONS: FieldSection[] = [
   {
-    title: "Source Party Fields",
+    title: "Representation & Derived Fields",
     fields: [
-      { key: "sale_price", label: "Source Price / Rent" },
-      { key: "seller_names", label: "Source Seller/Landlord Names" },
-      { key: "seller_emails", label: "Source Seller/Landlord Email" },
-      { key: "seller_phone", label: "Source Seller/Landlord Phone" },
-      { key: "seller_is_corporation", label: "Source Seller/Landlord Corporation?" },
-      { key: "seller_address", label: "Source Seller/Landlord Address" },
-      { key: "buyer_names", label: "Source Buyer/Tenant Names" },
-      { key: "buyer_emails", label: "Source Buyer/Tenant Email" },
-      { key: "buyer_phone", label: "Source Buyer/Tenant Phone" },
-      { key: "buyer_is_corporation", label: "Source Buyer/Tenant Corporation?" },
-      { key: "buyer_address", label: "Source Buyer/Tenant Address" },
-      { key: "deposit_held_by", label: "Source Deposit Holder" },
-      { key: "seller_representation", label: "Source Seller/Landlord Representation Status" },
-      { key: "buyer_representation", label: "Source Buyer/Tenant Representation Status" },
+      { key: "seller_representation", label: "Seller/Landlord Representation Status" },
+      { key: "buyer_representation", label: "Buyer/Tenant Representation Status" },
       { key: "outside_agent_name", label: "Derived Outside Agent Name" },
       { key: "outside_brokerage", label: "Derived Outside Brokerage" },
     ],

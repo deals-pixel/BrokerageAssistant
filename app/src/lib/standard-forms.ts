@@ -341,7 +341,7 @@ fieldRegions: [
     note: calibratedRegionNote,
   },
   {
-    fieldKey: "sale_price",
+    fieldKey: "price_or_rent",
     label: "Purchase price",
     page: 1,
     boxes: [{ x: 0.0634, y: 0.458, width: 0.8713, height: 0.0554 }],
@@ -362,28 +362,28 @@ fieldRegions: [
     note: calibratedRegionNote,
   },
   {
-    fieldKey: "buyer_names",
+    fieldKey: "buyer_tenant_names",
     label: "Buyer Name(s)",
     page: 1,
     boxes: [{ x: 0.0599, y: 0.1466, width: 0.7457, height: 0.0444 }],
     note: calibratedRegionNote,
   },
   {
-    fieldKey: "seller_names",
+    fieldKey: "seller_landlord_names",
     label: "Seller Name(s)",
     page: 1,
     boxes: [{ x: 0.0599, y: 0.1878, width: 0.8031, height: 0.0423 }],
     note: calibratedRegionNote,
   },
   {
-    fieldKey: "seller_emails",
+    fieldKey: "seller_landlord_emails",
     label: "Seller Email",
     page: 2,
     boxes: [{ x: 0.0893, y: 0.2333, width: 0.4163, height: 0.0423 }],
     note: calibratedRegionNote,
   },
   {
-    fieldKey: "buyer_emails",
+    fieldKey: "buyer_tenant_emails",
     label: "Buyer Email",
     page: 2,
     boxes: [{ x: 0.514, y: 0.2333, width: 0.4261, height: 0.0412 }],
@@ -493,7 +493,7 @@ fieldRegions: [
     scenarioNumbers: [2, 4, 9, 10, 15],
     fieldRegions: [
       {
-        fieldKey: "buyer_names",
+        fieldKey: "buyer_tenant_names",
         label: "Buyer names",
         boxes: [{ x: 0.2941, y: 0.0664, width: 0.7059, height: 0.05 }],
         note: calibratedRegionNote,
@@ -516,7 +516,7 @@ fieldRegions: [
     scenarioNumbers: [6, 8, 11, 12],
     fieldRegions: [
       {
-        fieldKey: "buyer_names",
+        fieldKey: "buyer_tenant_names",
         label: "Tenant names",
         boxes: [{ x: 0.2941, y: 0.0664, width: 0.7059, height: 0.05 }],
         note: calibratedRegionNote,
@@ -540,7 +540,7 @@ fieldRegions: [
         note: calibratedRegionNote,
       },
       {
-        fieldKey: "sale_price",
+        fieldKey: "price_or_rent",
         label: "Monthly rent",
         page: 1,
         boxes: [{ x: 0.0746, y: 0.3274, width: 0.8677, height: 0.05 }],
@@ -554,14 +554,14 @@ fieldRegions: [
         note: calibratedRegionNote,
       },
       {
-        fieldKey: "seller_names",
+        fieldKey: "seller_landlord_names",
         label: "Seller Name(s)",
         page: 1,
         boxes: [{ x: 0.0613, y: 0.1661, width: 0.8802, height: 0.0391 }],
         note: calibratedRegionNote,
       },
       {
-        fieldKey: "buyer_names",
+        fieldKey: "buyer_tenant_names",
         label: "Buyer Name(s)",
         page: 1,
         boxes: [{ x: 0.0641, y: 0.1423, width: 0.8844, height: 0.0412 }],
@@ -575,7 +575,7 @@ fieldRegions: [
         note: calibratedRegionNote,
       },
       {
-        fieldKey: "deposit_held_by",
+        fieldKey: "deposit_holder",
         label: "Held By",
         page: 1,
         boxes: [{ x: 0.0893, y: 0.4316, width: 0.8564, height: 0.0379 }],
@@ -596,14 +596,14 @@ fieldRegions: [
         note: calibratedRegionNote,
       },
       {
-        fieldKey: "buyer_emails",
+        fieldKey: "buyer_tenant_emails",
         label: "Buyer Email",
         page: 2,
         boxes: [{ x: 0.5168, y: 0.3732, width: 0.4289, height: 0.0531 }],
         note: calibratedRegionNote,
       },
       {
-        fieldKey: "seller_emails",
+        fieldKey: "seller_landlord_emails",
         label: "Seller Email",
         page: 2,
         boxes: [{ x: 0.0935, y: 0.3764, width: 0.4247, height: 0.0455 }],
@@ -638,14 +638,14 @@ fieldRegions: [
         note: calibratedRegionNote,
       },
       {
-        fieldKey: "seller_names",
+        fieldKey: "seller_landlord_names",
         label: "Seller Name(s)",
         page: 4,
         boxes: [{ x: 0.0599, y: 0.1651, width: 0.8914, height: 0.052 }],
         note: calibratedRegionNote,
       },
       {
-        fieldKey: "buyer_names",
+        fieldKey: "buyer_tenant_names",
         label: "Buyer Name(s)",
         page: 4,
         boxes: [{ x: 0.0655, y: 0.1293, width: 0.8915, height: 0.0618 }],
@@ -672,13 +672,13 @@ fieldRegions: [
     scenarioNumbers: [1, 2, 3, 4, 9, 10, 15],
     fieldRegions: [
       {
-        fieldKey: "buyer_names",
+        fieldKey: "buyer_tenant_names",
         label: "Individual name",
         boxes: [{ x: 0.0684, y: 0.3535, width: 0.72, height: 0.05 }],
         note: calibratedRegionNote,
       },
       {
-        fieldKey: "seller_names",
+        fieldKey: "seller_landlord_names",
         label: "Individual name",
         boxes: [{ x: 0.0684, y: 0.3535, width: 0.72, height: 0.05 }],
         note: calibratedRegionNote,

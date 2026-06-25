@@ -42,11 +42,12 @@ Rules:
 - A visible other-side brokerage name means that side is represented by a brokerage, not self-represented. Only mark seller_representation or buyer_representation as self-represented when the source explicitly says self-represented/unrepresented or the self-represented disclosure applies and no brokerage name is visible for that side.
 - Commission extraction fields are source-side facts, not scenario-derived results. listing_commission_pct is the commission payable to the listing/seller/landlord-side brokerage. cooperating_commission_pct is the commission payable/offered to the co-operating/buyer/tenant-side brokerage. total_commission_pct is only the combined total of both side amounts when the document explicitly gives a total or the two side amounts can be safely added. Do not copy a one-sided commission into total_commission_pct.
 - The Deal Information Sheet is a filled internal summary when present. For pages classified as deal_information_sheet, extract its visible fields directly and treat it as the main source of the summary fields.
-- For all other source documents, do not extract derived Deal Information Sheet fields directly, including price_or_rent, seller_landlord_*, buyer_tenant_*, your_commission_pct, outside_agent_name, outside_brokerage, outside_brokerage_commission_pct, deposit_holder, or deposit_held_by_sutton. Those are derived later after scenario detection and source-field normalization.
+- For source documents and the Deal Information Sheet, use the same normal fact fields for names, contact details, price/rent, property address, dates, and deposit holder. Conflict detection will compare different document values later.
+- Do not extract scenario-derived fields directly from source documents, including your_commission_pct, outside_agent_name, outside_brokerage, outside_brokerage_commission_pct, or deposit_held_by_sutton. Those are derived later after scenario detection and source-field normalization. On the Deal Information Sheet only, extract these fields if they are visibly filled.
 - transaction_type is purchase or lease. firm_or_conditional is firm or conditional. multiple_offer is yes (N) or no.
 - seller_representation and buyer_representation can be Sutton Group-Admiral, other brokerage, self-represented, or unknown when visible. For leases, seller_representation means landlord representation and buyer_representation means tenant representation.
 - scenario_hint should capture explicit phrases such as referral, co-brokerage, pre-construction, buyer self-represented, tenant self-represented, or multiple representation when visible.
-- seller_is_corporation and buyer_is_corporation should be yes, no, or unknown when visible.
+- seller_landlord_is_corporation and buyer_tenant_is_corporation should be yes, no, or unknown when visible.
 - additional_payees, marketing_fee, rebate_to_clients, and referral should be yes or no when visible.
 - additional_payee_1_commission_pct, additional_payee_2_commission_pct, cooperating_commission_pct, listing_commission_pct, and total_commission_pct are percentages. marketing_fee_amount and rebate_amount are money amounts.
 - Multiple people in one field: join with "; ".
@@ -93,7 +94,7 @@ const DOC_HINTS: Partial<Record<DocumentType, string>> = {
   ontario_residential_tenancy_agreement:
     "The Ontario Standard Lease shows rent, lease start and end dates, tenant and landlord names, service address, and deposit details. Use lease_start_date as closing_date for lease packages.",
   form_801_offer_summary:
-    "Form 801 shows property address, offer date, irrevocable date/time, signature/acceptance dates, buyer and seller names, and both brokerages with their agents. It does not normally show sale_price.",
+    "Form 801 shows property address, offer date, irrevocable date/time, signature/acceptance dates, buyer and seller names, and both brokerages with their agents. It does not normally show price_or_rent.",
   form_320_confirmation_cooperation:
     "Form 320 shows the commission offered to the co-operating brokerage and which side each brokerage represents. If both boxes are selected for the same brokerage, representation_side is both / multiple representation.",
   form_124_notice_fulfillment:
@@ -101,7 +102,7 @@ const DOC_HINTS: Partial<Record<DocumentType, string>> = {
   waiver_notice_fulfillment_amendment:
     "Waivers, notices of fulfillment, and amendments can change condition status, dates, price, deposit, parties, and closing. Capture only visible revised terms.",
   deposit_proof:
-    "Bank drafts, wire confirmations, receipts, and cheques show deposit_amount, deposit_method, deposit_held_by, and often the buyer name/address.",
+    "Bank drafts, wire confirmations, receipts, and cheques show deposit_amount, deposit_method, deposit_holder, and often the buyer/tenant name or address.",
   copy_deposit_receipt_other_brokerage:
     "Deposit receipts from another brokerage prove deposit amount, who holds the deposit, and sometimes the buyer or tenant name. Mark deposit_method as receipt if no method is visible.",
   form_635_receipt_of_funds:

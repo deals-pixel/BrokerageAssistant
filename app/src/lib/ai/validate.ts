@@ -28,8 +28,9 @@ export function validateFields(
     f.notes = f.notes ? `${f.notes}; ${note}` : note;
   };
 
+  normalizeLegacySourceFields(fields);
   const perspective = commissionPerspective(context);
-  normalizeCanonicalDealSheetFields(fields, perspective);
+  normalizeScenarioDerivedFields(fields, perspective);
   normalizeSideBrokerageDisplayFields(fields);
   normalizeConditionalGateFields(fields);
   normalizeCommissionFields(fields, perspective);
@@ -60,7 +61,7 @@ export function validateFields(
   }
 
   // Deposit should not exceed price
-  const price = num(get("sale_price")?.value);
+  const price = num(get("price_or_rent")?.value);
   const deposit = num(get("deposit_amount")?.value);
   if (price !== null && deposit !== null && deposit > price) {
     flag(get("deposit_amount"), "Deposit exceeds price — verify");
@@ -92,7 +93,7 @@ export function validateFields(
 
   // Transaction-type specific
   if (transactionType === "lease" && price !== null && price > 50000) {
-    flag(get("sale_price"), "Rent value unusually high for a lease — verify");
+    flag(get("price_or_rent"), "Rent value unusually high for a lease — verify");
   }
 
   // Email format
@@ -182,24 +183,50 @@ function normalizeCommissionFields(fields: MergedField[], perspective: Commissio
   });
 }
 
-function normalizeCanonicalDealSheetFields(fields: MergedField[], perspective: CommissionPerspective) {
+const LEGACY_SOURCE_FIELD_ALIASES: Record<string, string> = {
+  sale_price: "price_or_rent",
+  seller_names: "seller_landlord_names",
+  seller_emails: "seller_landlord_emails",
+  seller_phone: "seller_landlord_phone",
+  seller_is_corporation: "seller_landlord_is_corporation",
+  seller_address: "seller_landlord_address",
+  buyer_names: "buyer_tenant_names",
+  buyer_emails: "buyer_tenant_emails",
+  buyer_phone: "buyer_tenant_phone",
+  buyer_is_corporation: "buyer_tenant_is_corporation",
+  buyer_address: "buyer_tenant_address",
+  deposit_held_by: "deposit_holder",
+};
+
+function normalizeLegacySourceFields(fields: MergedField[]) {
+  for (const field of [...fields]) {
+    const targetKey = LEGACY_SOURCE_FIELD_ALIASES[field.key];
+    if (!targetKey) continue;
+
+    const existing = fields.find((candidate) => candidate.key === targetKey);
+    if (!existing) {
+      field.key = targetKey;
+      field.notes = appendNote(field.notes, "Mapped from legacy source field.");
+      continue;
+    }
+
+    if (!fieldValuesAgree(existing.value, field.value)) {
+      existing.conflictSources = conflictSourcesFor(existing, field);
+      existing.needsReview = true;
+      existing.notes = appendNote(existing.notes, "Legacy source field had a different value.");
+    }
+
+    const index = fields.indexOf(field);
+    if (index >= 0) fields.splice(index, 1);
+  }
+}
+
+function normalizeScenarioDerivedFields(fields: MergedField[], perspective: CommissionPerspective) {
   const get = (key: string) => fields.find((field) => field.key === key);
   const existing = new Map<string, MergedField | undefined>();
   for (const key of [
-    "price_or_rent",
-    "seller_landlord_names",
-    "seller_landlord_emails",
-    "seller_landlord_phone",
-    "seller_landlord_is_corporation",
-    "seller_landlord_address",
-    "buyer_tenant_names",
-    "buyer_tenant_emails",
-    "buyer_tenant_phone",
-    "buyer_tenant_is_corporation",
-    "buyer_tenant_address",
     "outside_agent_name",
     "outside_brokerage",
-    "deposit_holder",
     "deposit_held_by_sutton",
   ]) {
     existing.set(key, get(key));
@@ -216,89 +243,10 @@ function normalizeCanonicalDealSheetFields(fields: MergedField[], perspective: C
   };
 
   reset([
-    "price_or_rent",
-    "seller_landlord_names",
-    "seller_landlord_emails",
-    "seller_landlord_phone",
-    "seller_landlord_is_corporation",
-    "seller_landlord_address",
-    "buyer_tenant_names",
-    "buyer_tenant_emails",
-    "buyer_tenant_phone",
-    "buyer_tenant_is_corporation",
-    "buyer_tenant_address",
     "outside_agent_name",
     "outside_brokerage",
-    "deposit_holder",
     "deposit_held_by_sutton",
   ]);
-
-  deriveFromSource(
-    fields,
-    "price_or_rent",
-    preferredDealSheetSource(existing.get("price_or_rent"), get("sale_price")),
-    "Derived from source price/rent.",
-  );
-  deriveFromSource(
-    fields,
-    "seller_landlord_names",
-    preferredDealSheetSource(existing.get("seller_landlord_names"), get("seller_names")),
-    "Derived from source seller/landlord names.",
-  );
-  deriveFromSource(
-    fields,
-    "seller_landlord_emails",
-    preferredDealSheetSource(existing.get("seller_landlord_emails"), get("seller_emails")),
-    "Derived from source seller/landlord email.",
-  );
-  deriveFromSource(
-    fields,
-    "seller_landlord_phone",
-    preferredDealSheetSource(existing.get("seller_landlord_phone"), get("seller_phone")),
-    "Derived from source seller/landlord phone.",
-  );
-  deriveFromSource(
-    fields,
-    "seller_landlord_is_corporation",
-    preferredDealSheetSource(existing.get("seller_landlord_is_corporation"), get("seller_is_corporation")),
-    "Derived from source seller/landlord corporation flag.",
-  );
-  deriveFromSource(
-    fields,
-    "seller_landlord_address",
-    preferredDealSheetSource(existing.get("seller_landlord_address"), get("seller_address")),
-    "Derived from source seller/landlord address.",
-  );
-  deriveFromSource(
-    fields,
-    "buyer_tenant_names",
-    preferredDealSheetSource(existing.get("buyer_tenant_names"), get("buyer_names")),
-    "Derived from source buyer/tenant names.",
-  );
-  deriveFromSource(
-    fields,
-    "buyer_tenant_emails",
-    preferredDealSheetSource(existing.get("buyer_tenant_emails"), get("buyer_emails")),
-    "Derived from source buyer/tenant email.",
-  );
-  deriveFromSource(
-    fields,
-    "buyer_tenant_phone",
-    preferredDealSheetSource(existing.get("buyer_tenant_phone"), get("buyer_phone")),
-    "Derived from source buyer/tenant phone.",
-  );
-  deriveFromSource(
-    fields,
-    "buyer_tenant_is_corporation",
-    preferredDealSheetSource(existing.get("buyer_tenant_is_corporation"), get("buyer_is_corporation")),
-    "Derived from source buyer/tenant corporation flag.",
-  );
-  deriveFromSource(
-    fields,
-    "buyer_tenant_address",
-    preferredDealSheetSource(existing.get("buyer_tenant_address"), get("buyer_address")),
-    "Derived from source buyer/tenant address.",
-  );
 
   const outsideAgent =
     preferredDealSheetSource(
@@ -318,9 +266,7 @@ function normalizeCanonicalDealSheetFields(fields: MergedField[], perspective: C
     "Derived after scenario detection from the outside side brokerage.",
   );
 
-  const depositHolder = preferredDealSheetSource(existing.get("deposit_holder"), get("deposit_held_by"));
-  deriveFromSource(fields, "deposit_holder", depositHolder, "Derived from source deposit holder.");
-  const heldBySutton = depositHeldBySuttonField(depositHolder) ?? existing.get("deposit_held_by_sutton");
+  const heldBySutton = depositHeldBySuttonField(get("deposit_holder")) ?? existing.get("deposit_held_by_sutton");
   if (heldBySutton) fields.push(heldBySutton);
 }
 

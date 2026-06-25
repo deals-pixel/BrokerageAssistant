@@ -4,6 +4,20 @@ import { createClient } from "@/lib/supabase/server";
 import { FIELD_REGISTRY_SECTIONS } from "@/lib/types";
 
 const FIELD_KEYS = new Set(FIELD_REGISTRY_SECTIONS.flatMap((section) => section.fields.map((field) => field.key)));
+const LEGACY_FIELD_KEY_ALIASES: Record<string, string> = {
+  sale_price: "price_or_rent",
+  seller_names: "seller_landlord_names",
+  seller_emails: "seller_landlord_emails",
+  seller_phone: "seller_landlord_phone",
+  seller_is_corporation: "seller_landlord_is_corporation",
+  seller_address: "seller_landlord_address",
+  buyer_names: "buyer_tenant_names",
+  buyer_emails: "buyer_tenant_emails",
+  buyer_phone: "buyer_tenant_phone",
+  buyer_is_corporation: "buyer_tenant_is_corporation",
+  buyer_address: "buyer_tenant_address",
+  deposit_held_by: "deposit_holder",
+};
 
 const sourceBoxSchema = z.object({
   x: z.number().min(0).max(1),
@@ -14,7 +28,10 @@ const sourceBoxSchema = z.object({
 
 const regionSchema = z.object({
   id: z.string().min(1),
-  fieldKey: z.string().refine((value) => FIELD_KEYS.has(value), "Unknown field key"),
+  fieldKey: z
+    .string()
+    .transform((value) => LEGACY_FIELD_KEY_ALIASES[value] ?? value)
+    .refine((value) => FIELD_KEYS.has(value), "Unknown field key"),
   label: z.string().min(1).max(160),
   page: z.number().int().min(1),
   box: sourceBoxSchema,

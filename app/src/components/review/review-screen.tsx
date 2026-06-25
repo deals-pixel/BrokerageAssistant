@@ -1450,7 +1450,6 @@ function isRequiredReviewField(fieldKey: string, fieldMap: Map<string, FieldRow>
 
   if (fieldKey === "deposit_holder" || fieldKey === "deposit_held_by_sutton" || fieldKey === "deposit_method" || fieldKey === "deposit_amount") {
     return hasFieldValue(fieldMap, "deposit_holder") ||
-      hasFieldValue(fieldMap, "deposit_held_by") ||
       hasFieldValue(fieldMap, "deposit_method") ||
       hasFieldValue(fieldMap, "deposit_amount");
   }

@@ -103,6 +103,21 @@ const FIELD_OPTIONS = FIELD_REGISTRY_SECTIONS.flatMap((section) =>
   })),
 );
 
+const LEGACY_FIELD_KEY_ALIASES: Record<string, string> = {
+  sale_price: "price_or_rent",
+  seller_names: "seller_landlord_names",
+  seller_emails: "seller_landlord_emails",
+  seller_phone: "seller_landlord_phone",
+  seller_is_corporation: "seller_landlord_is_corporation",
+  seller_address: "seller_landlord_address",
+  buyer_names: "buyer_tenant_names",
+  buyer_emails: "buyer_tenant_emails",
+  buyer_phone: "buyer_tenant_phone",
+  buyer_is_corporation: "buyer_tenant_is_corporation",
+  buyer_address: "buyer_tenant_address",
+  deposit_held_by: "deposit_holder",
+};
+
 export function FormTemplateEditor() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pageSurfaceRef = useRef<HTMLDivElement>(null);
@@ -1093,6 +1108,7 @@ function normalizeSharedDraft(value: SharedTemplateDraft | null | undefined): Sh
       .map((region) => ({
         ...region,
         id: region.id || crypto.randomUUID(),
+        fieldKey: LEGACY_FIELD_KEY_ALIASES[region.fieldKey] ?? region.fieldKey,
         page: Number.isFinite(region.page) && region.page > 0 ? region.page : 1,
         box: normalizeSize(region.box),
       })),
