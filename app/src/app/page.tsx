@@ -273,7 +273,7 @@ export default async function DashboardPage({
             <FilterButton
               active={activeFilter === "incomplete"}
               href={dashboardHref({ view: activeView, filter: "incomplete" })}
-              label={`Incomplete ${metrics.incompleteTransactions}`}
+              label={`Active Deals ${metrics.incompleteTransactions}`}
             />
             <FilterButton
               active={activeFilter === "ready"}
@@ -325,8 +325,8 @@ const BOARD_COLUMNS: {
   },
   {
     status: "Incomplete",
-    label: "Incomplete",
-    helper: "Missing documents and ready-to-close files",
+    label: "Active Deals",
+    helper: "Open files and ready-to-close files",
     icon: <CircleAlert className="size-3.5" />,
     className: "bg-[#fcf7f5]",
     dotClassName: "bg-[#e18d51]",
@@ -345,7 +345,7 @@ function StatusBoard({
 }) {
   return (
     <div className="min-w-0">
-      <div className="grid min-w-0 gap-3 lg:grid-cols-2">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(17rem,0.8fr)_minmax(0,1.45fr)]">
         {BOARD_COLUMNS.map((column) => {
           const columnDeals = sortBoardDeals(deals.filter((deal) => boardColumnMatches(deal, column.status)));
           const averageCompletion = columnDeals.length
@@ -431,7 +431,7 @@ function TransactionCard({
         </div>
         <div className="flex min-w-0 flex-wrap gap-1">
           <span className={`rounded px-1.5 py-0.5 text-[11px] leading-4 ${column.headerPillClassName}`}>
-            {deal.complianceStatus}
+            {displayComplianceStatus(deal)}
           </span>
           {deal.source === "email" && (
             <Badge variant="outline" className="h-4 px-1.5 text-[11px] leading-4">
@@ -642,7 +642,7 @@ function TimeListDealRow({
         {kind === "intake" && (
           <div className="mt-2">
             <Badge variant={STATUS_VARIANT[deal.complianceStatus] ?? "outline"}>
-              {deal.complianceStatus}
+              {displayComplianceStatus(deal)}
             </Badge>
           </div>
         )}
@@ -679,7 +679,7 @@ function TimeListDealRow({
           <div>
             <div className="text-xs text-muted-foreground">Status</div>
             <Badge variant={STATUS_VARIANT[deal.complianceStatus] ?? "outline"}>
-              {deal.complianceStatus}
+              {displayComplianceStatus(deal)}
             </Badge>
           </div>
           <MissingBadges deal={deal} limit={3} />
@@ -727,7 +727,7 @@ function RecordsTable({ deals, archive = false }: { deals: DashboardDeal[]; arch
               <TableCell>{deal.scenarioShortLabel}</TableCell>
               <TableCell>
                 <Badge variant={STATUS_VARIANT[deal.complianceStatus] ?? "outline"}>
-                  {deal.complianceStatus}
+                  {displayComplianceStatus(deal)}
                 </Badge>
               </TableCell>
               <TableCell className="max-w-72">
@@ -1011,6 +1011,11 @@ function isConfirmedIntakeEmail(email: IntakeEmailRow) {
 
 function isVirtualIntakeDeal(deal: DashboardDeal) {
   return deal.id.startsWith("intake:");
+}
+
+function displayComplianceStatus(deal: DashboardDeal) {
+  if (deal.complianceStatus === "Incomplete") return "Active Deal";
+  return deal.complianceStatus;
 }
 
 function boardColumnMatches(deal: DashboardDeal, columnStatus: ComplianceStatus) {
