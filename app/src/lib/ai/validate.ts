@@ -132,6 +132,8 @@ function normalizeCommissionFields(fields: MergedField[], perspective: Commissio
   deriveScenarioCommissionFields(fields, perspective, listing, cooperating, total);
   preserveExistingDerivedCommission(fields, "your_commission_pct", existingYourCommission);
   preserveExistingDerivedCommission(fields, "outside_brokerage_commission_pct", existingOutsideCommission);
+  preferDealSheetDerivedCommission(fields, "your_commission_pct", existingYourCommission);
+  preferDealSheetDerivedCommission(fields, "outside_brokerage_commission_pct", existingOutsideCommission);
 
   if (!listing || !cooperating) return;
 
@@ -141,6 +143,23 @@ function normalizeCommissionFields(fields: MergedField[], perspective: Commissio
   }
 
   if (total) {
+    if (isDealInformationSheetField(total)) {
+      if (!fieldValuesAgree(total.value, calculatedTotal)) {
+        total.conflictSources = conflictSourcesFor(total, {
+          ...listing,
+          value: calculatedTotal,
+          confidence: lowerConfidence(listing.confidence, cooperating.confidence),
+          needsReview: true,
+          notes: "Calculated from listing and co-operating commission.",
+        });
+        total.needsReview = true;
+        total.notes = appendNote(
+          total.notes,
+          "Deal Information Sheet used as primary source; calculated side commission total disagreed.",
+        );
+      }
+      return;
+    }
     total.value = calculatedTotal;
     total.confidence = lowerConfidence(listing.confidence, cooperating.confidence);
     total.sourceDocumentType = listing.sourceDocumentType;
@@ -214,74 +233,83 @@ function normalizeCanonicalDealSheetFields(fields: MergedField[], perspective: C
     "deposit_held_by_sutton",
   ]);
 
-  deriveFromSource(fields, "price_or_rent", get("sale_price") ?? existing.get("price_or_rent"), "Derived from source price/rent.");
+  deriveFromSource(
+    fields,
+    "price_or_rent",
+    preferredDealSheetSource(existing.get("price_or_rent"), get("sale_price")),
+    "Derived from source price/rent.",
+  );
   deriveFromSource(
     fields,
     "seller_landlord_names",
-    get("seller_names") ?? existing.get("seller_landlord_names"),
+    preferredDealSheetSource(existing.get("seller_landlord_names"), get("seller_names")),
     "Derived from source seller/landlord names.",
   );
   deriveFromSource(
     fields,
     "seller_landlord_emails",
-    get("seller_emails") ?? existing.get("seller_landlord_emails"),
+    preferredDealSheetSource(existing.get("seller_landlord_emails"), get("seller_emails")),
     "Derived from source seller/landlord email.",
   );
   deriveFromSource(
     fields,
     "seller_landlord_phone",
-    get("seller_phone") ?? existing.get("seller_landlord_phone"),
+    preferredDealSheetSource(existing.get("seller_landlord_phone"), get("seller_phone")),
     "Derived from source seller/landlord phone.",
   );
   deriveFromSource(
     fields,
     "seller_landlord_is_corporation",
-    get("seller_is_corporation") ?? existing.get("seller_landlord_is_corporation"),
+    preferredDealSheetSource(existing.get("seller_landlord_is_corporation"), get("seller_is_corporation")),
     "Derived from source seller/landlord corporation flag.",
   );
   deriveFromSource(
     fields,
     "seller_landlord_address",
-    get("seller_address") ?? existing.get("seller_landlord_address"),
+    preferredDealSheetSource(existing.get("seller_landlord_address"), get("seller_address")),
     "Derived from source seller/landlord address.",
   );
   deriveFromSource(
     fields,
     "buyer_tenant_names",
-    get("buyer_names") ?? existing.get("buyer_tenant_names"),
+    preferredDealSheetSource(existing.get("buyer_tenant_names"), get("buyer_names")),
     "Derived from source buyer/tenant names.",
   );
   deriveFromSource(
     fields,
     "buyer_tenant_emails",
-    get("buyer_emails") ?? existing.get("buyer_tenant_emails"),
+    preferredDealSheetSource(existing.get("buyer_tenant_emails"), get("buyer_emails")),
     "Derived from source buyer/tenant email.",
   );
   deriveFromSource(
     fields,
     "buyer_tenant_phone",
-    get("buyer_phone") ?? existing.get("buyer_tenant_phone"),
+    preferredDealSheetSource(existing.get("buyer_tenant_phone"), get("buyer_phone")),
     "Derived from source buyer/tenant phone.",
   );
   deriveFromSource(
     fields,
     "buyer_tenant_is_corporation",
-    get("buyer_is_corporation") ?? existing.get("buyer_tenant_is_corporation"),
+    preferredDealSheetSource(existing.get("buyer_tenant_is_corporation"), get("buyer_is_corporation")),
     "Derived from source buyer/tenant corporation flag.",
   );
   deriveFromSource(
     fields,
     "buyer_tenant_address",
-    get("buyer_address") ?? existing.get("buyer_tenant_address"),
+    preferredDealSheetSource(existing.get("buyer_tenant_address"), get("buyer_address")),
     "Derived from source buyer/tenant address.",
   );
 
   const outsideAgent =
-    outsideSideSource(perspective, get("listing_agent_name"), get("cooperating_agent_name")) ??
-    existing.get("outside_agent_name");
+    preferredDealSheetSource(
+      existing.get("outside_agent_name"),
+      outsideSideSource(perspective, get("listing_agent_name"), get("cooperating_agent_name")),
+    );
   const outsideBrokerage =
-    outsideSideSource(perspective, get("listing_brokerage"), get("cooperating_brokerage")) ??
-    existing.get("outside_brokerage");
+    preferredDealSheetSource(
+      existing.get("outside_brokerage"),
+      outsideSideSource(perspective, get("listing_brokerage"), get("cooperating_brokerage")),
+    );
   deriveFromSource(fields, "outside_agent_name", outsideAgent, "Derived after scenario detection from the outside side agent.");
   deriveFromSource(
     fields,
@@ -290,7 +318,7 @@ function normalizeCanonicalDealSheetFields(fields: MergedField[], perspective: C
     "Derived after scenario detection from the outside side brokerage.",
   );
 
-  const depositHolder = get("deposit_held_by") ?? existing.get("deposit_holder");
+  const depositHolder = preferredDealSheetSource(existing.get("deposit_holder"), get("deposit_held_by"));
   deriveFromSource(fields, "deposit_holder", depositHolder, "Derived from source deposit holder.");
   const heldBySutton = depositHeldBySuttonField(depositHolder) ?? existing.get("deposit_held_by_sutton");
   if (heldBySutton) fields.push(heldBySutton);
@@ -523,6 +551,54 @@ function preserveExistingDerivedCommission(
   fields.push(existing);
 }
 
+function preferDealSheetDerivedCommission(
+  fields: MergedField[],
+  key: "your_commission_pct" | "outside_brokerage_commission_pct",
+  dealSheetField: MergedField | undefined,
+) {
+  if (!dealSheetField || !isDealInformationSheetField(dealSheetField)) return;
+  const current = fields.find((field) => field.key === key);
+  if (!current) {
+    fields.push(dealSheetField);
+    return;
+  }
+  if (current === dealSheetField) return;
+
+  const conflict = current.value && !fieldValuesAgree(current.value, dealSheetField.value);
+  Object.assign(current, {
+    ...dealSheetField,
+    conflictSources: conflict ? conflictSourcesFor(dealSheetField, current) : dealSheetField.conflictSources,
+    needsReview: dealSheetField.needsReview || Boolean(conflict),
+    notes: appendNote(
+      dealSheetField.notes,
+      conflict
+        ? "Deal Information Sheet used as primary source; derived commission from side fields disagreed."
+        : "Deal Information Sheet used as primary source.",
+    ),
+  });
+}
+
+function preferredDealSheetSource(
+  dealSheetField: MergedField | undefined,
+  fallback: MergedField | undefined,
+) {
+  return isDealInformationSheetField(dealSheetField) ? dealSheetField : fallback ?? dealSheetField;
+}
+
+function isDealInformationSheetField(field: MergedField | undefined): boolean {
+  return field?.sourceDocumentType === "deal_information_sheet";
+}
+
+function conflictSourcesFor(primary: MergedField, secondary: MergedField) {
+  return [primary, secondary].map((field) => ({
+    value: field.value ?? "",
+    confidence: field.confidence,
+    sourceDocumentType: field.sourceDocumentType,
+    sourcePage: field.sourcePage,
+    sourceBox: field.sourceBox,
+  }));
+}
+
 function commissionPerspective(context: ValidationContext): CommissionPerspective {
   const key = context.scenarioKey ?? "";
   const label = (context.scenarioLabel ?? "").toLowerCase();
@@ -578,6 +654,16 @@ function addCommissionValues(a: string | null | undefined, b: string | null | un
   }
 
   return null;
+}
+
+function fieldValuesAgree(a: string | null | undefined, b: string | null | undefined) {
+  const left = (a ?? "").trim();
+  const right = (b ?? "").trim();
+  if (!left && !right) return true;
+  const leftNumber = num(left);
+  const rightNumber = num(right);
+  if (leftNumber !== null && rightNumber !== null) return Math.abs(leftNumber - rightNumber) < 0.005;
+  return left.toLowerCase().replace(/\s+/g, " ") === right.toLowerCase().replace(/\s+/g, " ");
 }
 
 function normalizeCommissionText(value: string) {

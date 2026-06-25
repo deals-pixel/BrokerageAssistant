@@ -52,6 +52,8 @@ export function mergeExtractions(
   const merged: MergedField[] = [];
   for (const [key, candidates] of byKey) {
     candidates.sort((a, b) => {
+      const authority = docAuthorityRank(a.docType) - docAuthorityRank(b.docType);
+      if (authority !== 0) return authority;
       const conf = CONF_RANK[b.confidence] - CONF_RANK[a.confidence];
       if (conf !== 0) return conf;
       return docPriority(a.docType) - docPriority(b.docType);
@@ -95,6 +97,10 @@ export function mergeExtractions(
 function docPriority(d: DocumentType): number {
   const i = EXTRACTABLE_DOCS.indexOf(d);
   return i === -1 ? 99 : i;
+}
+
+function docAuthorityRank(d: DocumentType): number {
+  return d === "deal_information_sheet" ? 0 : 1;
 }
 
 // Tolerant comparison: numbers compared numerically, names case-insensitively.

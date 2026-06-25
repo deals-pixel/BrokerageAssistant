@@ -23,8 +23,9 @@ import {
 import { FieldExtractionSchema, type FieldExtraction } from "./schemas";
 import { logAiUsage, usageFromResponse } from "./usage";
 
-const EXTRACTABLE_FIELD_KEYS = ALL_FIELD_KEYS.filter((key) => !DERIVED_DEAL_SHEET_FIELD_KEYS.has(key));
-const FIELD_GUIDE = EXTRACTABLE_FIELD_KEYS.map((key) => `- ${key}: ${FIELD_LABELS[key]}`).join("\n");
+const SOURCE_DOCUMENT_FIELD_KEYS = ALL_FIELD_KEYS.filter((key) => !DERIVED_DEAL_SHEET_FIELD_KEYS.has(key));
+const DEAL_INFORMATION_SHEET_FIELD_KEYS = ALL_FIELD_KEYS;
+const FIELD_GUIDE = ALL_FIELD_KEYS.map((key) => `- ${key}: ${FIELD_LABELS[key]}`).join("\n");
 
 const SYSTEM = `You extract deal fields from scanned Ontario real estate documents for Sutton Group-Admiral Realty. The goal is to fill the brokerage's Deal Information Sheet and compliance workflow from source documents. Values may be handwritten or typed.
 
@@ -40,7 +41,8 @@ Rules:
 - When both listing and co-operating sides are visible, extract listing_agent_name and cooperating_agent_name exactly as shown. Same-name vs different-name determines whether the both-side scenario is same-agent or different-agent.
 - A visible other-side brokerage name means that side is represented by a brokerage, not self-represented. Only mark seller_representation or buyer_representation as self-represented when the source explicitly says self-represented/unrepresented or the self-represented disclosure applies and no brokerage name is visible for that side.
 - Commission extraction fields are source-side facts, not scenario-derived results. listing_commission_pct is the commission payable to the listing/seller/landlord-side brokerage. cooperating_commission_pct is the commission payable/offered to the co-operating/buyer/tenant-side brokerage. total_commission_pct is only the combined total of both side amounts when the document explicitly gives a total or the two side amounts can be safely added. Do not copy a one-sided commission into total_commission_pct.
-- Do not extract derived Deal Information Sheet fields directly from source documents, including price_or_rent, seller_landlord_*, buyer_tenant_*, your_commission_pct, outside_agent_name, outside_brokerage, outside_brokerage_commission_pct, deposit_holder, or deposit_held_by_sutton. Those are derived later after scenario detection and source-field normalization.
+- The Deal Information Sheet is a filled internal summary when present. For pages classified as deal_information_sheet, extract its visible fields directly and treat it as the main source of the summary fields.
+- For all other source documents, do not extract derived Deal Information Sheet fields directly, including price_or_rent, seller_landlord_*, buyer_tenant_*, your_commission_pct, outside_agent_name, outside_brokerage, outside_brokerage_commission_pct, deposit_holder, or deposit_held_by_sutton. Those are derived later after scenario detection and source-field normalization.
 - transaction_type is purchase or lease. firm_or_conditional is firm or conditional. multiple_offer is yes (N) or no.
 - seller_representation and buyer_representation can be Sutton Group-Admiral, other brokerage, self-represented, or unknown when visible. For leases, seller_representation means landlord representation and buyer_representation means tenant representation.
 - scenario_hint should capture explicit phrases such as referral, co-brokerage, pre-construction, buyer self-represented, tenant self-represented, or multiple representation when visible.
@@ -56,6 +58,7 @@ Rules:
 - Keep the box tight but include the whole readable value; do not add padding. Return null if the field is inferred, combines multiple distant areas, or you cannot localize it confidently.`;
 
 export const EXTRACTABLE_DOCS: DocumentType[] = [
+  "deal_information_sheet",
   "agreement_of_purchase_and_sale",
   "first_page_aps",
   "agreement_to_lease",
@@ -77,6 +80,8 @@ export const EXTRACTABLE_DOCS: DocumentType[] = [
 ];
 
 const DOC_HINTS: Partial<Record<DocumentType, string>> = {
+  deal_information_sheet:
+    "This is the brokerage's filled Deal Information Sheet. Extract the visible summary fields exactly as written. It is the preferred source for deal-summary, client, lawyer, deposit, and commission summary fields when present.",
   agreement_of_purchase_and_sale:
     "The APS shows purchase price, deposit, irrevocable date, completion/closing date, buyer/seller names and addresses, and conditions in Schedule A.",
   first_page_aps:
@@ -118,7 +123,7 @@ const DOC_HINTS: Partial<Record<DocumentType, string>> = {
 const MAX_PAGES_PER_CALL = 12;
 const PROMPT_SIGNATURE = createHash("sha256")
   .update(SYSTEM)
-  .update("|field-extraction-schema-v2")
+  .update("|field-extraction-schema-v3-deal-sheet-primary")
   .digest("hex");
 const REGION_SYSTEM = `You read small cropped field regions from known Ontario real estate standard forms.
 
@@ -262,7 +267,7 @@ export async function extractFromStandardFormRegions(
       (region) => region.fieldKey === field.field_key && region.pageNumber === field.source_page,
     ) ?? regionInputs.find((region) => region.fieldKey === field.field_key);
     const value = field.value?.trim();
-    if (!input || !value || !EXTRACTABLE_FIELD_KEYS.includes(field.field_key)) continue;
+    if (!input || !value || !extractableFieldKeysForDocument(docType).includes(field.field_key)) continue;
     fields.push({
       ...field,
       value,
@@ -313,7 +318,7 @@ async function regionInputsForPages(
 
     const regions = form.fieldRegions.filter(
       (region) =>
-        EXTRACTABLE_FIELD_KEYS.includes(region.fieldKey) &&
+        extractableFieldKeysForDocument(match.documentType).includes(region.fieldKey) &&
         (pageMatch.templatePageNumber == null || region.page == null || region.page === pageMatch.templatePageNumber),
     );
     if (regions.length === 0) continue;
@@ -439,7 +444,7 @@ async function extractDocumentChunk(
 
   const parsed = response.parsed_output;
   if (!parsed) throw new Error(`Extraction returned no parseable output for ${docType}`);
-  parsed.fields = parsed.fields.filter((field) => ALL_FIELD_KEYS.includes(field.field_key));
+  parsed.fields = parsed.fields.filter((field) => extractableFieldKeysForDocument(docType).includes(field.field_key));
   if (cacheKey) {
     await writeCachedExtraction({
       cacheKey,
@@ -450,4 +455,8 @@ async function extractDocumentChunk(
     });
   }
   return parsed;
+}
+
+function extractableFieldKeysForDocument(docType: DocumentType) {
+  return docType === "deal_information_sheet" ? DEAL_INFORMATION_SHEET_FIELD_KEYS : SOURCE_DOCUMENT_FIELD_KEYS;
 }
