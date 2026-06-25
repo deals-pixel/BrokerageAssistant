@@ -6,7 +6,6 @@ import { DashboardAutoRefresh } from "@/components/dashboard-auto-refresh";
 import { createClient } from "@/lib/supabase/server";
 import { shortDealTitle, shortDocumentLabel } from "@/lib/display";
 import { IntakeDealLink } from "@/components/intake-deal-link";
-import { IntakeNewBadge } from "@/components/intake-new-badge";
 import {
   DealIntakeWorkflow,
   InboundEmailActivityPanel,
@@ -29,19 +28,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { TransactionType } from "@/lib/types";
-
-const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  "Intake Review": "outline",
-  Incomplete: "destructive",
-  Ready: "default",
-  Submitted: "secondary",
-  uploaded: "outline",
-  draft_from_email: "outline",
-  awaiting_match_review: "secondary",
-  awaiting_admin_process: "default",
-  processing: "secondary",
-  error: "destructive",
-};
 
 type ComplianceStatus = "Intake Review" | "Incomplete" | "Ready" | "Submitted";
 type FilterKey = "all" | "intake" | "incomplete" | "ready" | "closing_week";
@@ -66,6 +52,7 @@ type DealRow = {
   created_at: string;
   deal_pages: { page_number: number; doc_type: string | null }[];
   deal_fields: { field_key: string; value: string | null }[];
+  reminder_emails: { status: string; sent_at: string | null; drafted_at: string | null; created_at: string }[];
 };
 
 type DashboardDeal = DealRow & {
@@ -79,6 +66,13 @@ type DashboardDeal = DealRow & {
   intakeEmails: IntakeEmailRow[];
   renderedAttachmentIds: string[];
 };
+
+type DealOperationalStatus =
+  | { label: "New"; tone: "new" }
+  | { label: "Update"; tone: "updated" }
+  | { label: "Reminded"; tone: "reminded" }
+  | { label: "Ready"; tone: "ready" }
+  | { label: "Review"; tone: "review" };
 
 export default async function DashboardPage({
   searchParams,
@@ -96,7 +90,7 @@ export default async function DashboardPage({
   const { data } = await supabase
     .from("deals")
     .select(
-      "id, file_name, status, transaction_type, property_address, transaction_code, source, page_count, scenario_key, scenario_label, submitted_at, attention_reason, attention_at, attention_cleared_at, attention_cleared_by, created_at, deal_pages(page_number, doc_type), deal_fields(field_key, value)",
+      "id, file_name, status, transaction_type, property_address, transaction_code, source, page_count, scenario_key, scenario_label, submitted_at, attention_reason, attention_at, attention_cleared_at, attention_cleared_by, created_at, deal_pages(page_number, doc_type), deal_fields(field_key, value), reminder_emails(status, sent_at, drafted_at, created_at)",
     )
     .order("created_at", { ascending: false })
     .limit(100);
@@ -401,6 +395,7 @@ function TransactionCard({
   const isProcessing = deal.status === "processing" || hasProcessingRoutedIntake(deal);
   const hasIntakeWorkflow = shouldShowIntakeWorkflow(deal) && !hasProcessingRoutedIntake(deal);
   const ready = deal.complianceStatus === "Ready";
+  const statusBadge = dealOperationalStatus(deal);
 
   return (
     <div
@@ -411,40 +406,34 @@ function TransactionCard({
       }`}
     >
       <div className="min-w-0 space-y-2">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-start gap-1.5">
-            <FileText className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-            {isVirtualIntake ? (
-              <span className="min-w-0 break-words text-sm font-semibold leading-snug">
-                {shortDealTitle(deal.property_address, deal.file_name)}
-              </span>
-            ) : (
-              <IntakeDealLink
-                href={`/deals/${deal.id}`}
-                dealId={deal.id}
-                className="min-w-0 break-words text-sm font-semibold leading-snug hover:underline"
-              >
-                {shortDealTitle(deal.property_address, deal.file_name)}
-              </IntakeDealLink>
-            )}
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-start gap-1.5">
+              <FileText className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+              {isVirtualIntake ? (
+                <span className="min-w-0 break-words text-sm font-semibold leading-snug">
+                  {shortDealTitle(deal.property_address, deal.file_name)}
+                </span>
+              ) : (
+                <IntakeDealLink
+                  href={`/deals/${deal.id}`}
+                  dealId={deal.id}
+                  className="min-w-0 break-words text-sm font-semibold leading-snug hover:underline"
+                >
+                  {shortDealTitle(deal.property_address, deal.file_name)}
+                </IntakeDealLink>
+              )}
+            </div>
+            <div className="mt-1.5 truncate text-[11px] leading-4 text-muted-foreground">
+              {deal.transaction_type} | {deal.scenarioShortLabel}
+            </div>
           </div>
-          <div className="mt-1.5 truncate text-[11px] leading-4 text-muted-foreground">
-            {deal.transaction_type} | {deal.scenarioShortLabel}
-          </div>
+          <DealOperationalStatusBadge status={statusBadge} />
         </div>
         <div className="flex min-w-0 flex-wrap gap-1">
-          <span className={`rounded px-1.5 py-0.5 text-[11px] leading-4 ${column.headerPillClassName}`}>
-            {displayComplianceStatus(deal)}
-          </span>
           {deal.source === "email" && (
             <Badge variant="outline" className="h-4 px-1.5 text-[11px] leading-4">
               Email
-            </Badge>
-          )}
-          {shouldShowDealAttention(deal) && <IntakeNewBadge reason={deal.attention_reason} />}
-          {ready && (
-            <Badge className="h-4 border border-emerald-200 bg-emerald-50 px-1.5 text-[11px] leading-4 text-emerald-800">
-              Ready
             </Badge>
           )}
           {deal.transaction_code && (
@@ -507,6 +496,25 @@ function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
       pageCount={deal.page_count}
       variant={deal.complianceStatus === "Intake Review" ? "default" : "outline"}
     />
+  );
+}
+
+function DealOperationalStatusBadge({ status }: { status: DealOperationalStatus }) {
+  const toneClassName: Record<DealOperationalStatus["tone"], string> = {
+    new: "border-blue-200 bg-blue-50 text-blue-800",
+    updated: "border-amber-200 bg-amber-50 text-amber-800",
+    reminded: "border-violet-200 bg-violet-50 text-violet-800",
+    ready: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    review: "border-slate-200 bg-slate-50 text-slate-700",
+  };
+
+  return (
+    <Badge
+      variant="secondary"
+      className={`h-5 shrink-0 border px-2 text-[11px] font-medium leading-4 ${toneClassName[status.tone]}`}
+    >
+      {status.label}
+    </Badge>
   );
 }
 
@@ -622,6 +630,7 @@ function TimeListDealRow({
 }) {
   const isProcessing = deal.status === "processing" || hasProcessingRoutedIntake(deal);
   const hasIntakeWorkflow = shouldShowIntakeWorkflow(deal) && !hasProcessingRoutedIntake(deal);
+  const statusBadge = dealOperationalStatus(deal);
 
   return (
     <div
@@ -644,9 +653,7 @@ function TimeListDealRow({
         </div>
         {kind === "intake" && (
           <div className="mt-2">
-            <Badge variant={STATUS_VARIANT[deal.complianceStatus] ?? "outline"}>
-              {displayComplianceStatus(deal)}
-            </Badge>
+            <DealOperationalStatusBadge status={statusBadge} />
           </div>
         )}
       </div>
@@ -681,9 +688,7 @@ function TimeListDealRow({
           </div>
           <div>
             <div className="text-xs text-muted-foreground">Status</div>
-            <Badge variant={STATUS_VARIANT[deal.complianceStatus] ?? "outline"}>
-              {displayComplianceStatus(deal)}
-            </Badge>
+            <DealOperationalStatusBadge status={statusBadge} />
           </div>
           <MissingBadges deal={deal} limit={3} />
           <div className="flex items-center justify-end">
@@ -729,9 +734,7 @@ function RecordsTable({ deals, archive = false }: { deals: DashboardDeal[]; arch
               <TableCell className="capitalize">{deal.transaction_type}</TableCell>
               <TableCell>{deal.scenarioShortLabel}</TableCell>
               <TableCell>
-                <Badge variant={STATUS_VARIANT[deal.complianceStatus] ?? "outline"}>
-                  {displayComplianceStatus(deal)}
-                </Badge>
+                <DealOperationalStatusBadge status={dealOperationalStatus(deal)} />
               </TableCell>
               <TableCell className="max-w-72">
                 <MissingBadges deal={deal} limit={3} />
@@ -932,6 +935,7 @@ function toDashboardDeal(deal: DealRow): DashboardDeal {
 
   return {
     ...deal,
+    reminder_emails: deal.reminder_emails ?? [],
     scenarioLabel,
     scenarioShortLabel,
     complianceStatus,
@@ -970,6 +974,7 @@ function toIntakeDashboardDeal(email: IntakeEmailRow): DashboardDeal {
     created_at: receivedAt,
     deal_pages: [],
     deal_fields: [],
+    reminder_emails: [],
     scenarioLabel: intakeScenarioLabel(email.status),
     scenarioShortLabel: intakeScenarioLabel(email.status),
     complianceStatus: intakeComplianceStatus(email.status),
@@ -1020,11 +1025,6 @@ function isVirtualIntakeDeal(deal: DashboardDeal) {
   return deal.id.startsWith("intake:");
 }
 
-function displayComplianceStatus(deal: DashboardDeal) {
-  if (deal.complianceStatus === "Incomplete") return "Active Deal";
-  return deal.complianceStatus;
-}
-
 function boardColumnMatches(deal: DashboardDeal, columnStatus: ComplianceStatus) {
   if (columnStatus === "Incomplete") return deal.complianceStatus === "Incomplete" || deal.complianceStatus === "Ready";
   return deal.complianceStatus === columnStatus;
@@ -1053,6 +1053,21 @@ function shouldShowDealAttention(deal: DashboardDeal) {
   if (!deal.attention_at) return false;
   if (!deal.attention_cleared_at) return true;
   return new Date(deal.attention_cleared_at).getTime() < new Date(deal.attention_at).getTime();
+}
+
+function dealOperationalStatus(deal: DashboardDeal): DealOperationalStatus {
+  if (shouldShowDealAttention(deal)) {
+    return deal.attention_reason === "updated_from_intake"
+      ? { label: "Update", tone: "updated" }
+      : { label: "New", tone: "new" };
+  }
+  if (deal.complianceStatus === "Ready") return { label: "Ready", tone: "ready" };
+  if (hasSentReminder(deal)) return { label: "Reminded", tone: "reminded" };
+  return { label: "Review", tone: "review" };
+}
+
+function hasSentReminder(deal: DashboardDeal) {
+  return deal.reminder_emails.some((reminder) => reminder.status === "sent" || Boolean(reminder.sent_at));
 }
 
 function shouldShowIntakeWorkflow(deal: DashboardDeal) {
