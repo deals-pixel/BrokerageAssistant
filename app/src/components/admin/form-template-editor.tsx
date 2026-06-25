@@ -85,6 +85,17 @@ type SharedTemplateDraft = {
   updated_by: string | null;
 };
 
+type SharedBlankTemplateFile = {
+  fileName: string;
+  savedAt: string;
+  pages: {
+    pageNumber: number;
+    signedUrl: string;
+    contentType: "image/jpeg" | "image/png";
+    size: number;
+  }[];
+};
+
 const DRAFT_PREFIX = "brokerage-form-template:";
 const CUSTOM_FORMS_KEY = "brokerage-custom-standard-forms";
 const SAVED_TEMPLATE_DB = "brokerage-standard-form-templates";
@@ -470,6 +481,22 @@ export function FormTemplateEditor() {
     setSharedDraft(remoteDraft);
 
     try {
+      const sharedBlank = await loadSharedBlankTemplateFile(form.key);
+      if (autoLoadRequestRef.current !== requestId) return;
+
+      if (sharedBlank) {
+        const remotePages = await pagesFromSharedBlank(sharedBlank);
+        if (autoLoadRequestRef.current !== requestId) return;
+        updatePages(remotePages);
+        setFileName(sharedBlank.fileName);
+        setSavedTemplate({
+          fileName: sharedBlank.fileName,
+          savedAt: sharedBlank.savedAt,
+          pageCount: sharedBlank.pages.length,
+        });
+        return;
+      }
+
       const saved = await loadSavedTemplateFile(form.key);
       if (autoLoadRequestRef.current !== requestId) return;
 
@@ -529,8 +556,14 @@ export function FormTemplateEditor() {
         })),
       };
       await saveTemplateFile(saved);
+      const shared = await saveSharedBlankTemplateFile(selectedForm.key, saved);
       await refreshSavedTemplateMeta(selectedForm.key);
-      toast.success("Blank form saved for this standard form.");
+      setSavedTemplate({
+        fileName: shared.fileName,
+        savedAt: shared.savedAt,
+        pageCount: shared.pages.length,
+      });
+      toast.success("Blank form saved for everyone.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save the blank form.");
     }
@@ -539,7 +572,10 @@ export function FormTemplateEditor() {
   async function deleteBlankForm() {
     if (!selectedForm) return;
     try {
+      await deleteSharedBlankTemplateFile(selectedForm.key);
       await deleteSavedTemplateFile(selectedForm.key);
+      updatePages([]);
+      setFileName("");
       setSavedTemplate(null);
       toast.success("Saved blank form removed.");
     } catch (error) {
@@ -719,7 +755,7 @@ export function FormTemplateEditor() {
               </Button>
               {savedTemplate && (
                 <div className="mt-3 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
-                  <p className="font-medium text-foreground">Saved blank form</p>
+                  <p className="font-medium text-foreground">Shared blank form</p>
                   <p className="truncate">{savedTemplate.fileName}</p>
                   <p>
                     {savedTemplate.pageCount} page{savedTemplate.pageCount === 1 ? "" : "s"} saved{" "}
@@ -732,7 +768,7 @@ export function FormTemplateEditor() {
                     onClick={deleteBlankForm}
                   >
                     <Trash2 />
-                    Remove saved blank
+                    Remove shared blank
                   </Button>
                 </div>
               )}
@@ -1099,6 +1135,52 @@ async function saveSharedDraft(formKey: string, draft: DraftState): Promise<Shar
   return normalized;
 }
 
+async function loadSharedBlankTemplateFile(formKey: string): Promise<SharedBlankTemplateFile | null> {
+  const response = await fetch(`/api/template-drafts/${encodeURIComponent(formKey)}/blank`, { cache: "no-store" });
+  if (!response.ok) return null;
+
+  const body = (await response.json().catch(() => null)) as { blank?: SharedBlankTemplateFile | null } | null;
+  return normalizeSharedBlank(body?.blank);
+}
+
+async function saveSharedBlankTemplateFile(
+  formKey: string,
+  template: SavedTemplateFile,
+): Promise<SharedBlankTemplateFile> {
+  const pages = await Promise.all(
+    template.pages.map(async (page) => ({
+      pageNumber: page.pageNumber,
+      contentType: page.blob.type === "image/png" ? ("image/png" as const) : ("image/jpeg" as const),
+      dataUrl: await blobToDataUrl(page.blob),
+    })),
+  );
+
+  const response = await fetch(`/api/template-drafts/${encodeURIComponent(formKey)}/blank`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      formTitle: template.formTitle,
+      fileName: template.fileName,
+      pages,
+    }),
+  });
+  const body = (await response.json().catch(() => null)) as { blank?: SharedBlankTemplateFile; error?: string } | null;
+  if (!response.ok || !body?.blank) {
+    throw new Error(body?.error ?? "Could not save shared blank form.");
+  }
+  const normalized = normalizeSharedBlank(body.blank);
+  if (!normalized) throw new Error("Shared blank form response was invalid.");
+  return normalized;
+}
+
+async function deleteSharedBlankTemplateFile(formKey: string) {
+  const response = await fetch(`/api/template-drafts/${encodeURIComponent(formKey)}/blank`, { method: "DELETE" });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? "Could not remove shared blank form.");
+  }
+}
+
 function normalizeSharedDraft(value: SharedTemplateDraft | null | undefined): SharedTemplateDraft | null {
   if (!value || !Array.isArray(value.regions)) return null;
   return {
@@ -1113,6 +1195,50 @@ function normalizeSharedDraft(value: SharedTemplateDraft | null | undefined): Sh
         box: normalizeSize(region.box),
       })),
   };
+}
+
+function normalizeSharedBlank(value: SharedBlankTemplateFile | null | undefined): SharedBlankTemplateFile | null {
+  if (!value || !Array.isArray(value.pages) || value.pages.length === 0) return null;
+  const fileName = typeof value.fileName === "string" ? value.fileName : "";
+  const savedAt = typeof value.savedAt === "string" ? value.savedAt : new Date().toISOString();
+  const pages = value.pages
+    .map((page) => {
+      if (!page || typeof page !== "object") return null;
+      const pageNumber = Number(page.pageNumber);
+      const signedUrl = typeof page.signedUrl === "string" ? page.signedUrl : "";
+      const contentType = page.contentType === "image/png" ? "image/png" : "image/jpeg";
+      const size = Number(page.size ?? 0);
+      if (!Number.isFinite(pageNumber) || pageNumber < 1 || !signedUrl) return null;
+      return { pageNumber, signedUrl, contentType, size: Number.isFinite(size) ? size : 0 };
+    })
+    .filter((page): page is SharedBlankTemplateFile["pages"][number] => Boolean(page))
+    .sort((a, b) => a.pageNumber - b.pageNumber);
+  return pages.length > 0 ? { fileName, savedAt, pages } : null;
+}
+
+async function pagesFromSharedBlank(blank: SharedBlankTemplateFile): Promise<RenderedPage[]> {
+  const pages = await Promise.all(
+    blank.pages.map(async (page) => {
+      const response = await fetch(page.signedUrl);
+      if (!response.ok) throw new Error(`Could not load saved blank form page ${page.pageNumber}.`);
+      const blob = await response.blob();
+      return {
+        pageNumber: page.pageNumber,
+        url: URL.createObjectURL(blob),
+        blob,
+      };
+    }),
+  );
+  return pages.sort((a, b) => a.pageNumber - b.pageNumber);
+}
+
+function blobToDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read page image."));
+    reader.readAsDataURL(blob);
+  });
 }
 
 function loadCustomForms() {
