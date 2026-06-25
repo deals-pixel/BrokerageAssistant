@@ -51,6 +51,7 @@ export async function proxy(request: NextRequest) {
     : { data: null };
   const role = profile?.role ?? null;
   const isTemplateEditor = role === "template_editor";
+  const isTemplateDraftApi = request.nextUrl.pathname.startsWith("/api/template-drafts");
 
   if (user && isLogin) {
     const url = request.nextUrl.clone();
@@ -58,7 +59,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (isTemplateEditor && !request.nextUrl.pathname.startsWith("/admin/templates")) {
+  if (isTemplateEditor && !request.nextUrl.pathname.startsWith("/admin/templates") && !isTemplateDraftApi) {
     if (request.nextUrl.pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

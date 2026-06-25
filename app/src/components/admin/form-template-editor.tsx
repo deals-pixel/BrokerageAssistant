@@ -13,7 +13,6 @@ import {
   Plus,
   Save,
   Trash2,
-  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { DOCUMENT_TYPES, FIELD_REGISTRY_SECTIONS, type DocumentType, type SourceBox } from "@/lib/types";
@@ -77,6 +76,15 @@ type SavedTemplateFile = {
   pages: SavedTemplatePage[];
 };
 
+type SharedTemplateDraft = {
+  form_key: string;
+  form_title: string;
+  file_name: string | null;
+  regions: EditableRegion[];
+  updated_at: string;
+  updated_by: string | null;
+};
+
 const DRAFT_PREFIX = "brokerage-form-template:";
 const CUSTOM_FORMS_KEY = "brokerage-custom-standard-forms";
 const SAVED_TEMPLATE_DB = "brokerage-standard-form-templates";
@@ -115,6 +123,7 @@ export function FormTemplateEditor() {
   const [interaction, setInteraction] = useState<BoxInteraction | null>(null);
   const [draftBox, setDraftBox] = useState<SourceBox | null>(null);
   const [progress, setProgress] = useState("");
+  const [sharedDraft, setSharedDraft] = useState<SharedTemplateDraft | null>(null);
   const [savedTemplate, setSavedTemplate] = useState<{ fileName: string; savedAt: string; pageCount: number } | null>(
     null,
   );
@@ -127,7 +136,6 @@ export function FormTemplateEditor() {
   const selectedFormIsCustom = customForms.some((form) => form.key === selectedForm?.key);
   const activePageImage = pages.find((page) => page.pageNumber === activePage) ?? pages[0];
   const activeField = FIELD_OPTIONS.find((field) => field.key === selectedFieldKey);
-  const currentDraftKey = selectedForm ? draftKey(selectedForm.key) : "";
   const selectedRegion = regions.find((region) => region.id === selectedRegionId) ?? null;
   const exportSnippet = useMemo(
     () => buildTypeScriptSnippet(regions, selectedForm),
@@ -340,18 +348,7 @@ export function FormTemplateEditor() {
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
-  function loadExistingRegions() {
-    if (!selectedForm?.fieldRegions?.length) {
-      toast.info("This form does not have existing regions yet.");
-      return;
-    }
-    const nextRegions = regionsFromStandardForm(selectedForm, activePage);
-    setRegions(nextRegions);
-    setSelectedRegionId(nextRegions[0]?.id ?? null);
-    toast.success(`Loaded ${nextRegions.length} existing region${nextRegions.length === 1 ? "" : "s"}.`);
-  }
-
-  function saveDraft() {
+  async function saveDraft() {
     if (!selectedForm) return;
     const draft: DraftState = {
       formKey: selectedForm.key,
@@ -359,21 +356,16 @@ export function FormTemplateEditor() {
       fileName,
       regions,
     };
-    localStorage.setItem(currentDraftKey, JSON.stringify(draft));
-    toast.success("Template draft saved in this browser.");
-  }
+    localStorage.setItem(draftKey(selectedForm.key), JSON.stringify(draft));
 
-  function loadDraft() {
-    if (!selectedForm) return;
-    const draft = loadDraftState(selectedForm.key);
-    if (!draft) {
-      toast.info("No saved draft for this form.");
-      return;
+    try {
+      const saved = await saveSharedDraft(selectedForm.key, draft);
+      setSharedDraft(saved);
+      toast.success("Template draft saved for everyone.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save the shared draft.");
+      toast.info("A browser-local backup draft was saved on this computer.");
     }
-    setRegions(draft.regions ?? []);
-    setFileName(draft.fileName ?? fileName);
-    setSelectedRegionId(draft.regions?.[0]?.id ?? null);
-    toast.success("Draft loaded.");
   }
 
   function addCustomForm() {
@@ -443,11 +435,19 @@ export function FormTemplateEditor() {
     setDraftBox(null);
     setProgress("Loading standard form...");
 
-    const savedDraft = loadDraftState(form.key);
-    const nextRegions = savedDraft?.regions ?? regionsFromStandardForm(form, 1);
+    const remoteDraft = await loadSharedDraft(form.key);
+    if (autoLoadRequestRef.current !== requestId) return;
+
+    const localDraft = loadDraftState(form.key);
+    const nextRegions = remoteDraft?.regions?.length
+      ? remoteDraft.regions
+      : localDraft?.regions?.length
+        ? localDraft.regions
+        : regionsFromStandardForm(form, 1);
     setRegions(nextRegions);
     setSelectedRegionId(nextRegions[0]?.id ?? null);
     setActivePage(1);
+    setSharedDraft(remoteDraft);
 
     try {
       const saved = await loadSavedTemplateFile(form.key);
@@ -471,12 +471,12 @@ export function FormTemplateEditor() {
       }
 
       updatePages([]);
-      setFileName(savedDraft?.fileName ?? "");
+      setFileName(remoteDraft?.file_name ?? localDraft?.fileName ?? "");
       setSavedTemplate(null);
     } catch {
       if (autoLoadRequestRef.current !== requestId) return;
       updatePages([]);
-      setFileName(savedDraft?.fileName ?? "");
+      setFileName(remoteDraft?.file_name ?? localDraft?.fileName ?? "");
       setSavedTemplate(null);
     } finally {
       if (autoLoadRequestRef.current === requestId) setProgress("");
@@ -493,7 +493,7 @@ export function FormTemplateEditor() {
   async function saveBlankForm() {
     if (!selectedForm) return;
     if (!pages.length) {
-      toast.info("Upload or load a blank form before saving it.");
+      toast.info("Upload a blank form before saving it.");
       return;
     }
 
@@ -513,35 +513,6 @@ export function FormTemplateEditor() {
       toast.success("Blank form saved for this standard form.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save the blank form.");
-    }
-  }
-
-  async function loadBlankForm() {
-    if (!selectedForm) return;
-    try {
-      const saved = await loadSavedTemplateFile(selectedForm.key);
-      if (!saved) {
-        toast.info("No saved blank form for this standard form yet.");
-        return;
-      }
-      updatePages(
-        saved.pages.map((page) => ({
-          pageNumber: page.pageNumber,
-          url: URL.createObjectURL(page.blob),
-          blob: page.blob,
-        })),
-      );
-      setFileName(saved.fileName);
-      setActivePage(1);
-      setSelectedRegionId(null);
-      setSavedTemplate({
-        fileName: saved.fileName,
-        savedAt: saved.savedAt,
-        pageCount: saved.pages.length,
-      });
-      toast.success(`Loaded saved blank form with ${saved.pages.length} page${saved.pages.length === 1 ? "" : "s"}.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not load the saved blank form.");
     }
   }
 
@@ -581,10 +552,6 @@ export function FormTemplateEditor() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={loadDraft}>
-            <Upload />
-            Load draft
-          </Button>
           <Button variant="outline" onClick={saveDraft} disabled={!selectedForm}>
             <Save />
             Save draft
@@ -726,16 +693,10 @@ export function FormTemplateEditor() {
               <p className="mt-2 text-xs text-muted-foreground">
                 {progress || fileName || "PDF and JPEG blank forms are supported."}
               </p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <Button variant="outline" onClick={loadBlankForm}>
-                  <Upload />
-                  Load saved
-                </Button>
-                <Button variant="outline" onClick={saveBlankForm} disabled={!pages.length}>
-                  <Save />
-                  Save blank
-                </Button>
-              </div>
+              <Button className="mt-3 w-full" variant="outline" onClick={saveBlankForm} disabled={!pages.length}>
+                <Save />
+                Save blank
+              </Button>
               {savedTemplate && (
                 <div className="mt-3 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
                   <p className="font-medium text-foreground">Saved blank form</p>
@@ -757,21 +718,12 @@ export function FormTemplateEditor() {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline" onClick={loadExistingRegions}>
-                Load existing
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => {
-                  setRegions([]);
-                  setSelectedRegionId(null);
-                }}
-                disabled={regions.length === 0}
-              >
-                Clear boxes
-              </Button>
-            </div>
+            {sharedDraft && (
+              <div className="rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">Shared draft loaded</p>
+                <p>{regions.length} region{regions.length === 1 ? "" : "s"} saved {formatSavedAt(sharedDraft.updated_at)}</p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -1093,6 +1045,48 @@ function loadDraftState(formKey: string) {
   } catch {
     return null;
   }
+}
+
+async function loadSharedDraft(formKey: string): Promise<SharedTemplateDraft | null> {
+  const response = await fetch(`/api/template-drafts/${encodeURIComponent(formKey)}`, { cache: "no-store" });
+  if (!response.ok) return null;
+
+  const body = (await response.json().catch(() => null)) as { draft?: SharedTemplateDraft | null } | null;
+  return normalizeSharedDraft(body?.draft);
+}
+
+async function saveSharedDraft(formKey: string, draft: DraftState): Promise<SharedTemplateDraft> {
+  const response = await fetch(`/api/template-drafts/${encodeURIComponent(formKey)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      formTitle: draft.formTitle,
+      fileName: draft.fileName,
+      regions: draft.regions,
+    }),
+  });
+  const body = (await response.json().catch(() => null)) as { draft?: SharedTemplateDraft; error?: string } | null;
+  if (!response.ok || !body?.draft) {
+    throw new Error(body?.error ?? "Could not save shared template draft.");
+  }
+  const normalized = normalizeSharedDraft(body.draft);
+  if (!normalized) throw new Error("Shared template draft response was invalid.");
+  return normalized;
+}
+
+function normalizeSharedDraft(value: SharedTemplateDraft | null | undefined): SharedTemplateDraft | null {
+  if (!value || !Array.isArray(value.regions)) return null;
+  return {
+    ...value,
+    regions: value.regions
+      .filter((region) => region && region.fieldKey && region.label && region.box)
+      .map((region) => ({
+        ...region,
+        id: region.id || crypto.randomUUID(),
+        page: Number.isFinite(region.page) && region.page > 0 ? region.page : 1,
+        box: normalizeSize(region.box),
+      })),
+  };
 }
 
 function loadCustomForms() {
