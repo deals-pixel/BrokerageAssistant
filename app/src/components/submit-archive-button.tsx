@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { acknowledgeDealAttention } from "@/components/intake-new-badge";
 import { toast } from "sonner";
 
 type SubmitArchiveButtonProps = {
@@ -46,6 +47,7 @@ export function SubmitArchiveButton({
     setConfirmOpen(false);
     setSubmitting(true);
     try {
+      acknowledgeDealAttention(dealId);
       const res = await fetch(`/api/deals/${dealId}/export`, { method: "POST" });
       if (!res.ok) {
         const body = await res.json().catch(() => null);

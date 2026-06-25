@@ -13,9 +13,27 @@ export default async function DealPage({
   const { id } = await params;
   const query = await searchParams;
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const { data: deal } = await supabase.from("deals").select("*").eq("id", id).single();
   if (!deal) notFound();
+
+  if (
+    user &&
+    deal.attention_at &&
+    (!deal.attention_cleared_at ||
+      new Date(deal.attention_cleared_at).getTime() < new Date(deal.attention_at).getTime())
+  ) {
+    await supabase
+      .from("deals")
+      .update({
+        attention_cleared_at: new Date().toISOString(),
+        attention_cleared_by: user.id,
+      })
+      .eq("id", id);
+  }
 
   const { data: pages } = await supabase
     .from("deal_pages")

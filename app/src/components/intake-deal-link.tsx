@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { ComponentProps } from "react";
-import { rememberOpenedIntakeDeal } from "@/components/intake-new-badge";
+import { acknowledgeDealAttention } from "@/components/intake-new-badge";
 
 type IntakeDealLinkProps = ComponentProps<typeof Link> & {
   dealId: string;
@@ -13,7 +13,7 @@ export function IntakeDealLink({ dealId, onClick, ...props }: IntakeDealLinkProp
     <Link
       {...props}
       onClick={(event) => {
-        rememberOpenedIntakeDeal(dealId);
+        acknowledgeDealAttention(dealId);
         onClick?.(event);
       }}
     />

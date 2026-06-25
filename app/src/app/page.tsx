@@ -59,6 +59,10 @@ type DealRow = {
   scenario_key: string | null;
   scenario_label: string | null;
   submitted_at: string | null;
+  attention_reason: string | null;
+  attention_at: string | null;
+  attention_cleared_at: string | null;
+  attention_cleared_by: string | null;
   created_at: string;
   deal_pages: { page_number: number; doc_type: string | null }[];
   deal_fields: { field_key: string; value: string | null }[];
@@ -92,7 +96,7 @@ export default async function DashboardPage({
   const { data } = await supabase
     .from("deals")
     .select(
-      "id, file_name, status, transaction_type, property_address, transaction_code, source, page_count, scenario_key, scenario_label, submitted_at, created_at, deal_pages(page_number, doc_type), deal_fields(field_key, value)",
+      "id, file_name, status, transaction_type, property_address, transaction_code, source, page_count, scenario_key, scenario_label, submitted_at, attention_reason, attention_at, attention_cleared_at, attention_cleared_by, created_at, deal_pages(page_number, doc_type), deal_fields(field_key, value)",
     )
     .order("created_at", { ascending: false })
     .limit(100);
@@ -397,7 +401,6 @@ function TransactionCard({
   const isProcessing = deal.status === "processing" || hasProcessingRoutedIntake(deal);
   const hasIntakeWorkflow = shouldShowIntakeWorkflow(deal) && !hasProcessingRoutedIntake(deal);
   const ready = deal.complianceStatus === "Ready";
-  const fromIntake = isIntakeArrivedDeal(deal);
 
   return (
     <div
@@ -438,7 +441,7 @@ function TransactionCard({
               Email
             </Badge>
           )}
-          {fromIntake && <IntakeNewBadge dealId={deal.id} />}
+          {shouldShowDealAttention(deal) && <IntakeNewBadge reason={deal.attention_reason} />}
           {ready && (
             <Badge className="h-4 border border-emerald-200 bg-emerald-50 px-1.5 text-[11px] leading-4 text-emerald-800">
               Ready
@@ -486,7 +489,7 @@ function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
         size="sm"
         variant="outline"
         nativeButton={false}
-        render={<Link href={`/deals/${deal.id}?reminder=1`} />}
+        render={<IntakeDealLink href={`/deals/${deal.id}?reminder=1`} dealId={deal.id} />}
       >
         Remind
       </Button>
@@ -960,6 +963,10 @@ function toIntakeDashboardDeal(email: IntakeEmailRow): DashboardDeal {
     scenario_key: null,
     scenario_label: null,
     submitted_at: null,
+    attention_reason: null,
+    attention_at: null,
+    attention_cleared_at: null,
+    attention_cleared_by: null,
     created_at: receivedAt,
     deal_pages: [],
     deal_fields: [],
@@ -1029,8 +1036,8 @@ function sortBoardDeals(deals: DashboardDeal[]) {
     const bReady = b.complianceStatus === "Ready" ? 1 : 0;
     if (aReady !== bReady) return bReady - aReady;
 
-    const aNew = isIntakeArrivedDeal(a) ? 1 : 0;
-    const bNew = isIntakeArrivedDeal(b) ? 1 : 0;
+    const aNew = shouldShowDealAttention(a) ? 1 : 0;
+    const bNew = shouldShowDealAttention(b) ? 1 : 0;
     if (aNew !== bNew) return bNew - aNew;
 
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -1039,6 +1046,13 @@ function sortBoardDeals(deals: DashboardDeal[]) {
 
 function isIntakeArrivedDeal(deal: DashboardDeal) {
   return !isVirtualIntakeDeal(deal) && deal.source === "email" && deal.intakeEmails.length > 0;
+}
+
+function shouldShowDealAttention(deal: DashboardDeal) {
+  if (isVirtualIntakeDeal(deal)) return false;
+  if (!deal.attention_at) return false;
+  if (!deal.attention_cleared_at) return true;
+  return new Date(deal.attention_cleared_at).getTime() < new Date(deal.attention_at).getTime();
 }
 
 function shouldShowIntakeWorkflow(deal: DashboardDeal) {

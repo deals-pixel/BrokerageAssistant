@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { acknowledgeDealAttention } from "@/components/intake-new-badge";
 import { toast } from "sonner";
 
 type ProcessDealButtonProps = {
@@ -33,6 +34,7 @@ export function ProcessDealButton({
   async function process() {
     setProcessing(true);
     try {
+      acknowledgeDealAttention(dealId);
       const res = await fetch(`/api/deals/${dealId}/process`, { method: "POST" });
       if (!res.ok) {
         const body = await res.json().catch(() => null);

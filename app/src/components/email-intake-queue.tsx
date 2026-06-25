@@ -422,27 +422,32 @@ export function DealIntakeWorkflow({
               </div>
             ) : (
               <>
-                <div className="flex min-w-0 items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Email</div>
-                    <div className="truncate text-[12px] font-semibold leading-4" title={email.from_email ?? undefined}>
-                      {email.from_name || email.from_email || "Unknown sender"}
-                    </div>
+                <div className="min-w-0">
+                  <div className="break-words text-sm font-semibold leading-snug" title={email.subject ?? undefined}>
+                    {email.subject || "Inbound email package"}
                   </div>
-                  <Badge variant={intakeStatusVariant(email.status)} className="h-5 shrink-0 px-1.5 text-[11px]">
+                  <div className="mt-0.5 text-xs leading-4 text-muted-foreground">
+                    {routingTransactionType(email.routing_json)} - {formatIntakeStatus(email.status)}
+                  </div>
+                </div>
+
+                <div className="flex min-w-0 flex-wrap gap-1.5">
+                  <Badge className="h-5 border border-blue-200 bg-blue-50 px-2 text-[11px] font-medium leading-4 text-blue-800 hover:bg-blue-50">
                     {formatIntakeStatus(email.status)}
+                  </Badge>
+                  <Badge variant="outline" className="h-5 px-2 text-[11px] font-medium leading-4">
+                    Email
                   </Badge>
                 </div>
 
-                <div className="min-w-0 space-y-1.5 text-[11px] leading-4">
-                  <IntakeInfo label="Files" value={attachmentWorkflowSummary(email.email_attachments ?? [])} />
-                  <IntakeInfo
-                    label="Received"
-                    value={email.received_at ? new Date(email.received_at).toLocaleDateString() : "Unknown"}
-                    meta={email.received_at ? new Date(email.received_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
-                  />
+                <div className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-2 pt-1 text-xs leading-4">
+                  <CompactIntakeInfo label="From" value={email.from_name || email.from_email || "Unknown sender"} />
+                  <CompactIntakeInfo label="Received" value={formatCompactReceived(email.received_at)} />
+                  <div className="col-span-2">
+                    <CompactIntakeInfo label="Files" value={compactAttachmentSummary(email.email_attachments ?? [])} />
+                  </div>
                   {email.error_message && (
-                    <div className="flex min-w-0 items-center gap-1 text-destructive">
+                    <div className="col-span-2 flex min-w-0 items-center gap-1 text-destructive">
                       <AlertCircle className="size-3 shrink-0" />
                       <span className="break-words">{email.error_message}</span>
                     </div>
@@ -451,8 +456,8 @@ export function DealIntakeWorkflow({
               </>
             )}
 
-            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-t pt-2">
-              <div className="flex min-w-0 flex-wrap justify-end gap-1.5">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 pt-1">
+              <div className="flex min-w-0 flex-wrap gap-1.5">
                 {routingReady && (
                   <>
                     <Button
@@ -488,7 +493,7 @@ export function DealIntakeWorkflow({
                   <Button
                     size="sm"
                     variant="default"
-                    className="h-7 px-2 text-xs"
+                    className="h-9 px-4 text-sm"
                     onClick={(event) => {
                       event.stopPropagation();
                       processIntakeForRouting(dialogStateForEmail("review", email));
@@ -534,7 +539,7 @@ export function DealIntakeWorkflow({
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 px-2 text-xs"
+                    className="h-9 px-4 text-sm"
                     onClick={(event) => {
                       event.stopPropagation();
                       openDialog("ignore", email);
@@ -699,6 +704,17 @@ function IntakeInfo({
           {value}
         </div>
         {meta && <div className="truncate text-[10px] leading-3 text-muted-foreground">{meta}</div>}
+      </div>
+    </div>
+  );
+}
+
+function CompactIntakeInfo({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] font-semibold uppercase leading-4 text-muted-foreground">{label}</div>
+      <div className="min-w-0 truncate text-xs font-medium leading-4 text-foreground" title={value}>
+        {value}
       </div>
     </div>
   );
@@ -1072,6 +1088,24 @@ function attachmentWorkflowSummary(attachments: EmailAttachmentForQueue[]) {
   if (labels.length === 0) return `${fileText} | ${attachmentStatusSummary(attachments)}`;
   const visible = labels.slice(0, 2).join(", ");
   return labels.length > 2 ? `${fileText} | ${visible} +${labels.length - 2}` : `${fileText} | ${visible}`;
+}
+
+function compactAttachmentSummary(attachments: EmailAttachmentForQueue[]) {
+  const activeAttachments = attachments.filter(
+    (attachment) => attachment.status !== "ignored" && attachment.status !== "duplicate",
+  );
+  if (activeAttachments.length === 0) return "No files attached";
+  if (activeAttachments.length === 1) return activeAttachments[0].original_filename || "1 file attached";
+  return `${activeAttachments.length} files attached`;
+}
+
+function formatCompactReceived(value: string | null) {
+  if (!value) return "Unknown";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  const day = date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return `${day} - ${time}`;
 }
 
 function activityAttachmentSummary(email: IntakeEmailRow) {
