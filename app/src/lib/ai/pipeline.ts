@@ -145,7 +145,7 @@ export async function processDeal(dealId: string): Promise<void> {
           metadata: { source: "full_processing" },
         },
       );
-      if (regionResult && shouldUseRegionExtraction(regionResult)) {
+      if (regionResult && shouldUseRegionExtraction(docType, regionResult)) {
         extractionModes.push({
           docType,
           mode: "region_first",
@@ -161,7 +161,7 @@ export async function processDeal(dealId: string): Promise<void> {
         metadata: {
           source: "full_processing",
           region_first_fallback:
-            regionResult && !shouldUseRegionExtraction(regionResult)
+            regionResult && !shouldUseRegionExtraction(docType, regionResult)
               ? `${regionResult.extractedCount}/${regionResult.regionCount}`
               : null,
         },
@@ -281,11 +281,39 @@ async function loadExistingDealFields(
   return (data ?? []) as ExistingDealFieldRow[];
 }
 
-function shouldUseRegionExtraction(result: { regionCount: number; extractedCount: number }) {
+function shouldUseRegionExtraction(
+  docType: DocumentType,
+  result: { extraction: { fields: { field_key: string }[] }; regionCount: number; extractedCount: number },
+) {
   if (process.env.REGION_FIRST_EXTRACTION === "0") return false;
   if (result.extractedCount <= 0) return false;
+
+  const fieldKeys = new Set(result.extraction.fields.map((field) => field.field_key));
+  const anchorHits = regionExtractionAnchorFields(docType).filter((key) => fieldKeys.has(key)).length;
+  if (anchorHits >= 2) return true;
+
   if (result.regionCount < 4) return true;
+  if (docType === "deal_information_sheet" && result.extractedCount >= 3) return true;
+  if (result.regionCount <= 8 && result.extractedCount >= 2) return true;
   return result.extractedCount / result.regionCount >= 0.2;
+}
+
+function regionExtractionAnchorFields(docType: DocumentType) {
+  switch (docType) {
+    case "deal_information_sheet":
+      return ["agent_name", "property_address", "price_or_rent", "closing_date"];
+    case "agreement_to_lease":
+    case "lease_agreement":
+    case "ontario_residential_tenancy_agreement":
+      return ["property_address", "price_or_rent", "lease_start_date", "buyer_tenant_names", "seller_landlord_names"];
+    case "agreement_of_purchase_and_sale":
+    case "first_page_aps":
+      return ["property_address", "price_or_rent", "buyer_tenant_names", "seller_landlord_names", "closing_date"];
+    case "form_320_confirmation_cooperation":
+      return ["listing_brokerage", "cooperating_brokerage", "cooperating_commission_pct", "representation_side"];
+    default:
+      return ["property_address", "price_or_rent", "buyer_tenant_names", "seller_landlord_names"];
+  }
 }
 
 function existingRowsToMergedFields(rows: ExistingDealFieldRow[]): PipelineField[] {

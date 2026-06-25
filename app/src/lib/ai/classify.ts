@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { DOCUMENT_TYPES } from "@/lib/types";
@@ -5,6 +6,11 @@ import { classificationGuideFromStandardForms } from "@/lib/standard-forms";
 import { anthropic, CLASSIFICATION_AI_MODEL } from "./client";
 import { PageClassificationSchema, type PageClassification } from "./schemas";
 import { logAiUsage, usageFromResponse } from "./usage";
+import {
+  classificationCacheKey,
+  readCachedClassification,
+  writeCachedClassification,
+} from "./classification-cache";
 
 const DOC_TYPE_GUIDE = Object.entries(DOCUMENT_TYPES)
   .map(([key, label]) => `- ${key}: ${label}`)
@@ -30,9 +36,13 @@ ${STANDARD_FORM_GUIDE}
 - Determine the overall transaction_type: "purchase" if an Agreement of Purchase and Sale or pre-construction APS page is present, "lease" if an agreement to lease or tenancy agreement is present, otherwise your best judgment from the Deal Information Sheet.`;
 
 const BATCH_SIZE = 10;
+const PROMPT_SIGNATURE = createHash("sha256")
+  .update(SYSTEM)
+  .update("|page-classification-schema-v2-standard-form-registry")
+  .digest("hex");
 
 export async function classifyPages(
-  pageImages: { pageNumber: number; base64: string; mediaType: "image/jpeg" | "image/png" }[],
+  pageImages: { pageNumber: number; base64: string; mediaType: "image/jpeg" | "image/png"; pageHash?: string | null }[],
   options: { dealId?: string | null; metadata?: Record<string, unknown> } = {},
 ): Promise<PageClassification> {
   const batches: (typeof pageImages)[] = [];
@@ -44,6 +54,33 @@ export async function classifyPages(
   const txVotes: Record<string, number> = {};
 
   for (const batch of batches) {
+    const cacheKey = classificationCacheKey({
+      model: CLASSIFICATION_AI_MODEL,
+      pages: batch,
+      promptSignature: PROMPT_SIGNATURE,
+    });
+    if (cacheKey) {
+      const cached = await readCachedClassification(cacheKey);
+      if (cached) {
+        await logAiUsage({
+          layer: "classification",
+          model: CLASSIFICATION_AI_MODEL,
+          dealId: options.dealId,
+          cached: true,
+          inputPages: batch.length,
+          metadata: {
+            batch_start_page: batch[0].pageNumber,
+            batch_end_page: batch[batch.length - 1].pageNumber,
+            cache_key: cacheKey,
+            ...options.metadata,
+          },
+        });
+        results.push(...cached.pages);
+        txVotes[cached.transaction_type] = (txVotes[cached.transaction_type] ?? 0) + 1;
+        continue;
+      }
+    }
+
     const content: Anthropic.ContentBlockParam[] = batch.flatMap((p) => [
       { type: "text" as const, text: `Page ${p.pageNumber}:` },
       {
@@ -73,6 +110,7 @@ export async function classifyPages(
       metadata: {
         batch_start_page: batch[0].pageNumber,
         batch_end_page: batch[batch.length - 1].pageNumber,
+        cache_key: cacheKey,
         ...options.metadata,
       },
     });
@@ -81,6 +119,14 @@ export async function classifyPages(
     if (!parsed) throw new Error("Classification returned no parseable output");
     results.push(...parsed.pages);
     txVotes[parsed.transaction_type] = (txVotes[parsed.transaction_type] ?? 0) + 1;
+    if (cacheKey) {
+      await writeCachedClassification({
+        cacheKey,
+        model: CLASSIFICATION_AI_MODEL,
+        pageHashes: batch.map((page) => page.pageHash).filter((hash): hash is string => Boolean(hash)),
+        classification: parsed,
+      });
+    }
   }
 
   const tx: "purchase" | "lease" =

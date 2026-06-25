@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { classifyPages } from "@/lib/ai/classify";
@@ -9,6 +10,7 @@ type PendingImage = {
   pageNumber: number;
   base64: string;
   mediaType: "image/jpeg" | "image/png";
+  pageHash?: string | null;
 };
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -25,7 +27,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: "No page images provided" }, { status: 400 });
   }
 
-  const classification = await classifyPages(images, {
+  const hashedImages = images.map((image) => ({
+    ...image,
+    pageHash: image.pageHash ?? hashBase64Image(image.base64),
+  }));
+
+  const classification = await classifyPages(hashedImages, {
     dealId: id,
     metadata: { source: "pending_upload_preflight" },
   });
@@ -70,4 +77,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     incomingDocTypes,
     conflicts,
   });
+}
+
+function hashBase64Image(base64: string) {
+  return createHash("sha256").update(Buffer.from(base64, "base64")).digest("hex");
 }

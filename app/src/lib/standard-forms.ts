@@ -28,6 +28,34 @@ export type StandardFormMatch = {
   source: "classifier" | "document_type";
 };
 
+const LEGACY_GROUPED_FORM_KEYS: Record<string, Record<string, string>> = {
+  form_120_123_124_sale_conditions: {
+    "120": "form_120_sale_amendment",
+    "123": "form_123_sale_waiver",
+    "124": "form_124_notice_fulfillment",
+  },
+  forms_271_272_593_listing: {
+    "271": "form_271_seller_designated_rep",
+    "272": "form_272_landlord_designated_rep",
+    "593": "form_593_listing_agreement",
+  },
+  forms_320_324_325_326_327_328_confirmation: {
+    "320": "form_320_confirmation",
+    "324": "form_324_confirmation",
+    "325": "form_325_multiple_representation_consent",
+    "326": "form_326_multiple_representation_consent",
+    "327": "form_327_confirmation",
+    "328": "form_328_confirmation",
+  },
+  forms_400_401_403_404_420_lease: {
+    "400": "form_400_agreement_to_lease",
+    "401": "form_401_agreement_to_lease",
+    "403": "form_403_lease_amendment",
+    "404": "form_404_lease_waiver",
+    "420": "form_420_lease_notice_fulfillment",
+  },
+};
+
 const calibratedRegionNote =
   "Template region measured from the blank standard form calibration report. Prefer AI source_box when it is present.";
 
@@ -848,17 +876,34 @@ export function standardFormByKey(key: string | null | undefined) {
 export function standardFormMatchFromKey(
   key: string | null | undefined,
   confidence: "high" | "medium" | "low" = "medium",
+  formNumber?: string | null,
 ): StandardFormMatch | null {
-  const form = standardFormByKey(key);
+  const resolvedKey = resolveStandardFormKey(key, formNumber);
+  const form = standardFormByKey(resolvedKey);
   if (!form) return null;
   return {
     key: form.key,
     documentType: form.documentType,
     title: form.title,
-    formNumber: form.formNumbers?.[0] ?? null,
+    formNumber: form.formNumbers?.[0] ?? normalizeFormNumber(formNumber) ?? null,
     confidence,
     source: "classifier",
   };
+}
+
+export function resolveStandardFormKey(key: string | null | undefined, formNumber?: string | null) {
+  if (!key) return key ?? null;
+  if (standardFormByKey(key)) return key;
+
+  const formByNumber = LEGACY_GROUPED_FORM_KEYS[key]?.[normalizeFormNumber(formNumber) ?? ""];
+  if (formByNumber) return formByNumber;
+
+  const legacyTargets = Object.values(LEGACY_GROUPED_FORM_KEYS[key] ?? {});
+  return legacyTargets.length === 1 ? legacyTargets[0] : key;
+}
+
+function normalizeFormNumber(value: string | null | undefined) {
+  return value?.match(/\d+/)?.[0] ?? null;
 }
 
 export function defaultStandardFormMatchForDocumentType(

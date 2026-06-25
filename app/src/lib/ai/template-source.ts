@@ -22,6 +22,7 @@ export function buildPageStandardFormMatches(
     const classifierMatch = standardFormMatchFromKey(
       page.standard_form_key,
       page.standard_form_confidence ?? page.confidence,
+      page.standard_form_number,
     );
     const match =
       classifierMatch && classifierMatch.documentType === docType

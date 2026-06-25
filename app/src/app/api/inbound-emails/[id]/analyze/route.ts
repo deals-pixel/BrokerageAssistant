@@ -3,7 +3,7 @@ import { analyzeInboundPackage, type IntakeAnalysisAttachmentInput } from "@/lib
 import { matchDeal } from "@/lib/email-routing-job";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { hasReviewableEmailContent, type InboundEmailInput } from "@/lib/email-intake";
+import { hasReviewableEmailContent, heuristicRouteEmail, type InboundEmailInput } from "@/lib/email-intake";
 
 type InboundEmailRow = {
   id: string;
@@ -31,7 +31,7 @@ type EmailAttachmentRow = {
 
 export const maxDuration = 90;
 
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
   const {
@@ -40,6 +40,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const admin = createAdminClient();
+  const body = (await req.json().catch(() => null)) as { forceAi?: boolean } | null;
 
   try {
     const { data: email, error: emailError } = await admin
@@ -58,9 +59,16 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       .in("status", ["stored", "light_classified", "linked_to_transaction"]);
     if (attachmentError) throw new Error(attachmentError.message);
 
-    const attachments = await downloadAttachments(admin, attachmentRows ?? []);
-    const inbound = emailRowToInboundInput(email as InboundEmailRow, attachments);
-    if (attachments.length === 0 && !hasReviewableEmailContent(inbound)) {
+    const lightweightAttachments = (attachmentRows ?? []).map((row) => ({
+      id: row.id,
+      name: row.original_filename ?? "email-attachment.pdf",
+      contentType: row.mime_type,
+      contentLength: row.file_size,
+      contentBase64: "",
+      buffer: Buffer.alloc(0),
+    }));
+    const lightweightInbound = emailRowToInboundInput(email as InboundEmailRow, lightweightAttachments);
+    if (lightweightAttachments.length === 0 && !hasReviewableEmailContent(lightweightInbound)) {
       await admin
         .from("inbound_emails")
         .update({
@@ -72,7 +80,13 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ ok: true, status: "not_deal_suggested", analysis: null });
     }
 
-    const analysis = await analyzeInboundPackage(inbound, attachments, { inboundEmailId: id });
+    const heuristic = heuristicRouteEmail(lightweightInbound);
+    const useAi = body?.forceAi === true || shouldUseAiIntakeAnalysis(heuristic, lightweightAttachments.length);
+    const attachments = useAi ? await downloadAttachments(admin, attachmentRows ?? []) : lightweightAttachments;
+    const inbound = useAi ? emailRowToInboundInput(email as InboundEmailRow, attachments) : lightweightInbound;
+    const analysis = useAi
+      ? await analyzeInboundPackage(inbound, attachments, { inboundEmailId: id })
+      : heuristicAnalysis(heuristic, lightweightAttachments.length);
     const match = await matchDeal(admin, analysis, inbound.fromEmail);
     const matchedDeal = analysis.is_deal_package && match.best && match.score >= 50 ? match.best : null;
     const completedAt = new Date().toISOString();
@@ -128,7 +142,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
         match_score: matchedDeal ? match.score : 0,
         match_reason: matchedDeal ? match.reason : null,
         recommended_action: analysis.recommended_action,
-        ai_used: true,
+        ai_used: useAi,
       },
     });
 
@@ -138,6 +152,38 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     await admin.from("inbound_emails").update({ status: "error", error_message: message }).eq("id", id);
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+function shouldUseAiIntakeAnalysis(
+  routing: ReturnType<typeof heuristicRouteEmail>,
+  attachmentCount: number,
+) {
+  if (process.env.INTAKE_ANALYSIS_AI === "0") return false;
+  if (process.env.INTAKE_ANALYSIS_AI === "1") return true;
+  if (routing.transaction_code) return false;
+  if (routing.routing_confidence >= 0.65) return false;
+  if (routing.property_address && routing.document_type_guesses.some((guess) => guess.confidence >= 0.55)) {
+    return false;
+  }
+  return attachmentCount > 0 || routing.routing_confidence >= 0.25;
+}
+
+function heuristicAnalysis(
+  routing: ReturnType<typeof heuristicRouteEmail>,
+  attachmentCount: number,
+) {
+  const hasKnownDocument = routing.document_type_guesses.some((guess) => guess.confidence >= 0.55);
+  const isDealPackage = attachmentCount > 0 || hasKnownDocument || Boolean(routing.property_address || routing.email_body_fields?.length);
+  return {
+    is_deal_package: isDealPackage,
+    not_deal_reason: isDealPackage ? "" : "No clear deal-document signals found.",
+    ...routing,
+    recommended_action: routing.transaction_code || routing.property_address
+      ? "existing_deal"
+      : isDealPackage
+        ? "new_deal"
+        : "not_deal",
+  };
 }
 
 async function downloadAttachments(
