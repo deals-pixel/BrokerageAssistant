@@ -1,10 +1,12 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Archive, BarChart3, CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LoaderCircle, Settings2, Table2 } from "lucide-react";
+import { Archive, BarChart3, Bell, CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LoaderCircle, Settings2, Table2 } from "lucide-react";
 import { buildChecklistResult, type ChecklistItem } from "@/lib/checklist";
 import { DashboardAutoRefresh } from "@/components/dashboard-auto-refresh";
 import { createClient } from "@/lib/supabase/server";
 import { shortDealTitle, shortDocumentLabel } from "@/lib/display";
+import { IntakeDealLink } from "@/components/intake-deal-link";
+import { IntakeNewBadge } from "@/components/intake-new-badge";
 import {
   DealIntakeWorkflow,
   InboundEmailActivityPanel,
@@ -30,7 +32,6 @@ import type { TransactionType } from "@/lib/types";
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   "Intake Review": "outline",
-  "Routing Review": "secondary",
   Incomplete: "destructive",
   Ready: "default",
   Submitted: "secondary",
@@ -42,8 +43,8 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   error: "destructive",
 };
 
-type ComplianceStatus = "Intake Review" | "Routing Review" | "Incomplete" | "Ready" | "Submitted";
-type FilterKey = "all" | "intake" | "routing" | "incomplete" | "ready" | "closing_week";
+type ComplianceStatus = "Intake Review" | "Incomplete" | "Ready" | "Submitted";
+type FilterKey = "all" | "intake" | "incomplete" | "ready" | "closing_week";
 type ViewKey = "status" | "time" | "table" | "archive";
 
 type DealRow = {
@@ -270,11 +271,6 @@ export default async function DashboardPage({
               label={`Intake ${metrics.intakeTransactions}`}
             />
             <FilterButton
-              active={activeFilter === "routing"}
-              href={dashboardHref({ view: activeView, filter: "routing" })}
-              label={`Routing ${metrics.routingReviewTransactions}`}
-            />
-            <FilterButton
               active={activeFilter === "incomplete"}
               href={dashboardHref({ view: activeView, filter: "incomplete" })}
               label={`Incomplete ${metrics.incompleteTransactions}`}
@@ -291,6 +287,8 @@ export default async function DashboardPage({
             />
           </div>
         )}
+
+        {activeView !== "archive" && <TransitionFeed deals={workspaceDeals} emails={unconfirmedIntakeEmails} />}
 
         {activeView === "status" && <StatusBoard deals={filteredDeals} dealOptions={dealOptions} />}
         {activeView === "time" && <TimeList deals={filteredDeals} dealOptions={dealOptions} />}
@@ -326,37 +324,15 @@ const BOARD_COLUMNS: {
     cardClassName: "border-[#dad7d0] shadow-[0_1px_2px_rgba(52,48,41,0.05)]",
   },
   {
-    status: "Routing Review",
-    label: "Routing Review",
-    helper: "Confirm destination",
-    icon: <CalendarClock className="size-3.5" />,
-    className: "bg-[#f5f8fc]",
-    dotClassName: "bg-[#5a9bdd]",
-    textClassName: "text-[#2f6fa8]",
-    headerPillClassName: "bg-[#dbeafa] text-[#255f95]",
-    cardClassName: "border-[#c6d9ef] shadow-[0_1px_2px_rgba(31,75,119,0.05)]",
-  },
-  {
     status: "Incomplete",
     label: "Incomplete",
-    helper: "Missing documents",
+    helper: "Missing documents and ready-to-close files",
     icon: <CircleAlert className="size-3.5" />,
     className: "bg-[#fcf7f5]",
     dotClassName: "bg-[#e18d51]",
     textClassName: "text-[#a5541f]",
     headerPillClassName: "bg-[#f7dfcc] text-[#7e431d]",
     cardClassName: "border-[#f0cbb5] shadow-[0_1px_2px_rgba(90,51,25,0.05)]",
-  },
-  {
-    status: "Ready",
-    label: "Ready",
-    helper: "Ready for submission",
-    icon: <CheckCircle2 className="size-3.5" />,
-    className: "bg-[#f3f9f6]",
-    dotClassName: "bg-[#45ad79]",
-    textClassName: "text-[#26845a]",
-    headerPillClassName: "bg-[#d5efe3] text-[#1f6f4d]",
-    cardClassName: "border-[#bddfcf] shadow-[0_1px_2px_rgba(28,90,62,0.05)]",
   },
 ];
 
@@ -369,9 +345,9 @@ function StatusBoard({
 }) {
   return (
     <div className="min-w-0">
-      <div className="grid min-w-0 grid-cols-4 gap-2">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-2">
         {BOARD_COLUMNS.map((column) => {
-          const columnDeals = deals.filter((deal) => deal.complianceStatus === column.status);
+          const columnDeals = sortBoardDeals(deals.filter((deal) => boardColumnMatches(deal, column.status)));
           const averageCompletion = columnDeals.length
             ? Math.round(columnDeals.reduce((sum, deal) => sum + deal.completionPct, 0) / columnDeals.length)
             : 0;
@@ -420,9 +396,17 @@ function TransactionCard({
   const isVirtualIntake = isVirtualIntakeDeal(deal);
   const isProcessing = deal.status === "processing" || hasProcessingRoutedIntake(deal);
   const hasIntakeWorkflow = shouldShowIntakeWorkflow(deal) && !hasProcessingRoutedIntake(deal);
+  const ready = deal.complianceStatus === "Ready";
+  const fromIntake = isIntakeArrivedDeal(deal);
 
   return (
-    <div className={`min-w-0 overflow-hidden rounded-lg border bg-background p-2 ${column.cardClassName}`}>
+    <div
+      className={`min-w-0 overflow-hidden rounded-lg border bg-background p-2 ${
+        ready
+          ? "border-l-4 border-l-emerald-500 shadow-[0_1px_2px_rgba(28,90,62,0.08)]"
+          : column.cardClassName
+      }`}
+    >
       <div className="min-w-0 space-y-2">
         <div className="min-w-0">
           <div className="flex min-w-0 items-start gap-1.5">
@@ -432,12 +416,13 @@ function TransactionCard({
                 {shortDealTitle(deal.property_address, deal.file_name)}
               </span>
             ) : (
-              <Link
+              <IntakeDealLink
                 href={`/deals/${deal.id}`}
+                dealId={deal.id}
                 className="min-w-0 break-words text-sm font-semibold leading-snug hover:underline"
               >
                 {shortDealTitle(deal.property_address, deal.file_name)}
-              </Link>
+              </IntakeDealLink>
             )}
           </div>
           <div className="mt-1.5 truncate text-[11px] leading-4 text-muted-foreground">
@@ -451,6 +436,12 @@ function TransactionCard({
           {deal.source === "email" && (
             <Badge variant="outline" className="h-4 px-1.5 text-[11px] leading-4">
               Email
+            </Badge>
+          )}
+          {fromIntake && <IntakeNewBadge dealId={deal.id} />}
+          {ready && (
+            <Badge className="h-4 border border-emerald-200 bg-emerald-50 px-1.5 text-[11px] leading-4 text-emerald-800">
+              Ready
             </Badge>
           )}
           {deal.transaction_code && (
@@ -485,7 +476,7 @@ function TransactionCard({
 }
 
 function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
-  if (deal.status === "processing" || deal.complianceStatus === "Routing Review" || deal.complianceStatus === "Submitted") {
+  if (deal.status === "processing" || deal.complianceStatus === "Submitted") {
     return null;
   }
 
@@ -503,7 +494,7 @@ function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
   }
 
   if (deal.complianceStatus === "Ready") {
-    return <SubmitArchiveButton dealId={deal.id} variant="default" />;
+    return <SubmitArchiveButton dealId={deal.id} variant="default" label="Close Deal" />;
   }
 
   return (
@@ -558,19 +549,12 @@ function TimeList({
   dealOptions: IntakeDealOption[];
 }) {
   const intakeDeals = deals.filter((deal) => deal.complianceStatus === "Intake Review");
-  const routingDeals = deals.filter((deal) => deal.complianceStatus === "Routing Review");
-  const dateTrackedDeals = deals.filter((deal) => deal.complianceStatus !== "Intake Review" && deal.complianceStatus !== "Routing Review");
+  const dateTrackedDeals = deals.filter((deal) => deal.complianceStatus !== "Intake Review");
   const groups = [
     {
       label: "Intake Review",
       icon: <FileText className="size-4" />,
       deals: intakeDeals,
-      kind: "intake" as const,
-    },
-    {
-      label: "Routing Review",
-      icon: <CalendarClock className="size-4" />,
-      deals: routingDeals,
       kind: "intake" as const,
     },
     {
@@ -648,9 +632,9 @@ function TimeListDealRow({
         {isVirtualIntakeDeal(deal) ? (
           <div className="font-medium">{shortDealTitle(deal.property_address, deal.file_name)}</div>
         ) : (
-          <Link href={`/deals/${deal.id}`} className="font-medium hover:underline">
+          <IntakeDealLink href={`/deals/${deal.id}`} dealId={deal.id} className="font-medium hover:underline">
             {shortDealTitle(deal.property_address, deal.file_name)}
-          </Link>
+          </IntakeDealLink>
         )}
         <div className="text-xs text-muted-foreground">
           {deal.transaction_type} | {deal.scenarioShortLabel}
@@ -730,9 +714,9 @@ function RecordsTable({ deals, archive = false }: { deals: DashboardDeal[]; arch
                 {isVirtualIntakeDeal(deal) ? (
                   <div className="font-medium">{shortDealTitle(deal.property_address, deal.file_name)}</div>
                 ) : (
-                  <Link href={`/deals/${deal.id}`} className="font-medium hover:underline">
+                  <IntakeDealLink href={`/deals/${deal.id}`} dealId={deal.id} className="font-medium hover:underline">
                     {shortDealTitle(deal.property_address, deal.file_name)}
-                  </Link>
+                  </IntakeDealLink>
                 )}
                 <div className="text-xs text-muted-foreground">
                   {deal.page_count ?? 0} pages
@@ -827,6 +811,88 @@ function EmptyDatabaseState() {
   );
 }
 
+function TransitionFeed({
+  deals,
+  emails,
+}: {
+  deals: DashboardDeal[];
+  emails: IntakeEmailRow[];
+}) {
+  const items = [
+    ...emails
+      .filter((email) => email.status === "needs_match_review" || email.status === "new_deal_suggested")
+      .map((email) => ({
+        id: `email-${email.id}`,
+        tone: "review" as const,
+        label: email.status === "new_deal_suggested" ? "Create new deal" : "Confirm match",
+        title: email.subject || routingAddress(email.routing_json) || "Inbound package",
+        detail: routingFeedDetail(email),
+        date: parseDate(email.received_at),
+      })),
+    ...emails
+      .filter((email) => email.status === "processing_from_routing")
+      .map((email) => ({
+        id: `processing-${email.id}`,
+        tone: "processing" as const,
+        label: "Processing",
+        title: email.subject || routingAddress(email.routing_json) || "Inbound package",
+        detail: "AI extraction is running.",
+        date: parseDate(email.received_at),
+      })),
+    ...deals
+      .filter((deal) => deal.complianceStatus === "Ready")
+      .map((deal) => ({
+        id: `ready-${deal.id}`,
+        tone: "ready" as const,
+        label: "Ready",
+        title: shortDealTitle(deal.property_address, deal.file_name),
+        detail: "Ready to close.",
+        date: parseDate(deal.created_at),
+      })),
+    ...deals
+      .filter((deal) => isIntakeArrivedDeal(deal))
+      .map((deal) => ({
+        id: `new-${deal.id}`,
+        tone: "new" as const,
+        label: "New",
+        title: shortDealTitle(deal.property_address, deal.file_name),
+        detail: "Arrived from intake.",
+        date: parseDate(deal.created_at),
+      })),
+  ]
+    .sort((a, b) => (b.date?.getTime() ?? 0) - (a.date?.getTime() ?? 0))
+    .slice(0, 5);
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3">
+      <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+        <Bell className="size-4" />
+        State Changes
+      </div>
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+        {items.map((item) => (
+          <div key={item.id} className="min-w-0 rounded-md border bg-background px-2.5 py-2">
+            <div className="mb-1 flex items-center gap-1.5">
+              <span className={`size-2 rounded-full ${transitionToneClass(item.tone)}`} />
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {item.label}
+              </span>
+            </div>
+            <div className="truncate text-xs font-medium" title={item.title}>
+              {item.title}
+            </div>
+            <div className="truncate text-[11px] text-muted-foreground" title={item.detail}>
+              {item.detail}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function toDashboardDeal(deal: DealRow): DashboardDeal {
   const checklist = buildChecklistResult(
     deal.transaction_type,
@@ -913,7 +979,6 @@ function buildMetrics(deals: DashboardDeal[]) {
   return {
     activeTransactions: deals.filter((deal) => deal.complianceStatus !== "Submitted").length,
     intakeTransactions: deals.filter((deal) => deal.complianceStatus === "Intake Review").length,
-    routingReviewTransactions: deals.filter((deal) => deal.complianceStatus === "Routing Review").length,
     incompleteTransactions: deals.filter((deal) => deal.complianceStatus === "Incomplete").length,
     missingFintrac: countDealsMissing(deals, "form_630_individual_identification"),
     missingDeposits: countDealsMissing(deals, "deposit_proof"),
@@ -948,9 +1013,32 @@ function isVirtualIntakeDeal(deal: DashboardDeal) {
   return deal.id.startsWith("intake:");
 }
 
+function boardColumnMatches(deal: DashboardDeal, columnStatus: ComplianceStatus) {
+  if (columnStatus === "Incomplete") return deal.complianceStatus === "Incomplete" || deal.complianceStatus === "Ready";
+  return deal.complianceStatus === columnStatus;
+}
+
+function sortBoardDeals(deals: DashboardDeal[]) {
+  return [...deals].sort((a, b) => {
+    const aReady = a.complianceStatus === "Ready" ? 1 : 0;
+    const bReady = b.complianceStatus === "Ready" ? 1 : 0;
+    if (aReady !== bReady) return bReady - aReady;
+
+    const aNew = isIntakeArrivedDeal(a) ? 1 : 0;
+    const bNew = isIntakeArrivedDeal(b) ? 1 : 0;
+    if (aNew !== bNew) return bNew - aNew;
+
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
+}
+
+function isIntakeArrivedDeal(deal: DashboardDeal) {
+  return !isVirtualIntakeDeal(deal) && deal.source === "email" && deal.intakeEmails.length > 0;
+}
+
 function shouldShowIntakeWorkflow(deal: DashboardDeal) {
   const hasIntakeSource = deal.intakeEmails.length > 0 || isVirtualIntakeDeal(deal);
-  return hasIntakeSource && (deal.complianceStatus === "Intake Review" || deal.complianceStatus === "Routing Review");
+  return hasIntakeSource && deal.complianceStatus === "Intake Review";
 }
 
 function hasProcessingRoutedIntake(deal: DashboardDeal) {
@@ -961,7 +1049,7 @@ function applyLinkedIntakeState(deal: DashboardDeal): DashboardDeal {
   if (!hasProcessingRoutedIntake(deal)) return deal;
   return {
     ...deal,
-    complianceStatus: "Routing Review",
+    complianceStatus: "Intake Review",
     scenarioLabel: "Processing routed intake",
     scenarioShortLabel: "Processing",
   };
@@ -970,6 +1058,12 @@ function applyLinkedIntakeState(deal: DashboardDeal): DashboardDeal {
 function stringRoutingValue(routing: Record<string, unknown>, key: string) {
   const value = routing[key];
   return typeof value === "string" ? value : "";
+}
+
+function routingAddress(routing: Record<string, unknown> | null) {
+  const value = routing?.property_address;
+  if (typeof value === "string" && value) return value;
+  return "";
 }
 
 function transactionTypeFromRouting(value: string): TransactionType {
@@ -994,7 +1088,7 @@ function intakeComplianceStatus(status: string): ComplianceStatus {
     status === "new_deal_suggested" ||
     status === "not_deal_suggested"
   ) {
-    return "Routing Review";
+    return "Intake Review";
   }
   return "Intake Review";
 }
@@ -1002,7 +1096,6 @@ function intakeComplianceStatus(status: string): ComplianceStatus {
 function parseFilter(value: string | undefined): FilterKey {
   if (
     value === "intake" ||
-    value === "routing" ||
     value === "incomplete" ||
     value === "ready" ||
     value === "closing_week"
@@ -1028,11 +1121,47 @@ function dashboardHref({ view, filter }: { view: ViewKey; filter: FilterKey }) {
 function matchesFilter(deal: DashboardDeal, filter: FilterKey) {
   if (filter === "all") return true;
   if (filter === "intake") return deal.complianceStatus === "Intake Review";
-  if (filter === "routing") return deal.complianceStatus === "Routing Review";
   if (filter === "incomplete") return deal.complianceStatus === "Incomplete";
   if (filter === "ready") return deal.complianceStatus === "Ready";
   if (filter === "closing_week") return isClosingThisWeek(deal.closingDate);
   return true;
+}
+
+function routingFeedDetail(email: IntakeEmailRow) {
+  const primaryLink = bestIntakeLink(email);
+  const score = primaryLink?.match_score != null ? `${primaryLink.match_score}%` : routingConfidenceText(email.routing_json);
+  if (email.status === "new_deal_suggested") return "No confident existing transaction match.";
+  return [score, primaryLink?.match_reason || routingSummaryText(email.routing_json)].filter(Boolean).join(" - ");
+}
+
+function bestIntakeLink(email: IntakeEmailRow) {
+  const links = email.deal_email_links ?? [];
+  return (
+    links.find((link) => link.match_status === "manually_confirmed") ??
+    links.find((link) => link.match_status === "auto_matched") ??
+    links.find((link) => link.match_status === "needs_review") ??
+    links[0] ??
+    null
+  );
+}
+
+function routingConfidenceText(routing: Record<string, unknown> | null) {
+  const confidence = routing?.routing_confidence;
+  return typeof confidence === "number" ? `${Math.round(confidence * 100)}%` : "";
+}
+
+function routingSummaryText(routing: Record<string, unknown> | null) {
+  if (!routing) return "";
+  const type = typeof routing.transaction_type_guess === "string" ? routing.transaction_type_guess : "";
+  const confidence = routingConfidenceText(routing);
+  return [type && type !== "unknown" ? type : "", confidence].filter(Boolean).join(" - ");
+}
+
+function transitionToneClass(tone: "new" | "review" | "processing" | "ready") {
+  if (tone === "ready") return "bg-emerald-500";
+  if (tone === "processing") return "bg-blue-500";
+  if (tone === "review") return "bg-amber-500";
+  return "bg-sky-500";
 }
 
 function isClosingThisWeek(date: Date | null) {

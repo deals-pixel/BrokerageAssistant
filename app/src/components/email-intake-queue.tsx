@@ -190,7 +190,11 @@ export function DealIntakeWorkflow({
     }
   }
 
-  async function approveAndProcess(dialog: DialogState, action: "link" | "create") {
+  async function approveAndProcess(
+    dialog: DialogState,
+    action: "link" | "create",
+    options: { successMessage?: string; undo?: { emailId: string; dealId: string } } = {},
+  ) {
     const hasProcessableAttachments = hasProcessableEmailAttachments(dialog.email);
     setWorkingId(dialog.email.id);
     setWorkflowProgress(action === "link" ? "Linking email to transaction..." : "Creating draft transaction...");
@@ -233,7 +237,19 @@ export function DealIntakeWorkflow({
       }
 
       await updateInboundEmailStatus(dialog.email.id, action === "link" ? "matched" : "draft_transaction_created");
-      toast.success("Email package approved and processed.");
+      if (options.successMessage) {
+        toast.success(options.successMessage, {
+          duration: 5000,
+          action: options.undo
+            ? {
+                label: "Undo",
+                onClick: () => undoAutoMatch(options.undo!.emailId, options.undo!.dealId),
+              }
+            : undefined,
+        });
+      } else {
+        toast.success("Email package approved and processed.");
+      }
       setDialog(null);
       router.refresh();
     } catch (err) {
@@ -262,10 +278,28 @@ export function DealIntakeWorkflow({
     try {
       const result = await postAction(`/api/inbound-emails/${dialog.email.id}/analyze`, {});
       const status = typeof result.status === "string" ? result.status : "";
+      const match = result.match as { deal?: IntakeLinkedDeal | null; score?: number | null; reason?: string | null } | undefined;
+      const suggestedDeal = match?.deal ?? null;
+      const matchScore = typeof match?.score === "number" ? match.score : 0;
+      if (status === "needs_match_review" && suggestedDeal && isHighConfidenceMatch(matchScore)) {
+        await approveAndProcess(
+          {
+            ...dialog,
+            selectedDealId: suggestedDeal.id,
+            email: emailWithAnalyzedRouting(dialog.email, result, suggestedDeal),
+          },
+          "link",
+          {
+            successMessage: `Matched to ${shortDealTitle(suggestedDeal.property_address, suggestedDeal.file_name)}.`,
+            undo: { emailId: dialog.email.id, dealId: suggestedDeal.id },
+          },
+        );
+        return;
+      }
       if (status === "needs_match_review") {
-        toast.success("Routing review is ready with a suggested transaction match.");
+        toast.success("Possible match found. Confirm it on the intake card.");
       } else if (status === "new_deal_suggested") {
-        toast.success("Routing review is ready. AI suggests creating a new transaction.");
+        toast.success("No existing match found. Create a new deal from the intake card.");
       } else if (status === "not_deal_suggested") {
         toast.success("Analysis complete. AI suggests this is not a deal package.");
       } else {
@@ -278,6 +312,42 @@ export function DealIntakeWorkflow({
     } finally {
       setWorkingId(null);
       setWorkflowProgress("");
+    }
+  }
+
+  async function rejectRoutingSuggestion(email: IntakeEmailRow) {
+    setWorkingId(email.id);
+    try {
+      const primaryLink = bestLink(email);
+      if (primaryLink?.deal_id) {
+        await supabase
+          .from("deal_email_links")
+          .update({ match_status: "rejected" })
+          .eq("inbound_email_id", email.id)
+          .eq("deal_id", primaryLink.deal_id);
+      }
+      await updateInboundEmailStatus(email.id, "new_deal_suggested");
+      toast.success("Match rejected. Create a new deal if this package should advance.");
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not reject match");
+    } finally {
+      setWorkingId(null);
+    }
+  }
+
+  async function undoAutoMatch(emailId: string, dealId: string) {
+    try {
+      await supabase
+        .from("deal_email_links")
+        .update({ match_status: "needs_review" })
+        .eq("inbound_email_id", emailId)
+        .eq("deal_id", dealId);
+      await updateInboundEmailStatus(emailId, "needs_match_review");
+      toast.success("Auto-match moved back to intake review.");
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not undo match");
     }
   }
 
@@ -330,31 +400,24 @@ export function DealIntakeWorkflow({
         return (
           <div
             key={email.id}
-            role={routingReady ? "button" : undefined}
-            tabIndex={routingReady ? 0 : undefined}
-            className={`min-w-0 space-y-2 rounded-md border bg-background/80 p-2.5 text-left transition ${
-              routingReady ? "hover:border-foreground/30 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : ""
-            }`}
-            onClick={routingReady ? () => openDialog("review", email) : undefined}
-            onKeyDown={(event) => {
-              if (!routingReady) return;
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                openDialog("review", email);
-              }
-            }}
+            className="min-w-0 space-y-2 rounded-md border bg-background/80 p-2.5 text-left transition"
           >
             {routingReady ? (
-              <div className="flex min-w-0 items-start justify-between gap-3">
+              <div className="flex min-w-0 items-start justify-between gap-3 rounded-md border bg-muted/25 p-2">
                 <div className="min-w-0">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">AI suggestion</div>
-                  <div className="truncate text-[12px] font-semibold leading-4" title={suggestion.title}>
-                    {suggestion.title}
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {email.status === "new_deal_suggested" ? "No match found" : "Inline confirmation"}
+                  </div>
+                  <div className="break-words text-[12px] font-semibold leading-4" title={suggestion.title}>
+                    {suggestion.primary}
+                  </div>
+                  <div className="mt-1 break-words text-[11px] leading-4 text-muted-foreground">
+                    {suggestion.meta}
                   </div>
                 </div>
                 <div className="shrink-0 text-right text-[10px] leading-4">
                   <div className="uppercase tracking-wide text-muted-foreground">Confidence</div>
-                  <div className="font-semibold text-foreground">{routingConfidence(email.routing_json)}</div>
+                  <div className="font-semibold text-foreground">{routingConfidence(email.routing_json, primaryLink)}</div>
                 </div>
               </div>
             ) : (
@@ -401,7 +464,7 @@ export function DealIntakeWorkflow({
                       }}
                       disabled={isWorking}
                     >
-                      Proceed
+                      {email.status === "new_deal_suggested" ? "Create Deal" : "Confirm"}
                     </Button>
                     <Button
                       size="sm"
@@ -409,11 +472,15 @@ export function DealIntakeWorkflow({
                       className="h-7 px-2 text-xs"
                       onClick={(event) => {
                         event.stopPropagation();
-                        openDialog("review", email);
+                        if (email.status === "new_deal_suggested") {
+                          openDialog("review", email);
+                        } else {
+                          rejectRoutingSuggestion(email);
+                        }
                       }}
                       disabled={isWorking}
                     >
-                      Override
+                      {email.status === "new_deal_suggested" ? "Review" : "Reject"}
                     </Button>
                   </>
                 )}
@@ -424,12 +491,12 @@ export function DealIntakeWorkflow({
                     className="h-7 px-2 text-xs"
                     onClick={(event) => {
                       event.stopPropagation();
-                      openDialog("review", email);
+                      processIntakeForRouting(dialogStateForEmail("review", email));
                     }}
                     disabled={isWorking}
                   >
                     <Search className="size-3.5" />
-                    Review intake
+                    {isWorking ? "Processing..." : "Process"}
                   </Button>
                 )}
                 {isConfirmed && linkedDeal && (
@@ -492,7 +559,7 @@ export function DealIntakeWorkflow({
                 <DialogTitle>{dialogTitle(dialog.mode)}</DialogTitle>
                 <DialogDescription>
                   {dialog.mode === "review"
-                    ? "Inspect the email and attachments, then process routing or confirm the AI destination."
+                    ? "Inspect the email and attachments, then process intake or confirm the AI destination."
                     : dialog.email.subject || "No subject"}
                 </DialogDescription>
               </DialogHeader>
@@ -684,7 +751,7 @@ function IntakeReviewModal({
       ? "Create a new transaction"
       : suggestedDeal
         ? "Match to existing transaction"
-        : "Review routing";
+        : "Review intake";
   const suggestionPrimary = notDealSuggested
     ? "AI suggests this intake should be ignored."
     : newDealSuggested
@@ -819,7 +886,7 @@ function IntakeReviewModal({
         ) : (
           <>
             <div className="rounded-lg border p-3">
-              <div className="mb-2 text-sm font-medium">Routing Signals</div>
+              <div className="mb-2 text-sm font-medium">AI Signals</div>
               <div className="grid gap-2 text-xs">
                 <SignalRow label="Property" value={routingAddress(routing) || "Unknown"} />
                 <SignalRow label="Type" value={routingTransactionType(routing)} />
@@ -868,12 +935,12 @@ function IntakeReviewModal({
 
         {(!routingReady || overrideOpen) && (
           <div className="rounded-lg border p-3">
-            <div className="mb-3 text-sm font-medium">{routingReady ? "Override Routing" : "Process Intake"}</div>
+            <div className="mb-3 text-sm font-medium">{routingReady ? "Override Match" : "Process Intake"}</div>
             <div className="space-y-3">
               {!routingReady ? (
                 <>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Run intake analysis first. The system will classify routing signals, suggest an existing transaction
+                    Run intake analysis first. The system will classify intake signals, suggest an existing transaction
                     when there is a match, or suggest a new transaction when no confident match is found.
                   </p>
                   <Button className="w-full" onClick={onProcessRouting} disabled={working}>
@@ -1031,7 +1098,7 @@ function activityResult(email: IntakeEmailRow) {
   if (email.status === "error" || email.status === "routing_error") return "Needs admin attention";
   if (email.status === "attachments_queued") return "Stored email, preparing attachments";
   if (email.status === "intake_review") return "Visible in Intake Review";
-  if (email.status === "needs_match_review") return "Visible in Routing Review";
+  if (email.status === "needs_match_review") return "Needs inline match confirmation";
   if (email.status === "new_deal_suggested") return "Suggested as a new deal";
   if (email.status === "not_deal_suggested") return "Suggested as not a deal package";
   return "Stored by the platform";
@@ -1135,7 +1202,7 @@ export function EmailIntakeQueue({
             <TableHeader>
               <TableRow>
                 <TableHead>Email</TableHead>
-                <TableHead>Routing</TableHead>
+                <TableHead>AI Match</TableHead>
                 <TableHead>Attachments</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="min-w-72 text-right">Workflow</TableHead>
@@ -1499,7 +1566,7 @@ export function InboundEmailActivityPanel({ emails }: { emails: IntakeEmailRow[]
 
                 <div className="min-h-0 space-y-3 overflow-y-auto">
                   <div className="rounded-lg border p-3">
-                    <div className="mb-2 text-sm font-medium">Routing Signals</div>
+                    <div className="mb-2 text-sm font-medium">AI Signals</div>
                     <div className="grid gap-2 text-xs">
                       <SignalRow label="Property" value={routingAddress(selectedEmail.routing_json) || "Unknown"} />
                       <SignalRow label="Type" value={routingTransactionType(selectedEmail.routing_json)} />
@@ -1595,6 +1662,39 @@ function bestLink(email: IntakeEmailRow) {
   );
 }
 
+function isHighConfidenceMatch(score: number) {
+  return score >= 80;
+}
+
+function emailWithAnalyzedRouting(
+  email: IntakeEmailRow,
+  result: Record<string, unknown>,
+  suggestedDeal: IntakeLinkedDeal,
+): IntakeEmailRow {
+  const analysis = result.analysis && typeof result.analysis === "object"
+    ? (result.analysis as Record<string, unknown>)
+    : email.routing_json;
+  const match = result.match && typeof result.match === "object"
+    ? (result.match as { score?: unknown; reason?: unknown })
+    : null;
+
+  return {
+    ...email,
+    status: typeof result.status === "string" ? result.status : email.status,
+    routing_json: analysis,
+    deal_email_links: [
+      {
+        deal_id: suggestedDeal.id,
+        match_score: typeof match?.score === "number" ? match.score : null,
+        match_reason: typeof match?.reason === "string" ? match.reason : null,
+        match_status: "needs_review",
+        deals: suggestedDeal,
+      },
+      ...(email.deal_email_links ?? []),
+    ],
+  };
+}
+
 function isRoutingReviewEmail(
   email: IntakeEmailRow,
   link: IntakeEmailRow["deal_email_links"][number] | null,
@@ -1629,14 +1729,16 @@ function routingSuggestion(
     };
   }
   if (suggestedDeal) {
+    const score = primaryLink?.match_score != null ? `${primaryLink.match_score}%` : routingConfidence(routing, primaryLink);
+    const reason = primaryLink?.match_reason || routingSummary(routing) || "Review the suggested destination.";
     return {
-      title: "Match to existing transaction",
-      primary: shortDealTitle(suggestedDeal.property_address, suggestedDeal.file_name),
-      meta: primaryLink?.match_reason || routingSummary(routing) || "Review the suggested destination.",
+      title: "Possible match",
+      primary: `Possible match: ${shortDealTitle(suggestedDeal.property_address, suggestedDeal.file_name)}, ${score}`,
+      meta: reason,
     };
   }
   return {
-    title: "Review routing",
+    title: "Review intake",
     primary: routingAddress(routing) || "No confident route is available.",
     meta: routingSummary(routing) || "Open the modal to choose a destination.",
   };
@@ -1789,7 +1891,11 @@ function routingSummary(routing: Record<string, unknown> | null) {
   return [type, confidenceText].filter(Boolean).join(" | ");
 }
 
-function routingConfidence(routing: Record<string, unknown> | null) {
+function routingConfidence(
+  routing: Record<string, unknown> | null,
+  primaryLink?: IntakeEmailRow["deal_email_links"][number] | null,
+) {
+  if (primaryLink?.match_score != null) return `${primaryLink.match_score}%`;
   const confidence = routing?.routing_confidence;
   return typeof confidence === "number" ? `${Math.round(confidence * 100)}%` : "Unknown";
 }

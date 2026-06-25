@@ -18,6 +18,7 @@ type SubmitArchiveButtonProps = {
   disabled?: boolean;
   size?: "default" | "sm";
   variant?: "default" | "outline";
+  label?: string;
   warningItems?: string[];
 };
 
@@ -26,6 +27,7 @@ export function SubmitArchiveButton({
   disabled = false,
   size = "sm",
   variant = "default",
+  label = "Submit & archive",
   warningItems = [],
 }: SubmitArchiveButtonProps) {
   const router = useRouter();
@@ -61,7 +63,7 @@ export function SubmitArchiveButton({
   return (
     <>
       <Button size={size} variant={variant} onClick={requestSubmit} disabled={disabled || submitting}>
-        {submitting ? "Submitting..." : "Submit & archive"}
+        {submitting ? "Submitting..." : label}
       </Button>
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent className="sm:max-w-md">
