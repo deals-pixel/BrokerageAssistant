@@ -235,6 +235,7 @@ export function FormTemplateEditor() {
   function beginDraw(event: PointerEvent<HTMLDivElement>) {
     if (!activePageImage) return;
     if (interaction) return;
+    event.preventDefault();
     const point = pointerToBoxPoint(event);
     if (!point) return;
     setInteraction({ kind: "draw", start: point });
@@ -283,12 +284,14 @@ export function FormTemplateEditor() {
       return;
     }
 
-    if (!draftBox) {
+    const finalPoint = pointerToBoxPoint(event);
+    const finalBox = finalPoint ? normalizeBox(interaction.start, finalPoint) : draftBox;
+    if (!finalBox) {
       setInteraction(null);
       return;
     }
 
-    const box = normalizeSize(draftBox);
+    const box = normalizeSize(finalBox);
     setInteraction(null);
     setDraftBox(null);
 
@@ -318,6 +321,7 @@ export function FormTemplateEditor() {
   function beginMove(event: PointerEvent<HTMLButtonElement>, region: EditableRegion) {
     const point = pointerToBoxPoint(event);
     if (!point) return;
+    event.preventDefault();
     event.stopPropagation();
     setSelectedRegionId(region.id);
     setInteraction({
@@ -336,6 +340,7 @@ export function FormTemplateEditor() {
   ) {
     const point = pointerToBoxPoint(event);
     if (!point) return;
+    event.preventDefault();
     event.stopPropagation();
     setSelectedRegionId(region.id);
     setInteraction({
@@ -754,14 +759,19 @@ export function FormTemplateEditor() {
               <div className="max-h-[78vh] overflow-auto rounded-lg border bg-muted/30 p-3">
                 <div
                   ref={pageSurfaceRef}
-                  className="relative mx-auto w-full max-w-4xl cursor-crosshair select-none overflow-hidden rounded border bg-white"
+                  className="relative mx-auto w-full max-w-4xl touch-none cursor-crosshair select-none overflow-hidden rounded border bg-white"
                   onPointerDown={beginDraw}
                   onPointerMove={continueInteraction}
                   onPointerUp={finishInteraction}
                   onPointerCancel={cancelInteraction}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element -- local object URL preview */}
-                  <img src={activePageImage.url} alt={`Blank form page ${activePage}`} className="block w-full" />
+                  <img
+                    src={activePageImage.url}
+                    alt={`Blank form page ${activePage}`}
+                    draggable={false}
+                    className="pointer-events-none block w-full"
+                  />
                   {regions
                     .filter((region) => region.page === activePage)
                     .map((region) => (
