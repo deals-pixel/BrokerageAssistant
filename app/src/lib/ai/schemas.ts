@@ -2,6 +2,14 @@ import { z } from "zod";
 import { DOCUMENT_TYPES } from "@/lib/types";
 
 const docTypeKeys = Object.keys(DOCUMENT_TYPES) as [string, ...string[]];
+export const PAGE_ROLES = [
+  "data_entry_page",
+  "signature_page",
+  "standard_clause_page",
+  "schedule_clause_page",
+  "empty_or_instruction_page",
+  "possible_data_page",
+] as const;
 
 export const PageClassificationSchema = z.object({
   pages: z.array(
@@ -9,6 +17,9 @@ export const PageClassificationSchema = z.object({
       page_number: z.number().int(),
       doc_type: z.enum(docTypeKeys),
       confidence: z.enum(["high", "medium", "low"]),
+      page_role: z.enum(PAGE_ROLES).optional().default("data_entry_page"),
+      page_role_confidence: z.enum(["high", "medium", "low"]).nullable().optional(),
+      extraction_skip_reason: z.string().nullable().optional(),
       standard_form_key: z.string().nullable().optional(),
       standard_form_number: z.string().nullable().optional(),
       standard_form_title: z.string().nullable().optional(),

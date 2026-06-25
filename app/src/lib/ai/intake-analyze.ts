@@ -136,7 +136,8 @@ async function buildAnalysisContent(
   for (const attachment of usableAttachments) {
     const name = attachment.name;
     const contentType = attachment.contentType ?? "";
-    if (isPdfAttachment(name, contentType)) {
+    const kind = attachmentKind(attachment.buffer, name, contentType);
+    if (kind === "pdf") {
       const { buffer, context } = await pdfForAnalysis(attachment, MAX_PDF_PAGES);
       content.push({
         type: "document",
@@ -151,13 +152,14 @@ async function buildAnalysisContent(
       continue;
     }
 
-    if (contentType === "image/jpeg" || contentType === "image/png") {
+    if (kind === "jpeg" || kind === "png") {
+      const mediaType = kind === "png" ? "image/png" : "image/jpeg";
       content.push({ type: "text", text: `Image attachment: ${name}` });
       content.push({
         type: "image",
         source: {
           type: "base64",
-          media_type: contentType,
+          media_type: mediaType,
           data: attachment.buffer.toString("base64"),
         },
       });
@@ -221,7 +223,7 @@ function fallbackAnalysis(
 ): IntakeAnalysisResult {
   const hasLikelyDoc =
     fallback.document_type_guesses.some((guess) => guess.document_type !== "unknown" && guess.confidence >= 0.55) ||
-    attachments.some((attachment) => isPdfAttachment(attachment.name, attachment.contentType ?? ""));
+    attachments.some((attachment) => attachmentKind(attachment.buffer, attachment.name, attachment.contentType ?? "") === "pdf");
   const hasBodySignals = Boolean(fallback.property_address || fallback.email_body_fields?.length);
   const isDealPackage = hasLikelyDoc || hasBodySignals;
   return {
@@ -251,6 +253,23 @@ function mergeDocumentGuesses(
 
 function isPdfAttachment(name: string, contentType: string) {
   return contentType === "application/pdf" || name.toLowerCase().endsWith(".pdf");
+}
+
+function attachmentKind(buffer: Buffer, name: string, contentType: string): "pdf" | "jpeg" | "png" | "unknown" {
+  if (buffer.subarray(0, 4).toString("ascii") === "%PDF") return "pdf";
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "jpeg";
+  if (
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47
+  ) {
+    return "png";
+  }
+  if (isPdfAttachment(name, contentType)) return "pdf";
+  if (contentType === "image/jpeg") return "jpeg";
+  if (contentType === "image/png") return "png";
+  return "unknown";
 }
 
 function truncate(value: string, maxLength: number) {

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import sharp from "sharp";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { classifyPages } from "./classify";
 import { extractFromDocument, extractFromStandardFormRegions, EXTRACTABLE_DOCS } from "./extract";
@@ -39,6 +40,8 @@ type ExtractionModeSummary = {
   mode: "region_first" | "full_page" | "region_fallback_full_page";
   regions?: number;
   regionFields?: number;
+  pages?: number;
+  skippedPages?: number[];
 };
 
 /**
@@ -73,6 +76,7 @@ export async function processDeal(dealId: string): Promise<void> {
         .download(p.image_path);
       if (dlErr || !blob) throw new Error(`Failed to download page ${p.page_number}: ${dlErr?.message}`);
       const buffer = Buffer.from(await blob.arrayBuffer());
+      await assertValidRenderedImage(buffer, p.page_number, p.image_path);
       const pageHash = createHash("sha256").update(buffer).digest("hex");
       if (p.page_hash !== pageHash) {
         await supabase.from("deal_pages").update({ page_hash: pageHash }).eq("id", p.id);
@@ -116,6 +120,9 @@ export async function processDeal(dealId: string): Promise<void> {
             standard_form_number: formMatch?.formNumber ?? null,
             standard_form_title: formMatch?.title ?? null,
             standard_form_confidence: formMatch?.confidence ?? null,
+            page_role: c.page_role ?? "data_entry_page",
+            page_role_confidence: c.page_role_confidence ?? c.confidence,
+            extraction_skip_reason: c.extraction_skip_reason ?? null,
             classification_reviewed_at: null,
             classification_reviewed_by: null,
           })
@@ -126,11 +133,26 @@ export async function processDeal(dealId: string): Promise<void> {
 
     // Step 3: extract per document group
     const byDoc = new Map<DocumentType, PageImage[]>();
+    const skippedExtractionPages: Array<{
+      page: number;
+      docType: DocumentType;
+      role: string;
+      reason: string | null;
+    }> = [];
     for (const c of classification.pages) {
       const img = images.find((i) => i.pageNumber === c.page_number);
       if (!img) continue;
       const dt = c.doc_type as DocumentType;
       if (!EXTRACTABLE_DOCS.includes(dt)) continue;
+      if (shouldSkipPageForExtraction(c)) {
+        skippedExtractionPages.push({
+          page: c.page_number,
+          docType: dt,
+          role: c.page_role ?? "data_entry_page",
+          reason: c.extraction_skip_reason ?? null,
+        });
+        continue;
+      }
       byDoc.set(dt, [...(byDoc.get(dt) ?? []), img]);
     }
 
@@ -149,8 +171,12 @@ export async function processDeal(dealId: string): Promise<void> {
         extractionModes.push({
           docType,
           mode: "region_first",
+          pages: docImages.length,
           regions: regionResult.regionCount,
           regionFields: regionResult.extractedCount,
+          skippedPages: skippedExtractionPages
+            .filter((page) => page.docType === docType)
+            .map((page) => page.page),
         });
         return { docType, extraction: regionResult.extraction };
       }
@@ -169,8 +195,12 @@ export async function processDeal(dealId: string): Promise<void> {
       extractionModes.push({
         docType,
         mode: regionResult ? "region_fallback_full_page" : "full_page",
+        pages: docImages.length,
         regions: regionResult?.regionCount,
         regionFields: regionResult?.extractedCount,
+        skippedPages: skippedExtractionPages
+          .filter((page) => page.docType === docType)
+          .map((page) => page.page),
       });
       return { docType, extraction };
     });
@@ -234,6 +264,7 @@ export async function processDeal(dealId: string): Promise<void> {
         pages: classification.pages.length,
         classification_source: storedClassification ? "stored_deal_pages" : "ai",
         documents: [...byDoc.keys()],
+        extraction_skipped_pages: skippedExtractionPages,
         extraction_modes: extractionModes,
         fields: merged.length,
         existing_fields_preserved: merged.filter(
@@ -264,6 +295,17 @@ export async function processDeal(dealId: string): Promise<void> {
       details: { error: err instanceof Error ? err.message : String(err) },
     });
     throw err;
+  }
+}
+
+async function assertValidRenderedImage(buffer: Buffer, pageNumber: number, imagePath: string) {
+  try {
+    await sharp(buffer).metadata();
+  } catch {
+    const actualType = buffer.subarray(0, 4).toString("ascii") === "%PDF" ? "PDF" : "unsupported file";
+    throw new Error(
+      `Page ${pageNumber} is not a valid rendered image. The stored page file is ${actualType} data at ${imagePath}. Re-prepare the source attachment so it renders to JPEG before processing.`,
+    );
   }
 }
 
@@ -464,9 +506,15 @@ function classificationFromStoredPages(
     standard_form_number?: string | null;
     standard_form_title?: string | null;
     standard_form_confidence?: string | null;
-  }>,
+    page_role?: string | null;
+    page_role_confidence?: string | null;
+    extraction_skip_reason?: string | null;
+}>,
 ): PageClassification | null {
   if (!pages.every((page) => page.doc_type && isReusableConfidence(page.doc_confidence))) return null;
+  if (process.env.SKIP_LOW_VALUE_PAGES !== "0" && pages.some((page) => !isPageRole(page.page_role))) {
+    return null;
+  }
 
   return {
     transaction_type: transactionTypeFromStoredDeal(deal.transaction_type) ?? inferTransactionTypeFromDocs(pages),
@@ -480,8 +528,20 @@ function classificationFromStoredPages(
       standard_form_confidence: isConfidence(page.standard_form_confidence)
         ? (page.standard_form_confidence as Confidence)
         : null,
+      page_role: isPageRole(page.page_role) ? page.page_role : "data_entry_page",
+      page_role_confidence: isConfidence(page.page_role_confidence)
+        ? (page.page_role_confidence as Confidence)
+        : page.doc_confidence === "low"
+          ? "low"
+          : "medium",
+      extraction_skip_reason: page.extraction_skip_reason ?? null,
     })),
   };
+}
+
+function shouldSkipPageForExtraction(page: PageClassification["pages"][number]) {
+  if (process.env.SKIP_LOW_VALUE_PAGES === "0") return false;
+  return page.page_role === "standard_clause_page" || page.page_role === "empty_or_instruction_page";
 }
 
 function transactionTypeFromStoredDeal(value: string | null | undefined): TransactionType | null {
@@ -514,4 +574,15 @@ function isConfidence(value: string | null | undefined): value is Confidence {
 
 function isReusableConfidence(value: string | null | undefined): value is Confidence {
   return value === "high" || value === "medium";
+}
+
+function isPageRole(value: string | null | undefined): value is PageClassification["pages"][number]["page_role"] {
+  return (
+    value === "data_entry_page" ||
+    value === "signature_page" ||
+    value === "standard_clause_page" ||
+    value === "schedule_clause_page" ||
+    value === "empty_or_instruction_page" ||
+    value === "possible_data_page"
+  );
 }

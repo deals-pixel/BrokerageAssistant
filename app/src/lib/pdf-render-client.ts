@@ -6,6 +6,8 @@ export const ACCEPTED_UPLOAD_TYPES = "application/pdf,image/jpeg,.pdf,.jpg,.jpeg
 
 const RENDER_SCALE = 2.5;
 const JPEG_QUALITY = 0.92;
+const PDF_SIGNATURE = "%PDF";
+const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
 
 export type PageUpload = {
   blob: Blob;
@@ -53,8 +55,9 @@ export async function renderFilePages(
   file: File,
   onProgress: (message: string) => void,
 ): Promise<PageUpload[]> {
-  if (isPdf(file)) return renderPdfPages(file, onProgress);
-  if (isJpeg(file)) return [{ blob: file, sourceName: file.name }];
+  const kind = await detectFileKind(file);
+  if (kind === "pdf") return renderPdfPages(file, onProgress);
+  if (kind === "jpeg") return [{ blob: file, sourceName: file.name }];
   throw new Error(`${file.name} is not a PDF or JPEG file.`);
 }
 
@@ -107,4 +110,14 @@ async function renderPdfPages(
   }
 
   return pages;
+}
+
+async function detectFileKind(file: File): Promise<"pdf" | "jpeg" | "unknown"> {
+  const header = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+  const textHeader = new TextDecoder("ascii").decode(header.slice(0, 4));
+  if (textHeader === PDF_SIGNATURE) return "pdf";
+  if (JPEG_SIGNATURE.every((byte, index) => header[index] === byte)) return "jpeg";
+  if (isPdf(file)) return "pdf";
+  if (isJpeg(file)) return "jpeg";
+  return "unknown";
 }

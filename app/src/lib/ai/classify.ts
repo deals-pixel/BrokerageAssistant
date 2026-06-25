@@ -27,6 +27,15 @@ Guidance:
 ${STANDARD_FORM_GUIDE}
 - For each page, also return standard_form_key, standard_form_number, standard_form_title, and standard_form_confidence when the visible title, form number, or signature text matches the registry. Use null for all standard-form fields when no registry form matches.
 - standard_form_key must be exactly one key from the registry above. Do not invent keys.
+- Also return page_role, page_role_confidence, and extraction_skip_reason for each page:
+  - data_entry_page: a page with visible deal-specific blanks, filled fields, parties, property, money, dates, brokerage details, checkboxes, or typed/handwritten transaction data.
+  - possible_data_page: mostly boilerplate but has handwriting, typed insertions, selected checkboxes, initials beside changed terms, signatures with dates, or any visible filled blank. Use this when unsure.
+  - signature_page: signature/date/name blocks where the page may still identify parties or execution dates.
+  - standard_clause_page: fixed printed legal/standard clauses with no filled blanks, no handwriting, no typed insertions, no selected checkboxes, and no visible deal-specific values.
+  - schedule_clause_page: schedule/extra terms page. Use possible_data_page instead if there are custom clauses, handwritten/typed additions, or filled blanks.
+  - empty_or_instruction_page: blank, cover, instruction, separator, or guide page with no transaction values.
+- Be conservative: if there is any visible filled field, handwriting, typed addition, selected checkbox, signature/date block, or uncertainty, do not use standard_clause_page or empty_or_instruction_page.
+- extraction_skip_reason must be a short reason only when page_role is standard_clause_page or empty_or_instruction_page; otherwise return null.
 - Schedule A/B pages belong to their parent document: APS and Office Schedule B pages are agreement_of_purchase_and_sale for sales, Office Schedule B Lease pages are agreement_to_lease, listing schedules are listing_agreement, buyer representation schedules are buyer_representation_agreement, and tenant representation schedules are tenant_representation_agreement.
 - Use agreement_to_lease for OREA Agreement to Lease forms. Use ontario_residential_tenancy_agreement for the Ontario Standard Lease. Use lease_agreement only when the page is a lease document but not clearly one of those two.
 - Continuation pages without their own title belong to the same document as the preceding page.
@@ -38,7 +47,7 @@ ${STANDARD_FORM_GUIDE}
 const BATCH_SIZE = 10;
 const PROMPT_SIGNATURE = createHash("sha256")
   .update(SYSTEM)
-  .update("|page-classification-schema-v2-standard-form-registry")
+  .update("|page-classification-schema-v3-page-role-filter")
   .digest("hex");
 
 export async function classifyPages(

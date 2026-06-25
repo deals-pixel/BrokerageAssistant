@@ -65,6 +65,9 @@ type PageRow = {
   standard_form_number?: string | null;
   standard_form_title?: string | null;
   standard_form_confidence?: string | null;
+  page_role?: string | null;
+  page_role_confidence?: string | null;
+  extraction_skip_reason?: string | null;
   classification_reviewed_at?: string | null;
   classification_reviewed_by?: string | null;
 };
@@ -511,6 +514,9 @@ export function ReviewScreen({
           standard_form_number: null,
           standard_form_title: null,
           standard_form_confidence: null,
+          page_role: "data_entry_page",
+          page_role_confidence: "medium",
+          extraction_skip_reason: null,
           classification_reviewed_at: new Date().toISOString(),
           classification_reviewed_by: user?.id ?? null,
         })

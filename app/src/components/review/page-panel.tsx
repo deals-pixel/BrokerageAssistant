@@ -15,6 +15,9 @@ type PageRow = {
   standard_form_number?: string | null;
   standard_form_title?: string | null;
   standard_form_confidence?: string | null;
+  page_role?: string | null;
+  page_role_confidence?: string | null;
+  extraction_skip_reason?: string | null;
 };
 
 export function PagePanel({
@@ -41,6 +44,7 @@ export function PagePanel({
     selectedPage != null ? pages.find((p) => p.page_number === selectedPage) : null;
   const selectedDocLabel = selectedSection?.label ?? "Unclassified document";
   const selectedFormLabel = formatStandardFormLabel(selectedPageRow);
+  const selectedPageRoleNote = formatPageRoleNote(selectedPageRow);
   const selectedSectionPages = selectedSection?.pages ?? [];
   const selectedPageIndex = selectedPage != null ? selectedSectionPages.indexOf(selectedPage) : -1;
   const canGoPrevious = selectedPageIndex > 0;
@@ -166,6 +170,11 @@ export function PagePanel({
                 </Button>
               </div>
             </div>
+            {selectedPageRoleNote && (
+              <p className="rounded border border-dashed bg-muted/30 px-2 py-1 text-xs text-muted-foreground">
+                {selectedPageRoleNote}
+              </p>
+            )}
             <div className="max-h-[76vh] overflow-auto rounded border bg-muted/30 p-2">
               <div className="relative mx-auto" style={{ width: `${zoom}%` }}>
                 {/* eslint-disable-next-line @next/next/no-img-element -- signed URLs expire; bypass image optimizer */}
@@ -243,6 +252,25 @@ function formatStandardFormLabel(page: PageRow | null | undefined) {
   const title = page.standard_form_title ?? "";
   if (number && title) return `${number} ${title}`;
   return number || title;
+}
+
+function formatPageRoleNote(page: PageRow | null | undefined) {
+  switch (page?.page_role) {
+    case "standard_clause_page":
+      return page.extraction_skip_reason
+        ? `Skipped for extraction: ${page.extraction_skip_reason}`
+        : "Skipped for extraction: standard clause page.";
+    case "empty_or_instruction_page":
+      return page.extraction_skip_reason
+        ? `Skipped for extraction: ${page.extraction_skip_reason}`
+        : "Skipped for extraction: blank or instruction page.";
+    case "possible_data_page":
+      return "Possible data page: included for extraction because it may contain transaction details.";
+    case "schedule_clause_page":
+      return "Schedule clause page: included unless it is clearly blank boilerplate.";
+    default:
+      return "";
+  }
 }
 
 function formatPageRange(pages: number[]) {
