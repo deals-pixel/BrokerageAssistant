@@ -452,7 +452,7 @@ function TransactionCard({
           />
         ) : !isProcessing ? (
           <>
-            <MissingBadges deal={deal} limit={2} />
+            <MissingBadges deal={deal} />
             <CompletionMeter deal={deal} />
             <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 pt-0.5">
               <div className="min-w-0 text-[11px] leading-4 text-foreground/80">
@@ -671,7 +671,7 @@ function TimeListDealRow({
               <ProcessingStepProgress />
             ) : (
               <>
-                <MissingBadges deal={deal} limit={3} />
+                <MissingBadges deal={deal} />
                 <CompletionMeter deal={deal} />
                 <div className="flex items-center justify-end">
                   <DashboardDealAction deal={deal} />
@@ -690,7 +690,7 @@ function TimeListDealRow({
             <div className="text-xs text-muted-foreground">Status</div>
             <DealOperationalStatusBadge status={statusBadge} />
           </div>
-          <MissingBadges deal={deal} limit={3} />
+          <MissingBadges deal={deal} />
           <div className="flex items-center justify-end">
             <DashboardDealAction deal={deal} />
           </div>
@@ -737,7 +737,7 @@ function RecordsTable({ deals, archive = false }: { deals: DashboardDeal[]; arch
                 <DealOperationalStatusBadge status={dealOperationalStatus(deal)} />
               </TableCell>
               <TableCell className="max-w-72">
-                <MissingBadges deal={deal} limit={3} />
+                <MissingBadges deal={deal} />
               </TableCell>
               <TableCell>
                 <CompletionMeter deal={deal} />
@@ -760,7 +760,7 @@ function RecordsTable({ deals, archive = false }: { deals: DashboardDeal[]; arch
   );
 }
 
-function MissingBadges({ deal, limit }: { deal: DashboardDeal; limit: number }) {
+function MissingBadges({ deal }: { deal: DashboardDeal }) {
   if (!deal.canAuditChecklist) {
     return <span className="min-w-0 truncate text-[11px] leading-4 text-muted-foreground">Not processed yet</span>;
   }
@@ -770,21 +770,16 @@ function MissingBadges({ deal, limit }: { deal: DashboardDeal; limit: number }) 
   }
 
   return (
-    <div className="flex min-w-0 max-w-full flex-col items-start gap-1 overflow-hidden">
-      {deal.missingRequired.slice(0, limit).map((item) => (
+    <div className="flex min-w-0 max-w-full flex-col items-stretch gap-1 overflow-hidden">
+      {deal.missingRequired.map((item) => (
         <span
           key={item.id}
           title={item.label}
-          className="block max-w-full truncate rounded-4xl border border-border bg-background px-1.5 py-0.5 text-[11px] font-medium leading-4 text-foreground"
+          className="block max-w-full truncate rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-medium leading-4 text-red-800"
         >
           {shortDocumentLabel(item.label)}
         </span>
       ))}
-      {deal.missingRequired.length > limit && (
-        <Badge variant="outline" className="h-4 bg-background px-1.5 text-[11px] leading-4">
-          +{deal.missingRequired.length - limit}
-        </Badge>
-      )}
     </div>
   );
 }
