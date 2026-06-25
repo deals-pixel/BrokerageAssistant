@@ -770,12 +770,12 @@ function MissingBadges({ deal }: { deal: DashboardDeal }) {
   }
 
   return (
-    <div className="flex min-w-0 max-w-full flex-col items-stretch gap-1 overflow-hidden">
+    <div className="flex min-w-0 max-w-full flex-wrap items-start gap-1 overflow-hidden">
       {deal.missingRequired.map((item) => (
         <span
           key={item.id}
           title={item.label}
-          className="block max-w-full truncate rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-medium leading-4 text-red-800"
+          className="inline-flex max-w-full truncate rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-medium leading-4 text-red-800"
         >
           {shortDocumentLabel(item.label)}
         </span>
