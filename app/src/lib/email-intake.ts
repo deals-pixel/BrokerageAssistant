@@ -142,7 +142,10 @@ export function heuristicRouteEmail(email: InboundEmailInput): LightRoutingResul
   const emailBodyFields = extractEmailBodyFields(email);
   const transactionCode = text.match(/\bTX-\d{4}-\d{4,}\b/i)?.[0]?.toUpperCase() ?? "";
   const mlsNumber = text.match(/\b[A-Z]?\d{7,9}\b/i)?.[0] ?? "";
-  const propertyAddress = emailBodyFields.find((field) => field.field_key === "property_address")?.value ?? extractLikelyAddress(text);
+  const propertyAddress =
+    emailBodyFields.find((field) => field.field_key === "property_address")?.value ||
+    extractLikelyAddress(text) ||
+    extractLikelyAddressFromFilenames(email.attachments.map((item) => item.name));
   const transactionTypeGuess = inferTransactionType(normalized, email.attachments.map((item) => item.name));
   const documentTypeGuesses = email.attachments.map((attachment) => classifyAttachmentFilename(attachment.name));
   const knownDocumentCount = documentTypeGuesses.filter((guess) => guess.confidence >= 0.55).length;
@@ -445,6 +448,48 @@ function extractLikelyAddress(text: string) {
     .map((item) => item.trim())
     .find((item) => /^\d{1,6}\s+/.test(item) && /(street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|blvd|boulevard)/i.test(item));
   return line?.replace(/^property\s*:\s*/i, "").slice(0, 180) ?? "";
+}
+
+function extractLikelyAddressFromFilenames(filenames: string[]) {
+  for (const filename of filenames) {
+    const candidate = normalizeFilenameForAddress(filename);
+    const unitAddress = candidate.match(
+      /^(\d{1,6})\s+(\d{1,6})\s+(.{2,80}\b(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|blvd|boulevard)\b\.?)/i,
+    );
+    if (unitAddress) {
+      return `${unitAddress[1]} - ${unitAddress[2]} ${titleCaseAddress(unitAddress[3])}`.slice(0, 180);
+    }
+
+    const address = candidate.match(
+      /\b(\d{1,6}\s+.{2,80}\b(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|blvd|boulevard)\b\.?)/i,
+    );
+    if (address) return titleCaseAddress(address[1]).slice(0, 180);
+  }
+  return "";
+}
+
+function normalizeFilenameForAddress(filename: string) {
+  return filename
+    .replace(/\.[A-Za-z0-9]{1,8}$/i, "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/(\d)([A-Za-z])/g, "$1 $2")
+    .replace(/([A-Za-z])(\d)/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function titleCaseAddress(value: string) {
+  return value
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (/^\d+[a-z]?$/i.test(part)) return part.toUpperCase();
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
 }
 
 function extensionOf(name: string) {

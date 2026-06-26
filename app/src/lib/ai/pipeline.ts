@@ -157,11 +157,30 @@ export async function processDeal(dealId: string): Promise<void> {
       role: string;
       reason: string | null;
     }> = [];
+    const transactionFilteredPages: Array<{
+      page: number;
+      docType: DocumentType;
+      reason: string;
+    }> = [];
+    const hasTransactionCompatibleDocs = classification.pages.some((page) =>
+      isTransactionCompatibleDocument(classification.transaction_type, page.doc_type as DocumentType),
+    );
     for (const c of classification.pages) {
       const img = images.find((i) => i.pageNumber === c.page_number);
       if (!img) continue;
       const dt = c.doc_type as DocumentType;
       if (!EXTRACTABLE_DOCS.includes(dt)) continue;
+      if (
+        hasTransactionCompatibleDocs &&
+        isTransactionIncompatibleDocument(classification.transaction_type, dt)
+      ) {
+        transactionFilteredPages.push({
+          page: c.page_number,
+          docType: dt,
+          reason: `Ignored for field extraction because this package was classified as ${classification.transaction_type}.`,
+        });
+        continue;
+      }
       if (shouldSkipPageForExtraction(c)) {
         skippedExtractionPages.push({
           page: c.page_number,
@@ -252,7 +271,7 @@ export async function processDeal(dealId: string): Promise<void> {
       if (insErr) throw new Error(`Failed to save fields: ${insErr.message}`);
     }
 
-    const address = merged.find((f) => f.key === "property_address")?.value ?? null;
+    const address = merged.find((f) => f.key === "property_address")?.value ?? deal.property_address ?? null;
     const checklist = buildChecklistResult(
       classification.transaction_type,
       classification.pages.map((page) => ({
@@ -282,6 +301,7 @@ export async function processDeal(dealId: string): Promise<void> {
         pages: classification.pages.length,
         classification_source: storedClassification ? "stored_deal_pages" : "ai",
         documents: [...byDoc.keys()],
+        extraction_filtered_pages: transactionFilteredPages,
         extraction_skipped_pages: skippedExtractionPages,
         extraction_modes: extractionModes,
         fields: merged.length,
@@ -407,7 +427,9 @@ function mergeExistingFields(aiFields: MergedField[], existingFields: PipelineFi
   for (const existing of existingFields) {
     const current = byKey.get(existing.key);
     if (!current) {
-      byKey.set(existing.key, existing);
+      if (existing.editedAt || existing.sourceDocumentType === "email_body") {
+        byKey.set(existing.key, existing);
+      }
       continue;
     }
 
@@ -565,6 +587,32 @@ function shouldSkipPageForExtraction(page: PageClassification["pages"][number]) 
   if (process.env.SKIP_LOW_VALUE_PAGES === "0") return false;
   return page.page_role === "standard_clause_page" || page.page_role === "empty_or_instruction_page";
 }
+
+function isTransactionCompatibleDocument(transactionType: TransactionType, docType: DocumentType) {
+  if (transactionType === "lease") return LEASE_TRANSACTION_DOCS.has(docType);
+  if (transactionType === "purchase") return PURCHASE_TRANSACTION_DOCS.has(docType);
+  return false;
+}
+
+function isTransactionIncompatibleDocument(transactionType: TransactionType, docType: DocumentType) {
+  if (transactionType === "lease") return PURCHASE_TRANSACTION_DOCS.has(docType);
+  if (transactionType === "purchase") return LEASE_TRANSACTION_DOCS.has(docType);
+  return false;
+}
+
+const PURCHASE_TRANSACTION_DOCS = new Set<DocumentType>([
+  "agreement_of_purchase_and_sale",
+  "first_page_aps",
+  "buyer_representation_agreement",
+  "builder_confirmation_cooperation",
+]);
+
+const LEASE_TRANSACTION_DOCS = new Set<DocumentType>([
+  "agreement_to_lease",
+  "lease_agreement",
+  "ontario_residential_tenancy_agreement",
+  "tenant_representation_agreement",
+]);
 
 function transactionTypeFromStoredDeal(value: string | null | undefined): TransactionType | null {
   return value === "purchase" || value === "lease" ? value : null;
