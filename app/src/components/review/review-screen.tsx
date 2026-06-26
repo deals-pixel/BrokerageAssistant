@@ -169,6 +169,7 @@ type PackageDocumentRow = {
   pendingLoneWolf: boolean;
   unprocessed: boolean;
   reminderNeeded: boolean;
+  reminderStatus: "none" | "draft" | "sent";
   canMarkLoneWolfUploaded: boolean;
   classificationReviewed: boolean;
 };
@@ -1525,7 +1526,8 @@ function PackageRowActions({
     );
   }
 
-  if (row.reminderNeeded) {
+  if (row.missing) {
+    const hasReminder = row.reminderStatus !== "none";
     return (
       <div className="flex flex-col items-end gap-1">
         <Button
@@ -1534,9 +1536,15 @@ function PackageRowActions({
           onClick={() => onGenerateReminder(row)}
           disabled={draftingReminder}
         >
-          Generate reminder
+          {hasReminder ? "Open reminder" : "Generate reminder"}
         </Button>
-        <span className="text-xs text-muted-foreground">Waiting on agent</span>
+        <span className="text-xs text-muted-foreground">
+          {row.reminderStatus === "sent"
+            ? "Reminder sent"
+            : row.reminderStatus === "draft"
+              ? "Draft ready"
+              : "Waiting on agent"}
+        </span>
       </div>
     );
   }
@@ -2000,6 +2008,7 @@ function buildPackageDocumentRows({
 
   const hasDraftReminder = reminders.some((reminder) => reminder.status === "draft");
   const hasSentReminder = reminders.some((reminder) => reminder.status === "sent");
+  const reminderStatus = hasSentReminder ? "sent" : hasDraftReminder ? "draft" : "none";
 
   return checklist.map((item) => {
     const found = item.found;
@@ -2031,6 +2040,7 @@ function buildPackageDocumentRows({
       pendingLoneWolf: found && loneWolfStatus === "pending_upload",
       unprocessed,
       reminderNeeded,
+      reminderStatus,
       canMarkLoneWolfUploaded: found && loneWolfStatus === "pending_upload",
       classificationReviewed,
     };
