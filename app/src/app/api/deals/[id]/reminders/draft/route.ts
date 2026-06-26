@@ -13,6 +13,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const body = (await req.json().catch(() => null)) as {
     agentId?: string | null;
     recipient?: string | null;
+    requestedDocumentIds?: string[];
+    followupEnabled?: boolean;
+    followupDelayBusinessDays?: number;
+    maxFollowups?: number;
+    escalateAfterDays?: number;
   } | null;
 
   try {
@@ -20,6 +25,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       agentId: body?.agentId,
       recipient: body?.recipient,
       createdBy: user.id,
+      requestedDocumentIds: body?.requestedDocumentIds,
+      followupEnabled: body?.followupEnabled,
+      followupDelayBusinessDays: body?.followupDelayBusinessDays,
+      maxFollowups: body?.maxFollowups,
+      escalateAfterDays: body?.escalateAfterDays,
     });
     return NextResponse.json({ reminder });
   } catch (err) {

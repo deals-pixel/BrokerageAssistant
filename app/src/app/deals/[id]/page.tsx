@@ -58,9 +58,16 @@ export default async function DealPage({
 
   const { data: reminders } = await supabase
     .from("reminder_emails")
-    .select("id, recipient, subject, body, status, drafted_at, sent_at, created_at")
+    .select(
+      "id, recipient, subject, body, status, drafted_at, sent_at, created_at, requested_documents, followup_enabled, next_followup_at, max_followups, followup_count, followup_delay_business_days, escalate_after_days, paused_at",
+    )
     .eq("deal_id", id)
     .order("created_at", { ascending: false });
+
+  const { data: emailLinks } = await supabase
+    .from("deal_email_links")
+    .select("inbound_emails(from_email, from_name)")
+    .eq("deal_id", id);
 
   const { data: agents } = await supabase
     .from("agents")
@@ -102,6 +109,14 @@ export default async function DealPage({
       checklistResult={checklistResult}
       tasks={tasks ?? []}
       reminders={reminders ?? []}
+      inboundEmailContacts={
+        (emailLinks ?? [])
+          .map((link) => {
+            const email = Array.isArray(link.inbound_emails) ? link.inbound_emails[0] : link.inbound_emails;
+            return email?.from_email ? { email: email.from_email, name: email.from_name ?? null } : null;
+          })
+          .filter((item): item is { email: string; name: string | null } => Boolean(item))
+      }
       agents={agents ?? []}
       requirementStatuses={requirementStatuses ?? []}
       emailAttachments={emailAttachments ?? []}

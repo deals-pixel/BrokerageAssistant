@@ -13,12 +13,23 @@ type ReminderDraftInput = {
   agentId?: string | null;
   recipient?: string | null;
   createdBy?: string | null;
+  requestedDocumentIds?: string[];
+  followupEnabled?: boolean;
+  followupDelayBusinessDays?: number;
+  maxFollowups?: number;
+  escalateAfterDays?: number;
 };
 
 type ReminderDelivery = {
   provider: "postmark";
   messageId?: string | null;
   submittedAt?: string | null;
+};
+
+type ReminderDocument = {
+  id: string;
+  title: string;
+  documentType: string | null;
 };
 
 export async function syncMissingDocumentTasks(
@@ -147,6 +158,10 @@ export async function createReminderDraft(
     tasks = syncedTasks ?? [];
   }
 
+  const selectedIds = new Set(input.requestedDocumentIds?.filter(Boolean) ?? []);
+  if (selectedIds.size > 0) {
+    tasks = tasks.filter((task) => selectedIds.has(task.id));
+  }
   if (!tasks || tasks.length === 0) throw new Error("There are no open missing-document tasks.");
 
   let recipient = input.recipient?.trim() ?? "";
@@ -163,21 +178,41 @@ export async function createReminderDraft(
 
   const address = deal.property_address ?? deal.file_name;
   const scenario = deal.scenario_label ?? (deal.scenario_key ? SCENARIO_BY_KEY[deal.scenario_key]?.label : null);
-  const missingLines = tasks.map((task) => `- ${task.title}`).join("\n");
-  const subject = `Missing transaction documents for ${address}`;
+  const requestedDocuments: ReminderDocument[] = tasks.map((task) => ({
+    id: task.id,
+    title: task.title,
+    documentType: task.document_type,
+  }));
+  const missingLines = tasks.map((task, index) => `${index + 1}. ${task.title.replace(/^Request\s+/i, "")}`).join("\n");
+  const subject = `Action required: Missing documents for ${address}`;
+  const uploadUrl = reminderUploadUrl(dealId);
   const body = [
     "Hello,",
     "",
-    `Please send the following missing document${tasks.length === 1 ? "" : "s"} for ${address}:`,
+    "We are completing the compliance package for:",
+    "",
+    address,
+    scenario ? `Scenario: ${scenario}` : null,
+    "",
+    "The following documents are still required:",
     "",
     missingLines,
     "",
-    scenario ? `Scenario: ${scenario}` : null,
+    "Please reply to this email with the documents attached, or upload them using the transaction intake link below:",
     "",
-    "Once received, we will update the transaction file for compliance review.",
+    uploadUrl,
+    "",
+    "If these have already been sent, please disregard this reminder or reply and let us know.",
+    "",
+    "Thank you,",
+    "Team Admiral",
   ]
     .filter((line) => line !== null)
     .join("\n");
+  const followupDelayBusinessDays = clampNumber(input.followupDelayBusinessDays, 1, 10, 2);
+  const maxFollowups = clampNumber(input.maxFollowups, 0, 5, 2);
+  const escalateAfterDays = clampNumber(input.escalateAfterDays, 1, 30, 7);
+  const followupEnabled = Boolean(input.followupEnabled);
 
   const { data: reminder, error: insertError } = await supabase
     .from("reminder_emails")
@@ -189,6 +224,12 @@ export async function createReminderDraft(
       status: "draft",
       drafted_at: new Date().toISOString(),
       created_by: input.createdBy ?? null,
+      requested_documents: requestedDocuments,
+      followup_enabled: followupEnabled,
+      next_followup_at: null,
+      max_followups: followupEnabled ? maxFollowups : 0,
+      followup_delay_business_days: followupDelayBusinessDays,
+      escalate_after_days: escalateAfterDays,
     })
     .select()
     .single();
@@ -201,7 +242,11 @@ export async function createReminderDraft(
     details: {
       reminder_id: reminder.id,
       recipient,
-      missing_documents: tasks.map((task) => task.title),
+      missing_documents: requestedDocuments.map((task) => task.title),
+      followup_enabled: followupEnabled,
+      followup_delay_business_days: followupDelayBusinessDays,
+      max_followups: followupEnabled ? maxFollowups : 0,
+      escalate_after_days: escalateAfterDays,
     },
   });
 
@@ -216,9 +261,21 @@ export async function markReminderSent(
   delivery?: ReminderDelivery,
 ) {
   const sentAt = new Date().toISOString();
+  const { data: current, error: currentError } = await supabase
+    .from("reminder_emails")
+    .select("followup_enabled, followup_delay_business_days, max_followups")
+    .eq("deal_id", dealId)
+    .eq("id", reminderId)
+    .single();
+  if (currentError || !current) throw new Error(currentError?.message ?? "Reminder not found");
+
+  const nextFollowupAt =
+    current.followup_enabled && current.max_followups > 0
+      ? addBusinessDays(new Date(sentAt), current.followup_delay_business_days ?? 2).toISOString()
+      : null;
   const { data: reminder, error } = await supabase
     .from("reminder_emails")
-    .update({ status: "sent", sent_at: sentAt })
+    .update({ status: "sent", sent_at: sentAt, next_followup_at: nextFollowupAt })
     .eq("deal_id", dealId)
     .eq("id", reminderId)
     .select("id, recipient")
@@ -233,11 +290,34 @@ export async function markReminderSent(
       reminder_id: reminder.id,
       recipient: reminder.recipient,
       sent_at: sentAt,
+      next_followup_at: nextFollowupAt,
       delivery: delivery ?? null,
     },
   });
 
   return reminder;
+}
+
+function reminderUploadUrl(dealId: string) {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+  if (!baseUrl) return "Upload missing documents through the transaction intake link.";
+  return `${baseUrl}/deals/${dealId}?reminder=1`;
+}
+
+function clampNumber(value: number | undefined, min: number, max: number, fallback: number) {
+  if (typeof value !== "number" || Number.isNaN(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+export function addBusinessDays(start: Date, businessDays: number) {
+  const date = new Date(start);
+  let remaining = businessDays;
+  while (remaining > 0) {
+    date.setDate(date.getDate() + 1);
+    const day = date.getDay();
+    if (day !== 0 && day !== 6) remaining -= 1;
+  }
+  return date;
 }
 
 function taskFromChecklistItem(dealId: string, item: ChecklistItem) {

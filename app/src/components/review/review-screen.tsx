@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeftIcon, ChevronRightIcon, CheckIcon, Clock3Icon, DownloadIcon, FileTextIcon, SendIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, CheckIcon, Clock3Icon, DownloadIcon, FileTextIcon, SendIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -106,6 +106,20 @@ type ReminderRow = {
   drafted_at: string | null;
   sent_at: string | null;
   created_at: string;
+  requested_documents?: ReminderDocument[] | null;
+  followup_enabled?: boolean | null;
+  next_followup_at?: string | null;
+  max_followups?: number | null;
+  followup_count?: number | null;
+  followup_delay_business_days?: number | null;
+  escalate_after_days?: number | null;
+  paused_at?: string | null;
+};
+
+type ReminderDocument = {
+  id?: string;
+  title?: string;
+  documentType?: string | null;
 };
 
 type AgentRow = {
@@ -114,6 +128,24 @@ type AgentRow = {
   email: string;
   phone: string | null;
   brokerage: string | null;
+};
+
+type InboundEmailContact = {
+  email: string;
+  name: string | null;
+};
+
+type ReminderTaskOption = {
+  id: string;
+  title: string;
+  documentLabel: string;
+  note: string | null;
+};
+
+type RecipientOption = {
+  id: string;
+  label: string;
+  email: string;
 };
 
 type AuditLogRow = {
@@ -170,6 +202,9 @@ type PackageDocumentRow = {
   unprocessed: boolean;
   reminderNeeded: boolean;
   reminderStatus: "none" | "draft" | "sent";
+  reminderFollowupCount: number;
+  reminderNextFollowupAt: string | null;
+  reminderOverdue: boolean;
   canMarkLoneWolfUploaded: boolean;
   classificationReviewed: boolean;
 };
@@ -201,6 +236,7 @@ export function ReviewScreen({
   checklistResult,
   tasks,
   reminders,
+  inboundEmailContacts = [],
   agents,
   requirementStatuses,
   emailAttachments,
@@ -213,6 +249,7 @@ export function ReviewScreen({
   checklistResult: ChecklistResult;
   tasks: TaskRow[];
   reminders: ReminderRow[];
+  inboundEmailContacts?: InboundEmailContact[];
   agents: AgentRow[];
   requirementStatuses: RequirementStatusRow[];
   emailAttachments: EmailAttachmentRow[];
@@ -222,12 +259,18 @@ export function ReviewScreen({
   const router = useRouter();
   const [edited, setEdited] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [renderedAt] = useState(() => new Date().toISOString());
   const [savingFieldKey, setSavingFieldKey] = useState<string | null>(null);
   const [workingTaskId, setWorkingTaskId] = useState<string | null>(null);
   const [draftingReminder, setDraftingReminder] = useState(false);
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [recipient, setRecipient] = useState("");
+  const [recipientMode, setRecipientMode] = useState("other");
+  const [selectedReminderTaskIds, setSelectedReminderTaskIds] = useState<string[]>([]);
+  const [followupDelayBusinessDays, setFollowupDelayBusinessDays] = useState(2);
+  const [maxFollowups, setMaxFollowups] = useState(2);
+  const [escalateAfterDays, setEscalateAfterDays] = useState(7);
   const [selectedFieldKey, setSelectedFieldKey] = useState<string | null>(null);
   const [selectedSourceIndex, setSelectedSourceIndex] = useState<number | null>(null);
   const [packageFilter, setPackageFilter] = useState<PackageFilter>("all");
@@ -257,11 +300,33 @@ export function ReviewScreen({
         pages,
         tasks,
         reminders,
+        currentIso: renderedAt,
         requirementStatuses: requirementStatusMap,
       }),
-    [checklist, deal.status, pages, reminders, requirementStatusMap, tasks],
+    [checklist, deal.status, pages, reminders, renderedAt, requirementStatusMap, tasks],
   );
-  const packageSummary = useMemo(() => summarizePackageRows(packageRows), [packageRows]);
+  const outstandingRows = packageRows.filter((row) => row.missing);
+  const openTasksByRequirementId = useMemo(
+    () => new Map(openTasks.filter((task) => task.requirement_id).map((task) => [task.requirement_id as string, task])),
+    [openTasks],
+  );
+  const reminderTasks = outstandingRows
+    .map((row) => {
+      const task = openTasksByRequirementId.get(row.requirementId);
+      return task
+        ? {
+            id: task.id,
+            title: row.label,
+            documentLabel: row.documentLabel,
+            note: task.description,
+          }
+        : null;
+    })
+    .filter((task): task is ReminderTaskOption => Boolean(task));
+  const recipientOptions = useMemo(
+    () => buildRecipientOptions({ agents, inboundEmailContacts, fields }),
+    [agents, inboundEmailContacts, fields],
+  );
   const sortedAuditLogs = useMemo(() => sortAuditLogs(auditLogs), [auditLogs]);
   const latestReminder = reminders.find((reminder) => reminder.sent_at) ?? reminders[0];
   const pageLabelByNumber = useMemo(() => buildPageLabelMap(pages), [pages]);
@@ -461,20 +526,29 @@ export function ReviewScreen({
   async function generateReminderDraft() {
     setDraftingReminder(true);
     try {
+      const requestedDocumentIds =
+        selectedReminderTaskIds.length > 0 ? selectedReminderTaskIds : reminderTasks.map((task) => task.id);
       const res = await fetch(`/api/deals/${deal.id}/reminders/draft`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           agentId: selectedAgentId || null,
           recipient: recipient || null,
+          requestedDocumentIds,
+          followupEnabled: true,
+          followupDelayBusinessDays,
+          maxFollowups,
+          escalateAfterDays,
         }),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error ?? "Could not create reminder draft");
       toast.success("Reminder draft created.");
       router.refresh();
+      return body?.reminder as ReminderRow;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not create reminder draft");
+      return null;
     } finally {
       setDraftingReminder(false);
     }
@@ -482,6 +556,7 @@ export function ReviewScreen({
 
   function openReminderDialog(row: PackageDocumentRow) {
     setReminderContext(row);
+    setSelectedReminderTaskIds(reminderTasks.map((task) => task.id));
     setReminderDialogOpen(true);
   }
 
@@ -635,7 +710,6 @@ export function ReviewScreen({
 
       <PackageDocumentsPanel
         rows={packageRows}
-        summary={packageSummary}
         activeFilter={packageFilter}
         onFilterChange={setPackageFilter}
         onMarkLoneWolfUploaded={markLoneWolfUploaded}
@@ -649,13 +723,22 @@ export function ReviewScreen({
         open={reminderDialogOpen}
         onOpenChange={setReminderDialogOpen}
         context={reminderContext}
-        agents={agents}
+        recipientOptions={recipientOptions}
         reminders={reminders}
-        openTasks={openTasks}
-        selectedAgentId={selectedAgentId}
+        reminderTasks={reminderTasks}
+        selectedReminderTaskIds={selectedReminderTaskIds}
+        onSelectedReminderTaskIdsChange={setSelectedReminderTaskIds}
         onSelectedAgentChange={setSelectedAgentId}
+        recipientMode={recipientMode}
+        onRecipientModeChange={setRecipientMode}
         recipient={recipient}
         onRecipientChange={setRecipient}
+        followupDelayBusinessDays={followupDelayBusinessDays}
+        onFollowupDelayBusinessDaysChange={setFollowupDelayBusinessDays}
+        maxFollowups={maxFollowups}
+        onMaxFollowupsChange={setMaxFollowups}
+        escalateAfterDays={escalateAfterDays}
+        onEscalateAfterDaysChange={setEscalateAfterDays}
         onGenerateDraft={generateReminderDraft}
         draftingReminder={draftingReminder}
         onMarkSent={markSent}
@@ -1028,7 +1111,6 @@ export function ReviewScreen({
 
 function PackageDocumentsPanel({
   rows,
-  summary,
   activeFilter,
   onFilterChange,
   onMarkLoneWolfUploaded,
@@ -1038,7 +1120,6 @@ function PackageDocumentsPanel({
   draftingReminder,
 }: {
   rows: PackageDocumentRow[];
-  summary: string;
   activeFilter: PackageFilter;
   onFilterChange: (filter: PackageFilter) => void;
   onMarkLoneWolfUploaded: (requirementId: string) => void;
@@ -1047,6 +1128,7 @@ function PackageDocumentsPanel({
   workingRequirementId: string | null;
   draftingReminder: boolean;
 }) {
+  const [notRequiredExpanded, setNotRequiredExpanded] = useState(false);
   const filteredRows = filterPackageRows(rows, activeFilter);
   const groups = buildPackageGroups(filteredRows);
   const counts = packageFilterCounts(rows);
@@ -1075,7 +1157,6 @@ function PackageDocumentsPanel({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <CardTitle className="text-base">Package Documents</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {filters.map((filter) => (
@@ -1103,43 +1184,58 @@ function PackageDocumentsPanel({
           </TableHeader>
           <TableBody>
             {filteredRows.length > 0 ? (
-              groups.flatMap((group) => [
-                <PackageGroupHeader key={`${group.id}-header`} group={group} />,
-                ...group.rows.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="px-4 whitespace-normal">
-                      <div className="font-medium leading-tight">{row.label}</div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                        {row.pages.length > 0 ? (
-                          <button
-                            type="button"
-                            className="text-blue-600 hover:underline"
-                            onClick={() => onReviewMatch(row)}
-                          >
-                            {row.documentLabel}
-                          </button>
-                        ) : (
-                          <span>{row.documentLabel}</span>
-                        )}
-                        {row.condition && <span>{row.condition}</span>}
-                      </div>
-                    </TableCell>
-                    <TableCell className="whitespace-normal">
-                      <PipelineIndicator row={row} />
-                    </TableCell>
-                    <TableCell className="px-4">
-                      <PackageRowActions
-                        row={row}
-                        workingRequirementId={workingRequirementId}
-                        draftingReminder={draftingReminder}
-                        onMarkLoneWolfUploaded={onMarkLoneWolfUploaded}
-                        onGenerateReminder={onGenerateReminder}
-                        onReviewMatch={onReviewMatch}
-                      />
-                    </TableCell>
-                  </TableRow>
-                )),
-              ])
+              groups.map((group) => {
+                const isCollapsed = group.id === "not_required" && !notRequiredExpanded;
+
+                return (
+                  <Fragment key={group.id}>
+                    <PackageGroupHeader
+                      group={group}
+                      isCollapsed={isCollapsed}
+                      onToggle={
+                        group.id === "not_required"
+                          ? () => setNotRequiredExpanded((expanded) => !expanded)
+                          : undefined
+                      }
+                    />
+                    {!isCollapsed &&
+                      group.rows.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell className="px-4 whitespace-normal">
+                            <div className="font-medium leading-tight">{row.label}</div>
+                            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                              {row.pages.length > 0 ? (
+                                <button
+                                  type="button"
+                                  className="text-blue-600 hover:underline"
+                                  onClick={() => onReviewMatch(row)}
+                                >
+                                  {row.documentLabel}
+                                </button>
+                              ) : (
+                                <span>{row.documentLabel}</span>
+                              )}
+                              {row.condition && <span>{row.condition}</span>}
+                            </div>
+                          </TableCell>
+                          <TableCell className="whitespace-normal">
+                            <PipelineIndicator row={row} />
+                          </TableCell>
+                          <TableCell className="px-4">
+                            <PackageRowActions
+                              row={row}
+                              workingRequirementId={workingRequirementId}
+                              draftingReminder={draftingReminder}
+                              onMarkLoneWolfUploaded={onMarkLoneWolfUploaded}
+                              onGenerateReminder={onGenerateReminder}
+                              onReviewMatch={onReviewMatch}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </Fragment>
+                );
+              })
             ) : (
               <TableRow>
                 <TableCell colSpan={3} className="px-4 py-6 text-center text-muted-foreground">
@@ -1246,7 +1342,15 @@ type PackageGroup = {
   rows: PackageDocumentRow[];
 };
 
-function PackageGroupHeader({ group }: { group: PackageGroup }) {
+function PackageGroupHeader({
+  group,
+  isCollapsed = false,
+  onToggle,
+}: {
+  group: PackageGroup;
+  isCollapsed?: boolean;
+  onToggle?: () => void;
+}) {
   const dotClass =
     group.tone === "green"
       ? "bg-green-700"
@@ -1259,11 +1363,27 @@ function PackageGroupHeader({ group }: { group: PackageGroup }) {
   return (
     <TableRow className="bg-background hover:bg-background">
       <TableCell colSpan={3} className="px-4 pt-5 pb-2">
-        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-          <span className={`size-2 rounded-full ${dotClass}`} />
-          <span>{group.label}</span>
-          <span className="text-xs font-normal text-muted-foreground">{group.rows.length}</span>
-        </div>
+        {onToggle ? (
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 text-left text-sm font-medium text-foreground hover:text-primary"
+            onClick={onToggle}
+            aria-expanded={!isCollapsed}
+          >
+            <ChevronDownIcon
+              className={`size-4 text-muted-foreground transition-transform ${isCollapsed ? "-rotate-90" : ""}`}
+            />
+            <span className={`size-2 rounded-full ${dotClass}`} />
+            <span>{group.label}</span>
+            <span className="text-xs font-normal text-muted-foreground">{group.rows.length}</span>
+          </button>
+        ) : (
+          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <span className={`size-2 rounded-full ${dotClass}`} />
+            <span>{group.label}</span>
+            <span className="text-xs font-normal text-muted-foreground">{group.rows.length}</span>
+          </div>
+        )}
       </TableCell>
     </TableRow>
   );
@@ -1272,6 +1392,10 @@ function PackageGroupHeader({ group }: { group: PackageGroup }) {
 function PipelineIndicator({ row }: { row: PackageDocumentRow }) {
   if (packageBucket(row) === "not_required") {
     return <span className="text-sm text-muted-foreground">Not required for this scenario</span>;
+  }
+
+  if (row.missing) {
+    return <OutstandingReminderChip row={row} />;
   }
 
   const steps = [
@@ -1305,6 +1429,36 @@ function PipelineIndicator({ row }: { row: PackageDocumentRow }) {
         ))}
       </div>
       <p className="text-sm text-foreground">{pipelineLabel(row)}</p>
+    </div>
+  );
+}
+
+function OutstandingReminderChip({ row }: { row: PackageDocumentRow }) {
+  const label =
+    row.reminderStatus === "none"
+      ? "Not requested"
+      : row.reminderOverdue
+        ? "Overdue"
+        : row.reminderFollowupCount > 0
+          ? "Follow-up sent"
+          : row.reminderStatus === "sent"
+            ? "Reminder sent"
+            : "Not requested";
+  const className =
+    label === "Overdue"
+      ? "border-red-200 bg-red-50 text-red-800"
+      : label === "Reminder sent" || label === "Follow-up sent"
+        ? "border-blue-200 bg-blue-50 text-blue-800"
+        : "border-muted bg-muted/30 text-muted-foreground";
+
+  return (
+    <div className="space-y-1">
+      <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-medium ${className}`}>
+        {label}
+      </span>
+      {row.reminderNextFollowupAt && !row.reminderOverdue && (
+        <p className="text-xs text-muted-foreground">Next follow-up {formatShortDateTime(row.reminderNextFollowupAt)}</p>
+      )}
     </div>
   );
 }
@@ -1529,7 +1683,7 @@ function PackageRowActions({
   if (row.missing) {
     const hasReminder = row.reminderStatus !== "none";
     return (
-      <div className="flex flex-col items-end gap-1">
+      <div className="flex flex-wrap justify-end gap-1.5">
         <Button
           size="sm"
           variant="outline"
@@ -1538,13 +1692,15 @@ function PackageRowActions({
         >
           {hasReminder ? "Open reminder" : "Generate reminder"}
         </Button>
-        <span className="text-xs text-muted-foreground">
-          {row.reminderStatus === "sent"
-            ? "Reminder sent"
-            : row.reminderStatus === "draft"
-              ? "Draft ready"
-              : "Waiting on agent"}
-        </span>
+        <Button size="sm" variant="outline" onClick={() => onGenerateReminder(row)}>
+          Send now
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => onGenerateReminder(row)}>
+          Edit schedule
+        </Button>
+        <Button size="sm" variant="outline" disabled title="Manual not-required workflow is coming next.">
+          Mark not required
+        </Button>
       </div>
     );
   }
@@ -1584,13 +1740,22 @@ function ReminderDialog({
   open,
   onOpenChange,
   context,
-  agents,
+  recipientOptions,
   reminders,
-  openTasks,
-  selectedAgentId,
+  reminderTasks,
+  selectedReminderTaskIds,
+  onSelectedReminderTaskIdsChange,
   onSelectedAgentChange,
+  recipientMode,
+  onRecipientModeChange,
   recipient,
   onRecipientChange,
+  followupDelayBusinessDays,
+  onFollowupDelayBusinessDaysChange,
+  maxFollowups,
+  onMaxFollowupsChange,
+  escalateAfterDays,
+  onEscalateAfterDaysChange,
   onGenerateDraft,
   draftingReminder,
   onMarkSent,
@@ -1599,16 +1764,25 @@ function ReminderDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   context: PackageDocumentRow | null;
-  agents: AgentRow[];
+  recipientOptions: RecipientOption[];
   reminders: ReminderRow[];
-  openTasks: TaskRow[];
-  selectedAgentId: string;
+  reminderTasks: ReminderTaskOption[];
+  selectedReminderTaskIds: string[];
+  onSelectedReminderTaskIdsChange: (ids: string[]) => void;
   onSelectedAgentChange: (agentId: string) => void;
+  recipientMode: string;
+  onRecipientModeChange: (mode: string) => void;
   recipient: string;
   onRecipientChange: (recipient: string) => void;
-  onGenerateDraft: () => void;
+  followupDelayBusinessDays: number;
+  onFollowupDelayBusinessDaysChange: (value: number) => void;
+  maxFollowups: number;
+  onMaxFollowupsChange: (value: number) => void;
+  escalateAfterDays: number;
+  onEscalateAfterDaysChange: (value: number) => void;
+  onGenerateDraft: () => Promise<ReminderRow | null>;
   draftingReminder: boolean;
-  onMarkSent: (reminderId: string) => void;
+  onMarkSent: (reminderId: string) => Promise<void>;
   sendingReminderId: string | null;
 }) {
   const sortedReminders = [...reminders].sort((a, b) => {
@@ -1618,52 +1792,149 @@ function ReminderDialog({
   });
   const previewReminder =
     sortedReminders.find((reminder) => reminder.status === "draft") ?? sortedReminders[0];
+  const selectedCount = selectedReminderTaskIds.length || reminderTasks.length;
+  async function sendSelectedReminder() {
+    const reminder = previewReminder?.status === "draft" ? previewReminder : await onGenerateDraft();
+    if (reminder?.id) await onMarkSent(reminder.id);
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] gap-0 overflow-hidden p-0 sm:max-w-5xl">
         <DialogHeader className="border-b px-5 py-4 pr-12">
-          <DialogTitle>Email Reminder Draft</DialogTitle>
+          <DialogTitle>Deal Reminder</DialogTitle>
           <DialogDescription>
-            {context
-              ? `Missing document: ${context.label}`
-              : "Create and review a reminder draft for missing documents."}
+            {context ? `Opened from: ${context.label}` : "Create one reminder for the outstanding documents on this deal."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid max-h-[calc(90vh-8rem)] min-h-0 overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px]">
           <section className="flex min-h-0 flex-col gap-4 overflow-y-auto p-5">
-            <div className="rounded-lg border bg-muted/20 p-3">
-              <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                <select
-                  className="h-9 min-w-0 rounded-md border bg-background px-3 text-sm"
-                  value={selectedAgentId}
-                  onChange={(event) => onSelectedAgentChange(event.target.value)}
+            <div className="rounded-lg border bg-background p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">Missing documents included in this reminder</p>
+                  <p className="text-xs text-muted-foreground">{selectedCount} selected</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onSelectedReminderTaskIdsChange(reminderTasks.map((task) => task.id))}
                 >
-                  <option value="">Choose agent</option>
-                  {agents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.name} - {agent.email}
-                    </option>
-                  ))}
-                </select>
-                <Input
-                  className="min-w-0"
-                  placeholder="or enter recipient email"
-                  value={recipient}
-                  onChange={(event) => onRecipientChange(event.target.value)}
-                />
-                <Button onClick={onGenerateDraft} disabled={draftingReminder || openTasks.length === 0}>
-                  {draftingReminder ? "Drafting..." : "Generate Draft"}
+                  Select all
                 </Button>
+              </div>
+              <div className="mt-3 space-y-2">
+                {reminderTasks.map((task) => {
+                  const checked = selectedReminderTaskIds.includes(task.id);
+                  return (
+                    <label key={task.id} className="flex items-start gap-3 rounded-md border bg-muted/10 p-3 text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={checked}
+                        onChange={(event) => {
+                          if (event.target.checked) {
+                            onSelectedReminderTaskIdsChange([...new Set([...selectedReminderTaskIds, task.id])]);
+                          } else {
+                            onSelectedReminderTaskIdsChange(selectedReminderTaskIds.filter((id) => id !== task.id));
+                          }
+                        }}
+                      />
+                      <span>
+                        <span className="font-medium">{task.title}</span>
+                        <span className="block text-xs text-muted-foreground">{task.documentLabel}</span>
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
 
-            {openTasks.length === 0 && (
+            <div className="rounded-lg border bg-muted/20 p-4">
+              <p className="mb-2 text-sm font-medium">Send to</p>
+              <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                <select
+                  className="h-9 min-w-0 rounded-md border bg-background px-3 text-sm"
+                  value={recipientMode}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    onRecipientModeChange(value);
+                    if (value === "other") {
+                      onSelectedAgentChange("");
+                      return;
+                    }
+                    const option = recipientOptions.find((item) => item.id === value);
+                    if (option) {
+                      onRecipientChange(option.email);
+                      onSelectedAgentChange(value.startsWith("agent:") ? value.replace("agent:", "") : "");
+                    }
+                  }}
+                >
+                  {recipientOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                  <option value="other">Other email...</option>
+                </select>
+                <Input
+                  className="min-w-0"
+                  placeholder="Recipient email"
+                  value={recipient}
+                  onChange={(event) => onRecipientChange(event.target.value)}
+                />
+              </div>
+            </div>
+
+            {reminderTasks.length === 0 && (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                 No open missing-document tasks are available. Sync tasks before drafting a reminder.
               </div>
             )}
+
+            <div className="rounded-lg border bg-background p-4">
+              <p className="text-sm font-medium">Follow-up schedule</p>
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                <label className="grid gap-1 text-xs text-muted-foreground">
+                  Next follow-up
+                  <select
+                    className="h-9 rounded-md border bg-background px-3 text-sm text-foreground"
+                    value={followupDelayBusinessDays}
+                    onChange={(event) => onFollowupDelayBusinessDaysChange(Number(event.target.value))}
+                  >
+                    <option value={1}>1 business day after send</option>
+                    <option value={2}>2 business days after send</option>
+                    <option value={3}>3 business days after send</option>
+                    <option value={5}>5 business days after send</option>
+                  </select>
+                </label>
+                <label className="grid gap-1 text-xs text-muted-foreground">
+                  Max follow-ups
+                  <Input
+                    type="number"
+                    min={0}
+                    max={5}
+                    value={maxFollowups}
+                    onChange={(event) => onMaxFollowupsChange(Number(event.target.value))}
+                  />
+                </label>
+                <label className="grid gap-1 text-xs text-muted-foreground">
+                  Escalate after
+                  <Input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={escalateAfterDays}
+                    onChange={(event) => onEscalateAfterDaysChange(Number(event.target.value))}
+                  />
+                </label>
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Follow-ups will stop automatically once all requested documents are received, manually marked uploaded,
+                marked not required, the deal is closed/cancelled, or reminders are paused.
+              </p>
+            </div>
 
             <div className="min-h-0 space-y-2">
               <div className="flex items-center justify-between gap-3">
@@ -1692,6 +1963,17 @@ function ReminderDialog({
                 </div>
               )}
             </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="outline" onClick={onGenerateDraft} disabled={draftingReminder || selectedReminderTaskIds.length === 0}>
+                Save draft
+              </Button>
+              <Button variant="outline" onClick={sendSelectedReminder} disabled={draftingReminder || selectedReminderTaskIds.length === 0 || sendingReminderId === previewReminder?.id}>
+                Send reminder
+              </Button>
+              <Button onClick={sendSelectedReminder} disabled={draftingReminder || selectedReminderTaskIds.length === 0 || sendingReminderId === previewReminder?.id}>
+                Send & schedule follow-up
+              </Button>
+            </div>
           </section>
 
           <aside className="min-h-0 overflow-y-auto border-t bg-muted/20 p-5 lg:border-l lg:border-t-0">
@@ -1701,22 +1983,22 @@ function ReminderDialog({
             </div>
             <div className="space-y-2">
               {sortedReminders.length > 0 ? (
-                sortedReminders.map((reminder) => (
+                sortedReminders.map((reminder, index) => (
                   <div key={reminder.id} className="rounded-lg border bg-background p-3 text-sm">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="line-clamp-2 font-medium leading-5">{reminder.subject}</p>
-                        <p className="mt-1 truncate text-xs text-muted-foreground">
-                          {reminder.recipient}
-                        </p>
+                        <p className="font-medium leading-5">Reminder #{sortedReminders.length - index} {reminder.status === "sent" ? "sent" : "drafted"}</p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">To: {reminder.recipient}</p>
                       </div>
                       <Badge variant={reminder.status === "sent" ? "secondary" : "outline"}>
                         {reminder.status}
                       </Badge>
                     </div>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {relativeTime(reminder.sent_at ?? reminder.drafted_at ?? reminder.created_at)}
-                    </p>
+                    <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                      <p>Docs requested: {reminder.requested_documents?.length ?? "all"}</p>
+                      <p>{reminder.sent_at ? "Sent" : "Drafted"}: {relativeTime(reminder.sent_at ?? reminder.drafted_at ?? reminder.created_at)}</p>
+                      {reminder.next_followup_at && <p>Next follow-up: {formatShortDateTime(reminder.next_followup_at)}</p>}
+                    </div>
                     {reminder.status === "draft" && (
                       <Button
                         className="mt-3 w-full"
@@ -1987,6 +2269,7 @@ function buildPackageDocumentRows({
   pages,
   tasks,
   reminders,
+  currentIso,
   requirementStatuses,
 }: {
   checklist: ChecklistItem[];
@@ -1994,6 +2277,7 @@ function buildPackageDocumentRows({
   pages: PageRow[];
   tasks: TaskRow[];
   reminders: ReminderRow[];
+  currentIso: string;
   requirementStatuses: Map<string, RequirementStatusRow>;
 }): PackageDocumentRow[] {
   const pageConfidenceByType = new Map<string, string | null>();
@@ -2009,6 +2293,7 @@ function buildPackageDocumentRows({
   const hasDraftReminder = reminders.some((reminder) => reminder.status === "draft");
   const hasSentReminder = reminders.some((reminder) => reminder.status === "sent");
   const reminderStatus = hasSentReminder ? "sent" : hasDraftReminder ? "draft" : "none";
+  const activeReminder = reminders.find((reminder) => reminder.status === "sent") ?? reminders.find((reminder) => reminder.status === "draft");
 
   return checklist.map((item) => {
     const found = item.found;
@@ -2041,6 +2326,9 @@ function buildPackageDocumentRows({
       unprocessed,
       reminderNeeded,
       reminderStatus,
+      reminderFollowupCount: activeReminder?.followup_count ?? 0,
+      reminderNextFollowupAt: activeReminder?.next_followup_at ?? null,
+      reminderOverdue: Boolean(activeReminder?.next_followup_at && activeReminder.next_followup_at < currentIso),
       canMarkLoneWolfUploaded: found && loneWolfStatus === "pending_upload",
       classificationReviewed,
     };
@@ -2134,12 +2422,41 @@ function filterPackageRows(rows: PackageDocumentRow[], filter: PackageFilter) {
   return rows;
 }
 
-function summarizePackageRows(rows: PackageDocumentRow[]) {
-  const received = rows.filter((row) => row.found).length;
-  const processed = rows.filter((row) => row.found && !row.unprocessed).length;
-  const missing = rows.filter((row) => row.missing).length;
-  const pendingLoneWolf = rows.filter((row) => row.pendingLoneWolf).length;
-  return `${received} received - ${processed} processed - ${missing} missing - ${pendingLoneWolf} pending Lone Wolf upload`;
+function buildRecipientOptions({
+  agents,
+  inboundEmailContacts,
+  fields,
+}: {
+  agents: AgentRow[];
+  inboundEmailContacts: InboundEmailContact[];
+  fields: FieldRow[];
+}): RecipientOption[] {
+  const options = new Map<string, RecipientOption>();
+  for (const agent of agents) {
+    options.set(agent.email.toLowerCase(), {
+      id: `agent:${agent.id}`,
+      label: `${agent.name} - ${agent.brokerage || "Agent"}`,
+      email: agent.email,
+    });
+  }
+  for (const contact of inboundEmailContacts) {
+    options.set(contact.email.toLowerCase(), {
+      id: `sender:${contact.email}`,
+      label: `${contact.name || contact.email} - Package sender`,
+      email: contact.email,
+    });
+  }
+  for (const field of fields) {
+    if (!field.field_key.includes("email") || !field.value?.includes("@")) continue;
+    for (const email of field.value.split(/[;,]/).map((item) => item.trim()).filter(Boolean)) {
+      options.set(email.toLowerCase(), {
+        id: `field:${field.field_key}:${email}`,
+        label: `${email} - Deal information`,
+        email,
+      });
+    }
+  }
+  return [...options.values()];
 }
 
 function relativeTime(value: string | null) {
@@ -2153,6 +2470,18 @@ function relativeTime(value: string | null) {
   if (hours < 48) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   const days = Math.round(hours / 24);
   return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function formatShortDateTime(value: string | null | undefined) {
+  if (!value) return "not scheduled";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  return new Intl.DateTimeFormat("en-CA", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function sortAuditLogs(logs: AuditLogRow[]) {
