@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeftIcon, ChevronRightIcon, CheckIcon, Clock3Icon, DownloadIcon, FileTextIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, CheckIcon, Clock3Icon, DownloadIcon, FileTextIcon, SendIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1613,9 +1613,9 @@ function ReminderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Generate Reminder</DialogTitle>
+      <DialogContent className="max-h-[90vh] gap-0 overflow-hidden p-0 sm:max-w-5xl">
+        <DialogHeader className="border-b px-5 py-4 pr-12">
+          <DialogTitle>Email Reminder Draft</DialogTitle>
           <DialogDescription>
             {context
               ? `Missing document: ${context.label}`
@@ -1623,95 +1623,115 @@ function ReminderDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4">
-          <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
-            <select
-              className="h-9 rounded-md border bg-background px-3 text-sm"
-              value={selectedAgentId}
-              onChange={(event) => onSelectedAgentChange(event.target.value)}
-            >
-              <option value="">Choose agent</option>
-              {agents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name} - {agent.email}
-                </option>
-              ))}
-            </select>
-            <Input
-              placeholder="or enter recipient email"
-              value={recipient}
-              onChange={(event) => onRecipientChange(event.target.value)}
-            />
-            <Button onClick={onGenerateDraft} disabled={draftingReminder || openTasks.length === 0}>
-              {draftingReminder ? "Drafting..." : "Generate Draft"}
-            </Button>
-          </div>
-
-          {openTasks.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No open missing-document tasks are available. Sync tasks before drafting a reminder.
-            </p>
-          )}
-
-          <div className="grid gap-3 md:grid-cols-[1fr_1.1fr]">
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Reminder History</p>
-              <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border p-2">
-                {sortedReminders.length > 0 ? (
-                  sortedReminders.map((reminder) => (
-                    <div key={reminder.id} className="rounded border bg-background p-2 text-sm">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">{reminder.subject}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {reminder.recipient} |{" "}
-                            {relativeTime(
-                              reminder.sent_at ?? reminder.drafted_at ?? reminder.created_at,
-                            )}
-                          </p>
-                        </div>
-                        <Badge variant={reminder.status === "sent" ? "secondary" : "outline"}>
-                          {reminder.status}
-                        </Badge>
-                      </div>
-                      {reminder.status === "draft" && (
-                        <Button
-                          className="mt-2"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => onMarkSent(reminder.id)}
-                          disabled={sendingReminderId === reminder.id}
-                        >
-                          {sendingReminderId === reminder.id ? "Sending..." : "Send"}
-                        </Button>
-                      )}
-                    </div>
-                  ))
-                ) : (
-                  <p className="p-2 text-sm text-muted-foreground">
-                    No reminder drafts yet. Generate a draft to preview it here.
-                  </p>
-                )}
+        <div className="grid max-h-[calc(90vh-8rem)] min-h-0 overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px]">
+          <section className="flex min-h-0 flex-col gap-4 overflow-y-auto p-5">
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                <select
+                  className="h-9 min-w-0 rounded-md border bg-background px-3 text-sm"
+                  value={selectedAgentId}
+                  onChange={(event) => onSelectedAgentChange(event.target.value)}
+                >
+                  <option value="">Choose agent</option>
+                  {agents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name} - {agent.email}
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  className="min-w-0"
+                  placeholder="or enter recipient email"
+                  value={recipient}
+                  onChange={(event) => onRecipientChange(event.target.value)}
+                />
+                <Button onClick={onGenerateDraft} disabled={draftingReminder || openTasks.length === 0}>
+                  {draftingReminder ? "Drafting..." : "Generate Draft"}
+                </Button>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Draft Preview</p>
+            {openTasks.length === 0 && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                No open missing-document tasks are available. Sync tasks before drafting a reminder.
+              </div>
+            )}
+
+            <div className="min-h-0 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium">Draft Preview</p>
+                {previewReminder && (
+                  <Badge variant={previewReminder.status === "sent" ? "secondary" : "outline"}>
+                    {previewReminder.status}
+                  </Badge>
+                )}
+              </div>
               {previewReminder ? (
-                <div className="space-y-2">
-                  <Input value={previewReminder.subject} readOnly />
-                  <Textarea className="min-h-52" value={previewReminder.body} readOnly />
+                <div className="overflow-hidden rounded-lg border bg-background">
+                  <div className="border-b bg-muted/20 px-4 py-3">
+                    <p className="text-xs font-medium uppercase text-muted-foreground">Subject</p>
+                    <p className="mt-1 break-words text-sm font-medium">{previewReminder.subject}</p>
+                  </div>
+                  <div className="border-b px-4 py-3 text-sm">
+                    <span className="text-muted-foreground">To</span>
+                    <span className="ml-2 font-medium">{previewReminder.recipient}</span>
+                  </div>
+                  <pre className="max-h-[46vh] overflow-y-auto whitespace-pre-wrap break-words p-4 font-sans text-sm leading-6 text-foreground">{previewReminder.body}</pre>
                 </div>
               ) : (
-                <div className="flex min-h-52 items-center rounded-md border p-4 text-sm text-muted-foreground">
+                <div className="flex min-h-72 items-center rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
                   No draft selected.
                 </div>
               )}
             </div>
-          </div>
+          </section>
+
+          <aside className="min-h-0 overflow-y-auto border-t bg-muted/20 p-5 lg:border-l lg:border-t-0">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="text-sm font-medium">Reminder History</p>
+              <Badge variant="outline">{sortedReminders.length}</Badge>
+            </div>
+            <div className="space-y-2">
+              {sortedReminders.length > 0 ? (
+                sortedReminders.map((reminder) => (
+                  <div key={reminder.id} className="rounded-lg border bg-background p-3 text-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="line-clamp-2 font-medium leading-5">{reminder.subject}</p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                          {reminder.recipient}
+                        </p>
+                      </div>
+                      <Badge variant={reminder.status === "sent" ? "secondary" : "outline"}>
+                        {reminder.status}
+                      </Badge>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {relativeTime(reminder.sent_at ?? reminder.drafted_at ?? reminder.created_at)}
+                    </p>
+                    {reminder.status === "draft" && (
+                      <Button
+                        className="mt-3 w-full"
+                        size="sm"
+                        onClick={() => onMarkSent(reminder.id)}
+                        disabled={sendingReminderId === reminder.id}
+                      >
+                        <SendIcon />
+                        {sendingReminderId === reminder.id ? "Sending..." : "Send"}
+                      </Button>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-lg border border-dashed bg-background p-4 text-sm text-muted-foreground">
+                  Generate a draft to preview it here.
+                </div>
+              )}
+            </div>
+          </aside>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="mt-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Close
           </Button>
