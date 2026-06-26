@@ -400,7 +400,16 @@ export function DealIntakeWorkflow({
         return (
           <div
             key={email.id}
-            className="min-w-0 space-y-2 rounded-md border bg-background/80 p-2.5 text-left transition"
+            className="min-w-0 space-y-2 rounded-md border bg-background/80 p-2.5 text-left transition hover:border-foreground/25 hover:bg-muted/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            role="button"
+            tabIndex={0}
+            onClick={() => openDialog("review", email)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                openDialog("review", email);
+              }
+            }}
           >
             {routingReady ? (
               <div className="flex min-w-0 items-start justify-between gap-3 rounded-md border bg-muted/25 p-2">
@@ -421,39 +430,19 @@ export function DealIntakeWorkflow({
                 </div>
               </div>
             ) : (
-              <>
-                <div className="min-w-0">
-                  <div className="break-words text-sm font-semibold leading-snug" title={email.subject ?? undefined}>
-                    {email.subject || "Inbound email package"}
-                  </div>
-                  <div className="mt-0.5 text-xs leading-4 text-muted-foreground">
-                    {routingTransactionType(email.routing_json)} - {formatIntakeStatus(email.status)}
-                  </div>
+              <div className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-2 pt-1 text-xs leading-4">
+                <CompactIntakeInfo label="From" value={email.from_name || email.from_email || "Unknown sender"} />
+                <CompactIntakeInfo label="Received" value={formatCompactReceived(email.received_at)} />
+                <div className="col-span-2">
+                  <CompactIntakeInfo label="Files" value={compactAttachmentSummary(email.email_attachments ?? [])} />
                 </div>
-
-                <div className="flex min-w-0 flex-wrap gap-1.5">
-                  <Badge className="h-5 border border-blue-200 bg-blue-50 px-2 text-[11px] font-medium leading-4 text-blue-800 hover:bg-blue-50">
-                    {formatIntakeStatus(email.status)}
-                  </Badge>
-                  <Badge variant="outline" className="h-5 px-2 text-[11px] font-medium leading-4">
-                    Email
-                  </Badge>
-                </div>
-
-                <div className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-2 pt-1 text-xs leading-4">
-                  <CompactIntakeInfo label="From" value={email.from_name || email.from_email || "Unknown sender"} />
-                  <CompactIntakeInfo label="Received" value={formatCompactReceived(email.received_at)} />
-                  <div className="col-span-2">
-                    <CompactIntakeInfo label="Files" value={compactAttachmentSummary(email.email_attachments ?? [])} />
+                {email.error_message && (
+                  <div className="col-span-2 flex min-w-0 items-center gap-1 text-destructive">
+                    <AlertCircle className="size-3 shrink-0" />
+                    <span className="break-words">{email.error_message}</span>
                   </div>
-                  {email.error_message && (
-                    <div className="col-span-2 flex min-w-0 items-center gap-1 text-destructive">
-                      <AlertCircle className="size-3 shrink-0" />
-                      <span className="break-words">{email.error_message}</span>
-                    </div>
-                  )}
-                </div>
-              </>
+                )}
+              </div>
             )}
 
             <div className="flex min-w-0 flex-wrap items-center gap-2 pt-1">
