@@ -144,7 +144,6 @@ export async function classifyPages(
     const response = await anthropic.messages.parse({
       model: CLASSIFICATION_AI_MODEL,
       max_tokens: 16000,
-      thinking: { type: "adaptive" },
       system: SYSTEM,
       messages: [{ role: "user", content }],
       output_config: { format: zodOutputFormat(PageClassificationSchema) },
