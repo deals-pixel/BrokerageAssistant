@@ -1819,7 +1819,7 @@ function ReminderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] w-[calc(100vw-2rem)] gap-0 overflow-hidden rounded-xl bg-[#f7f5ef] p-0 sm:max-w-[1040px]">
+      <DialogContent className="flex max-h-[92vh] w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden rounded-xl bg-[#f7f5ef] p-0 sm:max-w-[1040px]">
         <DialogHeader className="border-b bg-background px-5 py-4 pr-14">
           <DialogTitle>Send reminder</DialogTitle>
           <DialogDescription className="flex min-w-0 items-start gap-1 text-xs text-foreground">
@@ -1828,8 +1828,8 @@ function ReminderDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid max-h-[calc(92vh-8rem)] min-h-0 overflow-hidden lg:grid-cols-[minmax(0,1fr)_280px]">
-          <section className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto bg-background p-5">
+        <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_280px]">
+          <section className="flex min-w-0 flex-col gap-3 bg-background p-5 pb-6">
             <div>
               <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Sending to</p>
               <div className="flex flex-col gap-3 rounded-lg border bg-[#f7f5ef] p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1984,7 +1984,7 @@ function ReminderDialog({
             </div>
           </section>
 
-          <aside className="min-h-0 overflow-y-auto border-t bg-[#f0eee7] p-4 lg:border-l lg:border-t-0">
+          <aside className="border-t bg-[#f0eee7] p-4 pb-6 lg:border-l lg:border-t-0">
             <div className="mb-3 flex items-center justify-between gap-3">
               <p className="text-sm font-medium">Reminder History</p>
               <Badge variant="outline">{sortedReminders.length}</Badge>
@@ -2028,7 +2028,7 @@ function ReminderDialog({
           </aside>
         </div>
 
-        <DialogFooter className="mt-0 flex-wrap gap-2 bg-background">
+        <DialogFooter className="mx-0 mb-0 mt-0 shrink-0 flex-wrap gap-2 rounded-none border-t bg-background px-5 py-4 sm:justify-end">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Close
           </Button>
