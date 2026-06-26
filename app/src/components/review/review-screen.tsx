@@ -4,7 +4,7 @@ import { Fragment, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, CheckIcon, Clock3Icon, DownloadIcon, FileTextIcon, SendIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, CheckIcon, Clock3Icon, DownloadIcon, FileTextIcon, MailIcon, MapPinIcon, PauseIcon, PencilIcon, SendIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -276,7 +276,6 @@ export function ReviewScreen({
   const [packageFilter, setPackageFilter] = useState<PackageFilter>("all");
   const [workingRequirementId, setWorkingRequirementId] = useState<string | null>(null);
   const [reminderDialogOpen, setReminderDialogOpen] = useState(initialReminderOpen);
-  const [reminderContext, setReminderContext] = useState<PackageDocumentRow | null>(null);
   const [classificationReviewRow, setClassificationReviewRow] = useState<PackageDocumentRow | null>(null);
   const [classificationReviewPage, setClassificationReviewPage] = useState<number | null>(null);
   const [overrideDocType, setOverrideDocType] = useState<DocumentType>("other");
@@ -523,7 +522,7 @@ export function ReviewScreen({
     }
   }
 
-  async function generateReminderDraft() {
+  async function generateReminderDraft(options: { followupEnabled?: boolean } = {}) {
     setDraftingReminder(true);
     try {
       const requestedDocumentIds =
@@ -535,7 +534,7 @@ export function ReviewScreen({
           agentId: selectedAgentId || null,
           recipient: recipient || null,
           requestedDocumentIds,
-          followupEnabled: true,
+          followupEnabled: options.followupEnabled ?? true,
           followupDelayBusinessDays,
           maxFollowups,
           escalateAfterDays,
@@ -554,8 +553,7 @@ export function ReviewScreen({
     }
   }
 
-  function openReminderDialog(row: PackageDocumentRow) {
-    setReminderContext(row);
+  function openReminderDialog() {
     setSelectedReminderTaskIds(reminderTasks.map((task) => task.id));
     setReminderDialogOpen(true);
   }
@@ -722,7 +720,7 @@ export function ReviewScreen({
       <ReminderDialog
         open={reminderDialogOpen}
         onOpenChange={setReminderDialogOpen}
-        context={reminderContext}
+        deal={deal}
         recipientOptions={recipientOptions}
         reminders={reminders}
         reminderTasks={reminderTasks}
@@ -1739,7 +1737,7 @@ function FieldStatusDot({
 function ReminderDialog({
   open,
   onOpenChange,
-  context,
+  deal,
   recipientOptions,
   reminders,
   reminderTasks,
@@ -1763,7 +1761,7 @@ function ReminderDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  context: PackageDocumentRow | null;
+  deal: DealRow;
   recipientOptions: RecipientOption[];
   reminders: ReminderRow[];
   reminderTasks: ReminderTaskOption[];
@@ -1780,7 +1778,7 @@ function ReminderDialog({
   onMaxFollowupsChange: (value: number) => void;
   escalateAfterDays: number;
   onEscalateAfterDaysChange: (value: number) => void;
-  onGenerateDraft: () => Promise<ReminderRow | null>;
+  onGenerateDraft: (options?: { followupEnabled?: boolean }) => Promise<ReminderRow | null>;
   draftingReminder: boolean;
   onMarkSent: (reminderId: string) => Promise<void>;
   sendingReminderId: string | null;
@@ -1792,70 +1790,60 @@ function ReminderDialog({
   });
   const previewReminder =
     sortedReminders.find((reminder) => reminder.status === "draft") ?? sortedReminders[0];
-  const selectedCount = selectedReminderTaskIds.length || reminderTasks.length;
-  async function sendSelectedReminder() {
-    const reminder = previewReminder?.status === "draft" ? previewReminder : await onGenerateDraft();
+  const selectedTasks = reminderTasks.filter((task) => selectedReminderTaskIds.includes(task.id));
+  const selectedCount = selectedTasks.length;
+  const recipientOption = recipientOptions.find((option) => option.id === recipientMode);
+  const recipientLabel = recipientOption?.label.split(" - ")[0] ?? (recipient || "Other recipient");
+  const recipientInitials = initialsFor(recipientLabel);
+  const subject = previewReminder?.subject ?? `Missing transaction documents - ${shortDealAddress(deal)}`;
+  const body = previewReminder?.body ?? buildReminderPreviewBody({
+    deal,
+    recipientLabel,
+    tasks: selectedTasks,
+  });
+  async function sendSelectedReminder(followupEnabled: boolean) {
+    const reminder = previewReminder?.status === "draft" ? previewReminder : await onGenerateDraft({ followupEnabled });
     if (reminder?.id) await onMarkSent(reminder.id);
   }
+  const applyStandardSchedule = () => {
+    onFollowupDelayBusinessDaysChange(2);
+    onMaxFollowupsChange(3);
+    onEscalateAfterDaysChange(7);
+  };
+  const applyUrgentSchedule = () => {
+    onFollowupDelayBusinessDaysChange(1);
+    onMaxFollowupsChange(2);
+    onEscalateAfterDaysChange(3);
+  };
+  const isUrgentSchedule = followupDelayBusinessDays === 1 && maxFollowups === 2 && escalateAfterDays === 3;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] gap-0 overflow-hidden p-0 sm:max-w-5xl">
-        <DialogHeader className="border-b px-5 py-4 pr-12">
-          <DialogTitle>Deal Reminder</DialogTitle>
-          <DialogDescription>
-            {context ? `Opened from: ${context.label}` : "Create one reminder for the outstanding documents on this deal."}
+      <DialogContent className="max-h-[92vh] gap-0 overflow-hidden rounded-xl bg-[#f7f5ef] p-0 sm:max-w-[680px]">
+        <DialogHeader className="border-b bg-background px-5 py-4 pr-14">
+          <DialogTitle>Send reminder</DialogTitle>
+          <DialogDescription className="flex items-center gap-1 text-xs text-foreground">
+            <MapPinIcon className="size-3" />
+            {shortDealAddress(deal)} - {deal.transaction_type || "deal"} - {deal.scenario_label || "scenario pending"}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid max-h-[calc(90vh-8rem)] min-h-0 overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px]">
-          <section className="flex min-h-0 flex-col gap-4 overflow-y-auto p-5">
-            <div className="rounded-lg border bg-background p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium">Missing documents included in this reminder</p>
-                  <p className="text-xs text-muted-foreground">{selectedCount} selected</p>
+        <div className="grid max-h-[calc(92vh-8rem)] min-h-0 overflow-hidden md:grid-cols-[minmax(0,1fr)_220px]">
+          <section className="flex min-h-0 flex-col gap-3 overflow-y-auto bg-background p-5">
+            <div>
+              <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Sending to</p>
+              <div className="flex items-center justify-between gap-3 rounded-lg border bg-[#f7f5ef] p-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-medium text-blue-800">
+                    {recipientInitials}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{recipientLabel}</p>
+                    <p className="truncate text-xs text-muted-foreground">{recipient || "No email selected"}</p>
+                  </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => onSelectedReminderTaskIdsChange(reminderTasks.map((task) => task.id))}
-                >
-                  Select all
-                </Button>
-              </div>
-              <div className="mt-3 space-y-2">
-                {reminderTasks.map((task) => {
-                  const checked = selectedReminderTaskIds.includes(task.id);
-                  return (
-                    <label key={task.id} className="flex items-start gap-3 rounded-md border bg-muted/10 p-3 text-sm">
-                      <input
-                        type="checkbox"
-                        className="mt-1"
-                        checked={checked}
-                        onChange={(event) => {
-                          if (event.target.checked) {
-                            onSelectedReminderTaskIdsChange([...new Set([...selectedReminderTaskIds, task.id])]);
-                          } else {
-                            onSelectedReminderTaskIdsChange(selectedReminderTaskIds.filter((id) => id !== task.id));
-                          }
-                        }}
-                      />
-                      <span>
-                        <span className="font-medium">{task.title}</span>
-                        <span className="block text-xs text-muted-foreground">{task.documentLabel}</span>
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="rounded-lg border bg-muted/20 p-4">
-              <p className="mb-2 text-sm font-medium">Send to</p>
-              <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                 <select
-                  className="h-9 min-w-0 rounded-md border bg-background px-3 text-sm"
+                  className="h-9 rounded-md border bg-background px-3 text-sm"
                   value={recipientMode}
                   onChange={(event) => {
                     const value = event.target.value;
@@ -1872,18 +1860,58 @@ function ReminderDialog({
                   }}
                 >
                   {recipientOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
+                    <option key={option.id} value={option.id}>{option.label}</option>
                   ))}
                   <option value="other">Other email...</option>
                 </select>
+              </div>
+              {recipientMode === "other" && (
                 <Input
-                  className="min-w-0"
+                  className="mt-2"
                   placeholder="Recipient email"
                   value={recipient}
                   onChange={(event) => onRecipientChange(event.target.value)}
                 />
+              )}
+            </div>
+
+            <div>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Documents included <span className="normal-case tracking-normal">{selectedCount} of {reminderTasks.length} selected</span>
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onSelectedReminderTaskIdsChange(reminderTasks.map((task) => task.id))}
+                >
+                  Select all
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {reminderTasks.map((task) => {
+                  const checked = selectedReminderTaskIds.includes(task.id);
+                  return (
+                    <label key={task.id} className="flex items-start gap-3 rounded-lg border bg-[#f7f5ef] p-3 text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-1 size-4"
+                        checked={checked}
+                        onChange={(event) => {
+                          if (event.target.checked) {
+                            onSelectedReminderTaskIdsChange([...new Set([...selectedReminderTaskIds, task.id])]);
+                          } else {
+                            onSelectedReminderTaskIdsChange(selectedReminderTaskIds.filter((id) => id !== task.id));
+                          }
+                        }}
+                      />
+                      <span>
+                        <span className="font-medium leading-tight">{task.title}</span>
+                        <span className="block text-xs text-muted-foreground">{task.documentLabel}</span>
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
 
@@ -1893,90 +1921,70 @@ function ReminderDialog({
               </div>
             )}
 
-            <div className="rounded-lg border bg-background p-4">
-              <p className="text-sm font-medium">Follow-up schedule</p>
-              <div className="mt-3 grid gap-3 md:grid-cols-3">
-                <label className="grid gap-1 text-xs text-muted-foreground">
-                  Next follow-up
-                  <select
-                    className="h-9 rounded-md border bg-background px-3 text-sm text-foreground"
-                    value={followupDelayBusinessDays}
-                    onChange={(event) => onFollowupDelayBusinessDaysChange(Number(event.target.value))}
-                  >
-                    <option value={1}>1 business day after send</option>
-                    <option value={2}>2 business days after send</option>
-                    <option value={3}>3 business days after send</option>
-                    <option value={5}>5 business days after send</option>
-                  </select>
-                </label>
-                <label className="grid gap-1 text-xs text-muted-foreground">
-                  Max follow-ups
-                  <Input
-                    type="number"
-                    min={0}
-                    max={5}
-                    value={maxFollowups}
-                    onChange={(event) => onMaxFollowupsChange(Number(event.target.value))}
-                  />
-                </label>
-                <label className="grid gap-1 text-xs text-muted-foreground">
-                  Escalate after
-                  <Input
-                    type="number"
-                    min={1}
-                    max={30}
-                    value={escalateAfterDays}
-                    onChange={(event) => onEscalateAfterDaysChange(Number(event.target.value))}
-                  />
-                </label>
+            <div>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Follow-up schedule</p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <button type="button" className={`rounded-lg border bg-background p-3 text-left ${!isUrgentSchedule ? "ring-1 ring-foreground/20" : ""}`} onClick={applyStandardSchedule}>
+                  <p className="text-sm font-medium">Standard</p>
+                  <p className="text-xs text-muted-foreground">Every 2 days - 3 follow-ups - escalate after 7</p>
+                </button>
+                <button type="button" className={`rounded-lg border bg-background p-3 text-left ${isUrgentSchedule ? "ring-1 ring-blue-500" : ""}`} onClick={applyUrgentSchedule}>
+                  <p className="text-sm font-medium text-blue-700">Urgent</p>
+                  <p className="text-xs text-blue-700">Every 1 day - 2 follow-ups - escalate after 3</p>
+                </button>
+                <div className="rounded-lg border bg-background p-3 text-left">
+                  <p className="text-sm font-medium">Custom</p>
+                  <p className="text-xs text-muted-foreground">Edit your own schedule</p>
+                </div>
               </div>
-              <p className="mt-3 text-xs text-muted-foreground">
-                Follow-ups will stop automatically once all requested documents are received, manually marked uploaded,
-                marked not required, the deal is closed/cancelled, or reminders are paused.
-              </p>
+              <div className="mt-2 rounded-lg border bg-[#f7f5ef] p-3 text-sm">
+                <div className="grid gap-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Next follow-up</span>
+                    <span className="font-medium">{followupDelayBusinessDays} business day{followupDelayBusinessDays === 1 ? "" : "s"} after send</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Max follow-ups</span>
+                    <Input className="h-7 w-16 text-right" type="number" min={0} max={5} value={maxFollowups} onChange={(event) => onMaxFollowupsChange(Number(event.target.value))} />
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Escalate after</span>
+                    <span className="font-medium">{escalateAfterDays} days with no response</span>
+                  </div>
+                </div>
+                <p className="mt-3 border-t pt-2 text-xs text-muted-foreground">
+                  Follow-ups stop automatically once all documents are received, manually marked, or the deal is closed.
+                </p>
+              </div>
             </div>
 
-            <div className="min-h-0 space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-medium">Draft Preview</p>
-                {previewReminder && (
-                  <Badge variant={previewReminder.status === "sent" ? "secondary" : "outline"}>
-                    {previewReminder.status}
-                  </Badge>
-                )}
+            <div className="overflow-hidden rounded-lg border bg-background">
+              <div className="flex items-center justify-between border-b bg-[#f7f5ef] p-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <MailIcon className="size-4" />
+                  <span>Draft preview</span>
+                  <Badge className="border-green-200 bg-green-50 text-green-700" variant="outline">Sent once</Badge>
+                </div>
+                <Button size="sm" variant="outline">
+                  <PencilIcon />
+                  Edit body
+                </Button>
               </div>
-              {previewReminder ? (
-                <div className="overflow-hidden rounded-lg border bg-background">
-                  <div className="border-b bg-muted/20 px-4 py-3">
-                    <p className="text-xs font-medium uppercase text-muted-foreground">Subject</p>
-                    <p className="mt-1 break-words text-sm font-medium">{previewReminder.subject}</p>
-                  </div>
-                  <div className="border-b px-4 py-3 text-sm">
-                    <span className="text-muted-foreground">To</span>
-                    <span className="ml-2 font-medium">{previewReminder.recipient}</span>
-                  </div>
-                  <pre className="max-h-[46vh] overflow-y-auto whitespace-pre-wrap break-words p-4 font-sans text-sm leading-6 text-foreground">{previewReminder.body}</pre>
+              <div className="grid gap-2 p-3 text-sm">
+                <div className="grid grid-cols-[64px_1fr] border-b pb-2">
+                  <span className="text-muted-foreground">Subject</span>
+                  <span className="font-medium">{subject}</span>
                 </div>
-              ) : (
-                <div className="flex min-h-72 items-center rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-                  No draft selected.
+                <div className="grid grid-cols-[64px_1fr] border-b pb-2">
+                  <span className="text-muted-foreground">To</span>
+                  <span>{recipient || "No recipient selected"}</span>
                 </div>
-              )}
-            </div>
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="outline" onClick={onGenerateDraft} disabled={draftingReminder || selectedReminderTaskIds.length === 0}>
-                Save draft
-              </Button>
-              <Button variant="outline" onClick={sendSelectedReminder} disabled={draftingReminder || selectedReminderTaskIds.length === 0 || sendingReminderId === previewReminder?.id}>
-                Send reminder
-              </Button>
-              <Button onClick={sendSelectedReminder} disabled={draftingReminder || selectedReminderTaskIds.length === 0 || sendingReminderId === previewReminder?.id}>
-                Send & schedule follow-up
-              </Button>
+                <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap break-words font-sans text-sm leading-6">{body}</pre>
+              </div>
             </div>
           </section>
 
-          <aside className="min-h-0 overflow-y-auto border-t bg-muted/20 p-5 lg:border-l lg:border-t-0">
+          <aside className="min-h-0 overflow-y-auto border-l bg-[#f0eee7] p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <p className="text-sm font-medium">Reminder History</p>
               <Badge variant="outline">{sortedReminders.length}</Badge>
@@ -1987,29 +1995,17 @@ function ReminderDialog({
                   <div key={reminder.id} className="rounded-lg border bg-background p-3 text-sm">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="font-medium leading-5">Reminder #{sortedReminders.length - index} {reminder.status === "sent" ? "sent" : "drafted"}</p>
+                        <p className="font-medium leading-5">Reminder #{sortedReminders.length - index}</p>
                         <p className="mt-1 truncate text-xs text-muted-foreground">To: {reminder.recipient}</p>
+                        <p className="text-xs text-muted-foreground">{relativeTime(reminder.sent_at ?? reminder.drafted_at ?? reminder.created_at)}</p>
+                        <p className="line-clamp-2 text-xs text-muted-foreground">Subject: {reminder.subject}</p>
                       </div>
-                      <Badge variant={reminder.status === "sent" ? "secondary" : "outline"}>
-                        {reminder.status}
-                      </Badge>
+                      <Badge className={reminder.status === "sent" ? "border-green-200 bg-green-50 text-green-700" : ""} variant="outline">{reminder.status}</Badge>
                     </div>
-                    <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                      <p>Docs requested: {reminder.requested_documents?.length ?? "all"}</p>
-                      <p>{reminder.sent_at ? "Sent" : "Drafted"}: {relativeTime(reminder.sent_at ?? reminder.drafted_at ?? reminder.created_at)}</p>
+                    <div className="mt-2 border-t pt-2 text-xs text-muted-foreground">
+                      <p>Docs received <span className="font-medium text-amber-700">0 of {reminder.requested_documents?.length ?? selectedCount}</span></p>
                       {reminder.next_followup_at && <p>Next follow-up: {formatShortDateTime(reminder.next_followup_at)}</p>}
                     </div>
-                    {reminder.status === "draft" && (
-                      <Button
-                        className="mt-3 w-full"
-                        size="sm"
-                        onClick={() => onMarkSent(reminder.id)}
-                        disabled={sendingReminderId === reminder.id}
-                      >
-                        <SendIcon />
-                        {sendingReminderId === reminder.id ? "Sending..." : "Send"}
-                      </Button>
-                    )}
                   </div>
                 ))
               ) : (
@@ -2018,12 +2014,33 @@ function ReminderDialog({
                 </div>
               )}
             </div>
+            <div className="mt-3 rounded-lg border bg-background p-3 text-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Next follow-up</p>
+              <p className="mt-1 font-medium">{previewReminder?.next_followup_at ? formatShortDateTime(previewReminder.next_followup_at) : `${followupDelayBusinessDays} business day${followupDelayBusinessDays === 1 ? "" : "s"} after send`}</p>
+              <Button className="mt-3 w-full" size="sm" variant="outline" disabled>
+                <PauseIcon />
+                Pause schedule
+              </Button>
+            </div>
+            <p className="mt-4 text-xs leading-5 text-foreground">
+              Escalates to broker if no response within {escalateAfterDays} days.
+            </p>
           </aside>
         </div>
 
-        <DialogFooter className="mt-0">
+        <DialogFooter className="mt-0 bg-background">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Close
+          </Button>
+          <Button variant="outline" onClick={() => onGenerateDraft({ followupEnabled: true })} disabled={draftingReminder || selectedReminderTaskIds.length === 0}>
+            Save draft
+          </Button>
+          <Button variant="outline" onClick={() => sendSelectedReminder(false)} disabled={draftingReminder || selectedReminderTaskIds.length === 0 || sendingReminderId === previewReminder?.id}>
+            Send only
+          </Button>
+          <Button onClick={() => sendSelectedReminder(true)} disabled={draftingReminder || selectedReminderTaskIds.length === 0 || sendingReminderId === previewReminder?.id}>
+            <SendIcon />
+            Send & schedule follow-up
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -2457,6 +2474,46 @@ function buildRecipientOptions({
     }
   }
   return [...options.values()];
+}
+
+function shortDealAddress(deal: DealRow) {
+  return deal.property_address || deal.file_name || "this transaction";
+}
+
+function initialsFor(value: string) {
+  const parts = value
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return "??";
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
+}
+
+function buildReminderPreviewBody({
+  deal,
+  recipientLabel,
+  tasks,
+}: {
+  deal: DealRow;
+  recipientLabel: string;
+  tasks: ReminderTaskOption[];
+}) {
+  const firstName = recipientLabel.split(/\s+/)[0] || "there";
+  const address = shortDealAddress(deal);
+  const taskLines = tasks.map((task) => `- ${task.title}`).join("\n");
+  return [
+    `Hi ${firstName},`,
+    "",
+    `We're still waiting on ${tasks.length || "the"} document${tasks.length === 1 ? "" : "s"} for ${address}:`,
+    "",
+    taskLines,
+    "",
+    deal.scenario_label ? `Scenario: ${deal.scenario_label}.` : null,
+    "",
+    "Once received, we'll update the transaction file for compliance review.",
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
 }
 
 function relativeTime(value: string | null) {
