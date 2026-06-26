@@ -1819,20 +1819,20 @@ function ReminderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] gap-0 overflow-hidden rounded-xl bg-[#f7f5ef] p-0 sm:max-w-[680px]">
+      <DialogContent className="max-h-[92vh] w-[calc(100vw-2rem)] gap-0 overflow-hidden rounded-xl bg-[#f7f5ef] p-0 sm:max-w-[1040px]">
         <DialogHeader className="border-b bg-background px-5 py-4 pr-14">
           <DialogTitle>Send reminder</DialogTitle>
-          <DialogDescription className="flex items-center gap-1 text-xs text-foreground">
-            <MapPinIcon className="size-3" />
-            {shortDealAddress(deal)} - {deal.transaction_type || "deal"} - {deal.scenario_label || "scenario pending"}
+          <DialogDescription className="flex min-w-0 items-start gap-1 text-xs text-foreground">
+            <MapPinIcon className="mt-0.5 size-3 shrink-0" />
+            <span className="break-words">{shortDealAddress(deal)} - {deal.transaction_type || "deal"} - {deal.scenario_label || "scenario pending"}</span>
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid max-h-[calc(92vh-8rem)] min-h-0 overflow-hidden md:grid-cols-[minmax(0,1fr)_220px]">
-          <section className="flex min-h-0 flex-col gap-3 overflow-y-auto bg-background p-5">
+        <div className="grid max-h-[calc(92vh-8rem)] min-h-0 overflow-hidden lg:grid-cols-[minmax(0,1fr)_280px]">
+          <section className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto bg-background p-5">
             <div>
               <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Sending to</p>
-              <div className="flex items-center justify-between gap-3 rounded-lg border bg-[#f7f5ef] p-3">
+              <div className="flex flex-col gap-3 rounded-lg border bg-[#f7f5ef] p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-medium text-blue-800">
                     {recipientInitials}
@@ -1843,7 +1843,7 @@ function ReminderDialog({
                   </div>
                 </div>
                 <select
-                  className="h-9 rounded-md border bg-background px-3 text-sm"
+                  className="h-9 w-full rounded-md border bg-background px-3 text-sm sm:w-[220px] sm:shrink-0"
                   value={recipientMode}
                   onChange={(event) => {
                     const value = event.target.value;
@@ -1984,7 +1984,7 @@ function ReminderDialog({
             </div>
           </section>
 
-          <aside className="min-h-0 overflow-y-auto border-l bg-[#f0eee7] p-4">
+          <aside className="min-h-0 overflow-y-auto border-t bg-[#f0eee7] p-4 lg:border-l lg:border-t-0">
             <div className="mb-3 flex items-center justify-between gap-3">
               <p className="text-sm font-medium">Reminder History</p>
               <Badge variant="outline">{sortedReminders.length}</Badge>
@@ -1996,9 +1996,9 @@ function ReminderDialog({
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="font-medium leading-5">Reminder #{sortedReminders.length - index}</p>
-                        <p className="mt-1 truncate text-xs text-muted-foreground">To: {reminder.recipient}</p>
+                        <p className="mt-1 break-all text-xs text-muted-foreground">To: {reminder.recipient}</p>
                         <p className="text-xs text-muted-foreground">{relativeTime(reminder.sent_at ?? reminder.drafted_at ?? reminder.created_at)}</p>
-                        <p className="line-clamp-2 text-xs text-muted-foreground">Subject: {reminder.subject}</p>
+                        <p className="break-words text-xs text-muted-foreground">Subject: {reminder.subject}</p>
                       </div>
                       <Badge className={reminder.status === "sent" ? "border-green-200 bg-green-50 text-green-700" : ""} variant="outline">{reminder.status}</Badge>
                     </div>
@@ -2028,7 +2028,7 @@ function ReminderDialog({
           </aside>
         </div>
 
-        <DialogFooter className="mt-0 bg-background">
+        <DialogFooter className="mt-0 flex-wrap gap-2 bg-background">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Close
           </Button>
