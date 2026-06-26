@@ -18,6 +18,11 @@ import type { Confidence, DocumentType, TransactionType } from "@/lib/types";
 import type { PageClassification } from "./schemas";
 
 type PageImage = { pageNumber: number; base64: string; mediaType: "image/jpeg"; pageHash: string };
+const CLASSIFICATION_IMAGE_WIDTH = Math.max(600, Number(process.env.CLASSIFICATION_IMAGE_WIDTH ?? 1200) || 1200);
+const CLASSIFICATION_IMAGE_QUALITY = Math.min(
+  90,
+  Math.max(40, Number(process.env.CLASSIFICATION_IMAGE_QUALITY ?? 58) || 58),
+);
 type ExistingDealFieldRow = {
   field_key: string;
   value: string | null;
@@ -70,6 +75,7 @@ export async function processDeal(dealId: string): Promise<void> {
 
     // Download page images
     const images: PageImage[] = [];
+    const classificationImages: PageImage[] = [];
     for (const p of pages) {
       const { data: blob, error: dlErr } = await supabase.storage
         .from("deals")
@@ -81,9 +87,16 @@ export async function processDeal(dealId: string): Promise<void> {
       if (p.page_hash !== pageHash) {
         await supabase.from("deal_pages").update({ page_hash: pageHash }).eq("id", p.id);
       }
+      const classificationBuffer = await toClassificationImage(buffer);
       images.push({
         pageNumber: p.page_number,
         base64: buffer.toString("base64"),
+        mediaType: "image/jpeg",
+        pageHash,
+      });
+      classificationImages.push({
+        pageNumber: p.page_number,
+        base64: classificationBuffer.toString("base64"),
         mediaType: "image/jpeg",
         pageHash,
       });
@@ -93,9 +106,14 @@ export async function processDeal(dealId: string): Promise<void> {
     const storedClassification = classificationFromStoredPages(deal, pages);
     const classification =
       storedClassification ??
-      (await classifyPages(images, {
+      (await classifyPages(classificationImages, {
         dealId,
-        metadata: { source: "full_processing" },
+        metadata: {
+          source: "full_processing",
+          image_mode: "thumbnail",
+          image_width: CLASSIFICATION_IMAGE_WIDTH,
+          image_quality: CLASSIFICATION_IMAGE_QUALITY,
+        },
       }));
     if (storedClassification) {
       await logAiUsage({
@@ -309,6 +327,13 @@ async function assertValidRenderedImage(buffer: Buffer, pageNumber: number, imag
   }
 }
 
+async function toClassificationImage(buffer: Buffer) {
+  return sharp(buffer)
+    .resize({ width: CLASSIFICATION_IMAGE_WIDTH, withoutEnlargement: true })
+    .jpeg({ quality: CLASSIFICATION_IMAGE_QUALITY, mozjpeg: true })
+    .toBuffer();
+}
+
 async function loadExistingDealFields(
   supabase: ReturnType<typeof createAdminClient>,
   dealId: string,
@@ -512,9 +537,6 @@ function classificationFromStoredPages(
 }>,
 ): PageClassification | null {
   if (!pages.every((page) => page.doc_type && isReusableConfidence(page.doc_confidence))) return null;
-  if (process.env.SKIP_LOW_VALUE_PAGES !== "0" && pages.some((page) => !isPageRole(page.page_role))) {
-    return null;
-  }
 
   return {
     transaction_type: transactionTypeFromStoredDeal(deal.transaction_type) ?? inferTransactionTypeFromDocs(pages),

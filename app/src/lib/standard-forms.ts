@@ -945,6 +945,13 @@ export function classificationGuideFromStandardForms() {
   }).join("\n");
 }
 
+export function compactClassificationGuideFromStandardForms() {
+  return STANDARD_FORMS.map((form) => {
+    const numberText = form.formNumbers?.length ? `forms ${form.formNumbers.join("/")}` : "no form number";
+    return `- ${form.key}; ${numberText}; ${form.documentType}; ${form.title}`;
+  }).join("\n");
+}
+
 export function templateRegionsForDocumentType(docType: DocumentType, fieldKey: string) {
   return standardFormsForDocumentType(docType).flatMap(
     (form) => form.fieldRegions?.filter((region) => region.fieldKey === fieldKey) ?? [],

@@ -2,20 +2,22 @@ import { createHash } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { DOCUMENT_TYPES } from "@/lib/types";
-import { classificationGuideFromStandardForms } from "@/lib/standard-forms";
+import { compactClassificationGuideFromStandardForms } from "@/lib/standard-forms";
 import { anthropic, CLASSIFICATION_AI_MODEL } from "./client";
 import { PageClassificationSchema, type PageClassification } from "./schemas";
 import { logAiUsage, usageFromResponse } from "./usage";
 import {
   classificationCacheKey,
+  readCachedPageClassifications,
   readCachedClassification,
   writeCachedClassification,
+  writeCachedPageClassifications,
 } from "./classification-cache";
 
 const DOC_TYPE_GUIDE = Object.entries(DOCUMENT_TYPES)
   .map(([key, label]) => `- ${key}: ${label}`)
   .join("\n");
-const STANDARD_FORM_GUIDE = classificationGuideFromStandardForms();
+const STANDARD_FORM_GUIDE = compactClassificationGuideFromStandardForms();
 
 const SYSTEM = `You classify pages of Ontario real estate transaction packages for a brokerage (Sutton Group). Each page is a scanned form. Classify every page into exactly one document type:
 
@@ -23,7 +25,7 @@ ${DOC_TYPE_GUIDE}
 
 Guidance:
 - The Deal Information Sheet is the brokerage's internal one-page summary form titled "DEAL INFORMATION SHEET".
-- OREA forms show their form number bottom-left or in the header. Use this standard form registry:
+- OREA forms show their form number bottom-left or in the header. Use this compact standard form registry:
 ${STANDARD_FORM_GUIDE}
 - For each page, also return standard_form_key, standard_form_number, standard_form_title, and standard_form_confidence when the visible title, form number, or signature text matches the registry. Use null for all standard-form fields when no registry form matches.
 - standard_form_key must be exactly one key from the registry above. Do not invent keys.
@@ -44,10 +46,10 @@ ${STANDARD_FORM_GUIDE}
 - The RECO Information Guide acknowledgement page is a single page titled "Acknowledgement" referencing the RECO Information Guide.
 - Determine the overall transaction_type: "purchase" if an Agreement of Purchase and Sale or pre-construction APS page is present, "lease" if an agreement to lease or tenancy agreement is present, otherwise your best judgment from the Deal Information Sheet.`;
 
-const BATCH_SIZE = 10;
+const BATCH_SIZE = Math.max(1, Number(process.env.CLASSIFICATION_BATCH_SIZE ?? 10) || 10);
 const PROMPT_SIGNATURE = createHash("sha256")
   .update(SYSTEM)
-  .update("|page-classification-schema-v3-page-role-filter")
+  .update("|page-classification-schema-v4-compact-guide-page-cache")
   .digest("hex");
 
 export async function classifyPages(
@@ -60,7 +62,6 @@ export async function classifyPages(
   }
 
   const results: PageClassification["pages"] = [];
-  const txVotes: Record<string, number> = {};
 
   for (const batch of batches) {
     const cacheKey = classificationCacheKey({
@@ -85,12 +86,50 @@ export async function classifyPages(
           },
         });
         results.push(...cached.pages);
-        txVotes[cached.transaction_type] = (txVotes[cached.transaction_type] ?? 0) + 1;
         continue;
       }
     }
 
-    const content: Anthropic.ContentBlockParam[] = batch.flatMap((p) => [
+    const cachedPages = await readCachedPageClassifications(batch, {
+      model: CLASSIFICATION_AI_MODEL,
+      promptSignature: PROMPT_SIGNATURE,
+    });
+    if (cachedPages.size === batch.length) {
+      await logAiUsage({
+        layer: "classification",
+        model: CLASSIFICATION_AI_MODEL,
+        dealId: options.dealId,
+        cached: true,
+        inputPages: batch.length,
+        metadata: {
+          cache_scope: "page",
+          batch_start_page: batch[0].pageNumber,
+          batch_end_page: batch[batch.length - 1].pageNumber,
+          ...options.metadata,
+        },
+      });
+      results.push(...batch.map((page) => cachedPages.get(page.pageNumber)).filter(isClassifiedPage));
+      continue;
+    }
+
+    const uncachedBatch = batch.filter((page) => !cachedPages.has(page.pageNumber));
+    if (cachedPages.size > 0) {
+      await logAiUsage({
+        layer: "classification",
+        model: CLASSIFICATION_AI_MODEL,
+        dealId: options.dealId,
+        cached: true,
+        inputPages: cachedPages.size,
+        metadata: {
+          cache_scope: "page",
+          batch_start_page: batch[0].pageNumber,
+          batch_end_page: batch[batch.length - 1].pageNumber,
+          ...options.metadata,
+        },
+      });
+    }
+
+    const content: Anthropic.ContentBlockParam[] = uncachedBatch.flatMap((p) => [
       { type: "text" as const, text: `Page ${p.pageNumber}:` },
       {
         type: "image" as const,
@@ -99,7 +138,7 @@ export async function classifyPages(
     ]);
     content.push({
       type: "text",
-      text: `Classify pages ${batch[0].pageNumber} through ${batch[batch.length - 1].pageNumber}. Return one entry per page.`,
+      text: `Classify pages ${uncachedBatch[0].pageNumber} through ${uncachedBatch[uncachedBatch.length - 1].pageNumber}. Return one entry per provided page.`,
     });
 
     const response = await anthropic.messages.parse({
@@ -115,10 +154,11 @@ export async function classifyPages(
       model: CLASSIFICATION_AI_MODEL,
       dealId: options.dealId,
       usage: usageFromResponse(response),
-      inputPages: batch.length,
+      inputPages: uncachedBatch.length,
       metadata: {
-        batch_start_page: batch[0].pageNumber,
-        batch_end_page: batch[batch.length - 1].pageNumber,
+        batch_start_page: uncachedBatch[0].pageNumber,
+        batch_end_page: uncachedBatch[uncachedBatch.length - 1].pageNumber,
+        cache_scope: cachedPages.size > 0 ? "page_partial" : "batch",
         cache_key: cacheKey,
         ...options.metadata,
       },
@@ -126,22 +166,60 @@ export async function classifyPages(
 
     const parsed = response.parsed_output;
     if (!parsed) throw new Error("Classification returned no parseable output");
-    results.push(...parsed.pages);
-    txVotes[parsed.transaction_type] = (txVotes[parsed.transaction_type] ?? 0) + 1;
-    if (cacheKey) {
+    const parsedByPage = new Map(parsed.pages.map((page) => [page.page_number, page]));
+    results.push(
+      ...batch
+        .map((page) => cachedPages.get(page.pageNumber) ?? parsedByPage.get(page.pageNumber))
+        .filter(isClassifiedPage),
+    );
+    if (cacheKey && cachedPages.size === 0) {
       await writeCachedClassification({
         cacheKey,
         model: CLASSIFICATION_AI_MODEL,
         pageHashes: batch.map((page) => page.pageHash).filter((hash): hash is string => Boolean(hash)),
         classification: parsed,
+        promptSignature: PROMPT_SIGNATURE,
       });
     }
+    await writeCachedPageClassifications({
+      model: CLASSIFICATION_AI_MODEL,
+      promptSignature: PROMPT_SIGNATURE,
+      transactionType: parsed.transaction_type,
+      pages: parsed.pages.map((page) => ({
+        ...page,
+        pageHash: uncachedBatch.find((input) => input.pageNumber === page.page_number)?.pageHash ?? null,
+      })),
+    });
   }
 
-  const tx: "purchase" | "lease" =
-    (txVotes.lease ?? 0) > (txVotes.purchase ?? 0) ? "lease" : "purchase";
-  const transaction_type =
-    (txVotes.purchase ?? 0) + (txVotes.lease ?? 0) > 0 ? tx : "unknown";
+  const transaction_type = inferTransactionType(results);
 
-  return { pages: results, transaction_type };
+  return { pages: results.sort((a, b) => a.page_number - b.page_number), transaction_type };
+}
+
+function isClassifiedPage(
+  page: PageClassification["pages"][number] | undefined,
+): page is PageClassification["pages"][number] {
+  return Boolean(page);
+}
+
+function inferTransactionType(pages: PageClassification["pages"]): PageClassification["transaction_type"] {
+  const docs = new Set(pages.map((page) => page.doc_type));
+  if (
+    docs.has("agreement_to_lease") ||
+    docs.has("lease_agreement") ||
+    docs.has("ontario_residential_tenancy_agreement") ||
+    docs.has("tenant_representation_agreement")
+  ) {
+    return "lease";
+  }
+  if (
+    docs.has("agreement_of_purchase_and_sale") ||
+    docs.has("first_page_aps") ||
+    docs.has("buyer_representation_agreement") ||
+    docs.has("form_801_offer_summary")
+  ) {
+    return "purchase";
+  }
+  return "unknown";
 }

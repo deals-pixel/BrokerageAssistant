@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
+import sharp from "sharp";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { classifyPages } from "@/lib/ai/classify";
 import { buildPageStandardFormMatches } from "@/lib/ai/template-source";
 
 export const maxDuration = 300;
+const CLASSIFICATION_IMAGE_WIDTH = Math.max(600, Number(process.env.CLASSIFICATION_IMAGE_WIDTH ?? 1200) || 1200);
+const CLASSIFICATION_IMAGE_QUALITY = Math.min(
+  90,
+  Math.max(40, Number(process.env.CLASSIFICATION_IMAGE_QUALITY ?? 58) || 58),
+);
 
 type PendingImage = {
   pageNumber: number;
@@ -27,14 +33,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: "No page images provided" }, { status: 400 });
   }
 
-  const hashedImages = images.map((image) => ({
-    ...image,
-    pageHash: image.pageHash ?? hashBase64Image(image.base64),
-  }));
+  const hashedImages = await Promise.all(
+    images.map(async (image) => {
+      const pageHash = image.pageHash ?? hashBase64Image(image.base64);
+      const optimized = await optimizeClassificationImage(image.base64);
+      return {
+        ...image,
+        base64: optimized.toString("base64"),
+        mediaType: "image/jpeg" as const,
+        pageHash,
+      };
+    }),
+  );
 
   const classification = await classifyPages(hashedImages, {
     dealId: id,
-    metadata: { source: "pending_upload_preflight" },
+    metadata: {
+      source: "pending_upload_preflight",
+      image_mode: "thumbnail",
+      image_width: CLASSIFICATION_IMAGE_WIDTH,
+      image_quality: CLASSIFICATION_IMAGE_QUALITY,
+    },
   });
   const standardFormMatches = buildPageStandardFormMatches(classification.pages);
 
@@ -81,4 +100,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
 function hashBase64Image(base64: string) {
   return createHash("sha256").update(Buffer.from(base64, "base64")).digest("hex");
+}
+
+async function optimizeClassificationImage(base64: string) {
+  return sharp(Buffer.from(base64, "base64"))
+    .resize({ width: CLASSIFICATION_IMAGE_WIDTH, withoutEnlargement: true })
+    .jpeg({ quality: CLASSIFICATION_IMAGE_QUALITY, mozjpeg: true })
+    .toBuffer();
 }
