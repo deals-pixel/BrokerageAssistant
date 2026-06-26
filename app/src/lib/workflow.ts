@@ -15,6 +15,12 @@ type ReminderDraftInput = {
   createdBy?: string | null;
 };
 
+type ReminderDelivery = {
+  provider: "postmark";
+  messageId?: string | null;
+  submittedAt?: string | null;
+};
+
 export async function syncMissingDocumentTasks(
   supabase: SupabaseClient,
   dealId: string,
@@ -207,6 +213,7 @@ export async function markReminderSent(
   dealId: string,
   reminderId: string,
   userId?: string | null,
+  delivery?: ReminderDelivery,
 ) {
   const sentAt = new Date().toISOString();
   const { data: reminder, error } = await supabase
@@ -226,6 +233,7 @@ export async function markReminderSent(
       reminder_id: reminder.id,
       recipient: reminder.recipient,
       sent_at: sentAt,
+      delivery: delivery ?? null,
     },
   });
 
