@@ -17,7 +17,6 @@ import {
   formatSize,
   isJpeg,
   isPdf,
-  renderFilePages,
   safeStorageFileName,
 } from "@/lib/pdf-render-client";
 
@@ -132,15 +131,6 @@ export function UploadDropzone({
         if (deletePagesErr) throw new Error(deletePagesErr.message);
       }
 
-      const { data: lastPage } = await supabase
-        .from("deal_pages")
-        .select("page_number")
-        .eq("deal_id", activeDealId)
-        .order("page_number", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      let nextPageNumber = (lastPage?.page_number ?? 0) + 1;
-
       for (let fileIndex = 0; fileIndex < selectedFiles.length; fileIndex++) {
         const file = selectedFiles[fileIndex];
         const sourcePath = `${activeDealId}/sources/${String(fileIndex + 1).padStart(3, "0")}-${Date.now()}-${crypto.randomUUID()}-${safeStorageFileName(file.name)}`;
@@ -155,29 +145,23 @@ export function UploadDropzone({
         if (sourceErr) throw new Error(`${file.name} upload failed: ${sourceErr.message}`);
         if (isPdf(file) && !firstPdfPath) firstPdfPath = sourcePath;
 
-        setPhase(isPdf(file) ? "rendering" : "uploading");
-        const pages = await renderFilePages(file, setProgress);
-
-        for (const pageUpload of pages) {
-          const pageNumber = nextPageNumber++;
-          setPhase("uploading");
-          setProgress(`Uploading page ${pageNumber}...`);
-          const imagePath = `${activeDealId}/pages/p${String(pageNumber).padStart(3, "0")}.jpg`;
-          const { error: imageErr } = await supabase.storage
-            .from("deals")
-            .upload(imagePath, pageUpload.blob, { contentType: "image/jpeg" });
-          if (imageErr) throw new Error(`Page ${pageNumber} upload failed: ${imageErr.message}`);
-
-          const { error: rowErr } = await supabase.from("deal_pages").insert({
-            deal_id: activeDealId,
-            page_number: pageNumber,
-            image_path: imagePath,
-            doc_type: replaceDocType || null,
-            doc_confidence: replaceDocType ? "high" : null,
-          });
-          if (rowErr) throw new Error(`Page ${pageNumber} record failed: ${rowErr.message}`);
-          uploadedPages += 1;
+        setPhase("rendering");
+        setProgress(`Rendering ${file.name} on the server...`);
+        const renderResponse = await fetch(`/api/deals/${activeDealId}/render-source`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            sourcePath,
+            filename: file.name,
+            mimeType: isPdf(file) ? "application/pdf" : file.type || "image/jpeg",
+            replaceDocType: replaceDocType || null,
+          }),
+        });
+        const renderResult = await renderResponse.json().catch(() => null);
+        if (!renderResponse.ok) {
+          throw new Error(renderResult?.error ?? `Could not render ${file.name}`);
         }
+        uploadedPages += Number(renderResult?.uploadedPages ?? 0);
       }
 
       const { count } = await supabase
