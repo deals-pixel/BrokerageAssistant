@@ -29,6 +29,7 @@ export async function proxy(request: NextRequest) {
     "/api/inbound-email",
     "/api/jobs/email-routing",
     "/api/cron/cleanup",
+    "/api/cron/reminders",
   ];
   if (publicApiPrefixes.some((prefix) => request.nextUrl.pathname.startsWith(prefix))) {
     return response;

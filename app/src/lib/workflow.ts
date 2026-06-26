@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildChecklistResult, type ChecklistItem } from "@/lib/checklist";
+import { INTAKE_ADDRESS } from "@/lib/intake-address";
 import { SCENARIO_BY_KEY } from "@/lib/scenario-rules";
 import { DOCUMENT_TYPES, type TransactionType } from "@/lib/types";
 
@@ -30,6 +31,11 @@ type ReminderDocument = {
   id: string;
   title: string;
   documentType: string | null;
+};
+
+type AgentContact = {
+  name: string | null;
+  email: string | null;
 };
 
 export async function syncMissingDocumentTasks(
@@ -131,7 +137,7 @@ export async function createReminderDraft(
     await Promise.all([
       supabase
         .from("deals")
-        .select("id, property_address, file_name, scenario_key, scenario_label")
+        .select("id, transaction_code, property_address, file_name, scenario_key, scenario_label")
         .eq("id", dealId)
         .single(),
       supabase
@@ -165,33 +171,40 @@ export async function createReminderDraft(
   if (!tasks || tasks.length === 0) throw new Error("There are no open missing-document tasks.");
 
   let recipient = input.recipient?.trim() ?? "";
+  let agentName: string | null = null;
   if (!recipient && input.agentId) {
     const { data: agent, error } = await supabase
       .from("agents")
-      .select("email")
+      .select("name, email")
       .eq("id", input.agentId)
       .single();
     if (error) throw new Error(error.message);
     recipient = agent?.email ?? "";
+    agentName = agent?.name ?? null;
   }
   if (!recipient) throw new Error("Choose or enter a reminder recipient.");
+  if (!agentName) {
+    agentName = await resolveAgentName(supabase, recipient);
+  }
 
   const address = deal.property_address ?? deal.file_name;
+  const dealNumber = formatDealNumber(deal.transaction_code ?? null);
+  const dealTitle = formatDealTitle(dealNumber, address);
   const scenario = deal.scenario_label ?? (deal.scenario_key ? SCENARIO_BY_KEY[deal.scenario_key]?.label : null);
   const requestedDocuments: ReminderDocument[] = tasks.map((task) => ({
     id: task.id,
     title: task.title,
     documentType: task.document_type,
   }));
-  const missingLines = tasks.map((task, index) => `${index + 1}. ${task.title.replace(/^Request\s+/i, "")}`).join("\n");
-  const subject = `Action required: Missing documents for ${address}`;
-  const uploadUrl = reminderUploadUrl(dealId);
+  const missingLines = numberedDocumentList(requestedDocuments);
+  const subject = `Action required: Missing documents for ${dealTitle}`;
+  const uploadUrl = reminderUploadUrl({ dealNumber, address });
   const body = [
-    "Hello,",
+    `Hello ${agentName ?? recipientNameFromEmail(recipient)},`,
     "",
-    "We are completing the compliance package for:",
+    "We are completing the deal package for:",
     "",
-    address,
+    dealTitle,
     scenario ? `Scenario: ${scenario}` : null,
     "",
     "The following documents are still required:",
@@ -298,15 +311,55 @@ export async function markReminderSent(
   return reminder;
 }
 
-function reminderUploadUrl(dealId: string) {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
-  if (!baseUrl) return "Upload missing documents through the transaction intake link.";
-  return `${baseUrl}/deals/${dealId}?reminder=1`;
-}
-
 function clampNumber(value: number | undefined, min: number, max: number, fallback: number) {
   if (typeof value !== "number" || Number.isNaN(value)) return fallback;
   return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+async function resolveAgentName(supabase: SupabaseClient, recipient: string) {
+  const { data } = await supabase
+    .from("agents")
+    .select("name")
+    .eq("email", recipient)
+    .maybeSingle<Pick<AgentContact, "name">>();
+  return data?.name?.trim() || null;
+}
+
+function numberedDocumentList(documents: Pick<ReminderDocument, "title">[]) {
+  return documents.map((doc, index) => `${index + 1}. ${cleanDocumentTitle(doc.title)}`).join("\n");
+}
+
+function cleanDocumentTitle(title: string) {
+  return title.replace(/^Request\s+/i, "").trim();
+}
+
+function formatDealNumber(transactionCode: string | null) {
+  const value = transactionCode?.trim();
+  if (!value) return null;
+  return value.startsWith("#") ? value : `#${value}`;
+}
+
+function formatDealTitle(dealNumber: string | null, address: string | null) {
+  if (dealNumber && address) return `${dealNumber} - ${address}`;
+  return dealNumber ?? address ?? "this transaction";
+}
+
+function reminderUploadUrl({ dealNumber, address }: { dealNumber: string | null; address: string | null }) {
+  const subject = encodeURIComponent(`Missing documents for ${formatDealTitle(dealNumber, address)}`);
+  return `mailto:${INTAKE_ADDRESS}?subject=${subject}`;
+}
+
+function recipientNameFromEmail(recipient: string) {
+  const localPart = recipient.split("@")[0]?.trim();
+  if (!localPart) return "there";
+  const words = localPart
+    .split(/[._-]+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+  if (words.length === 0) return "there";
+  return words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 export function addBusinessDays(start: Date, businessDays: number) {

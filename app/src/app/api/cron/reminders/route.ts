@@ -1,11 +1,22 @@
 import { NextResponse } from "next/server";
+import { INTAKE_ADDRESS } from "@/lib/intake-address";
 import { sendPostmarkEmail } from "@/lib/postmark";
+import { SCENARIO_BY_KEY } from "@/lib/scenario-rules";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { addBusinessDays } from "@/lib/workflow";
 
 type RequestedDocument = {
   id?: string;
   title?: string;
+};
+
+type DealInfo = {
+  status: string | null;
+  transaction_code: string | null;
+  property_address: string | null;
+  file_name: string | null;
+  scenario_key: string | null;
+  scenario_label: string | null;
 };
 
 type DueReminder = {
@@ -18,7 +29,7 @@ type DueReminder = {
   followup_count: number;
   max_followups: number;
   followup_delay_business_days: number;
-  deals?: { status: string | null } | { status: string | null }[] | null;
+  deals?: DealInfo | DealInfo[] | null;
 };
 
 export async function GET(req: Request) {
@@ -30,7 +41,7 @@ export async function GET(req: Request) {
   const { data: due, error } = await supabase
     .from("reminder_emails")
     .select(
-      "id, deal_id, recipient, subject, body, requested_documents, followup_count, max_followups, followup_delay_business_days, deals(status)",
+      "id, deal_id, recipient, subject, body, requested_documents, followup_count, max_followups, followup_delay_business_days, deals(status, transaction_code, property_address, file_name, scenario_key, scenario_label)",
     )
     .eq("status", "sent")
     .eq("followup_enabled", true)
@@ -59,10 +70,11 @@ export async function GET(req: Request) {
     }
 
     const followupNumber = reminder.followup_count + 1;
+    const followupEmail = await buildFollowupEmail(supabase, reminder, followupNumber);
     const delivery = await sendPostmarkEmail({
       to: reminder.recipient,
-      subject: `Follow-up ${followupNumber}: ${reminder.subject}`,
-      textBody: followupBody(reminder.body),
+      subject: followupEmail.subject,
+      textBody: followupEmail.body,
     });
     const nextCount = reminder.followup_count + 1;
     const nextFollowupAt =
@@ -111,12 +123,125 @@ async function reminderStopReason(supabase: ReturnType<typeof createAdminClient>
   return remaining.length === 0 ? "all_requested_documents_resolved" : null;
 }
 
-function followupBody(originalBody: string) {
-  return [
-    "Hello,",
-    "",
-    "This is a follow-up on the missing documents below.",
-    "",
-    originalBody.replace(/^Hello,\s*/i, "").trim(),
-  ].join("\n");
+async function buildFollowupEmail(
+  supabase: ReturnType<typeof createAdminClient>,
+  reminder: DueReminder,
+  followupNumber: number,
+) {
+  const deal = currentDeal(reminder);
+  const dealNumber = formatDealNumber(deal?.transaction_code ?? null);
+  const address = deal?.property_address ?? deal?.file_name ?? null;
+  const dealTitle = formatDealTitle(dealNumber, address);
+  const scenario =
+    deal?.scenario_label ?? (deal?.scenario_key ? SCENARIO_BY_KEY[deal.scenario_key]?.label : null) ?? "Not specified";
+  const agentName = await resolveAgentName(supabase, reminder.recipient);
+  const missingDocumentList = numberedDocumentList(reminder.requested_documents ?? []);
+  const uploadLink = reminderUploadUrl({ dealNumber, address });
+
+  if (followupNumber === 1) {
+    return {
+      subject: `Follow-up: Missing documents for transaction ${dealTitle}`,
+      body: [
+        `Hello ${agentName},`,
+        "",
+        "This is a follow-up regarding the transaction file for:",
+        "",
+        dealTitle,
+        `Scenario: ${scenario}`,
+        "",
+        "The following documents are still outstanding:",
+        "",
+        missingDocumentList,
+        "",
+        "Please send the missing documents by replying to this email, or upload them using the link below:",
+        "",
+        uploadLink,
+        "",
+        "Once received, we will update the deal file.",
+        "",
+        "If these documents have already been sent, please reply and let us know so we can update the file status.",
+        "",
+        "Thank you,",
+        "Team Admiral",
+      ].join("\n"),
+    };
+  }
+
+  const subjectPrefix = followupNumber === 2 ? "Second follow-up" : `Follow-up ${followupNumber}`;
+  return {
+    subject: `${subjectPrefix}: Documents still required for transaction ${dealNumber ?? dealTitle}`,
+    body: [
+      `Hello ${agentName},`,
+      "",
+      "We are following up again regarding the transaction file for:",
+      "",
+      dealTitle,
+      "",
+      "The file is still missing the following required documents:",
+      "",
+      missingDocumentList,
+      "",
+      "These documents are needed before the file can be completed.",
+      "",
+      "Please send the documents by replying to this email, or upload them here:",
+      "",
+      uploadLink,
+      "",
+      "If you have already provided these documents, please reply to this email so we can confirm and update the file.",
+      "",
+      "Thank you,",
+      "Team Admiral",
+    ].join("\n"),
+  };
+}
+
+function currentDeal(reminder: DueReminder) {
+  return Array.isArray(reminder.deals) ? reminder.deals[0] : reminder.deals;
+}
+
+async function resolveAgentName(supabase: ReturnType<typeof createAdminClient>, recipient: string) {
+  const { data } = await supabase
+    .from("agents")
+    .select("name")
+    .eq("email", recipient)
+    .maybeSingle();
+  return data?.name?.trim() || recipientNameFromEmail(recipient);
+}
+
+function numberedDocumentList(documents: RequestedDocument[]) {
+  if (documents.length === 0) return "1. Missing transaction documents";
+  return documents.map((doc, index) => `${index + 1}. ${cleanDocumentTitle(doc.title ?? "Missing transaction document")}`).join("\n");
+}
+
+function cleanDocumentTitle(title: string) {
+  return title.replace(/^Request\s+/i, "").trim();
+}
+
+function formatDealNumber(transactionCode: string | null) {
+  const value = transactionCode?.trim();
+  if (!value) return null;
+  return value.startsWith("#") ? value : `#${value}`;
+}
+
+function formatDealTitle(dealNumber: string | null, address: string | null) {
+  if (dealNumber && address) return `${dealNumber} - ${address}`;
+  return dealNumber ?? address ?? "this transaction";
+}
+
+function reminderUploadUrl({ dealNumber, address }: { dealNumber: string | null; address: string | null }) {
+  const subject = encodeURIComponent(`Missing documents for ${formatDealTitle(dealNumber, address)}`);
+  return `mailto:${INTAKE_ADDRESS}?subject=${subject}`;
+}
+
+function recipientNameFromEmail(recipient: string) {
+  const localPart = recipient.split("@")[0]?.trim();
+  if (!localPart) return "there";
+  const words = localPart
+    .split(/[._-]+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+  if (words.length === 0) return "there";
+  return words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }

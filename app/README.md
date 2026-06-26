@@ -63,7 +63,7 @@ npm run dev
 
 ## Email Intake
 
-Inbound transaction emails should be sent or forwarded to `deals@intake.teamadmiral.com` and delivered by Postmark Inbound to:
+Inbound transaction emails should be sent or forwarded to `deals@intake.suttongroup.ca` and delivered by Postmark Inbound to:
 
 ```text
 POST https://<app-domain>/api/inbound-email
@@ -79,11 +79,11 @@ Priority: 10
 Value/Target: inbound.postmarkapp.com
 
 Postmark Inbound Message Stream:
-Inbound Domain: intake.teamadmiral.com
+Inbound Domain: intake.suttongroup.ca
 Webhook URL: https://<app-domain>/api/inbound-email
 ```
 
-The visible intake address defaults to `deals@intake.teamadmiral.com`. Override it with `NEXT_PUBLIC_INTAKE_EMAIL_ADDRESS` if the mailbox changes.
+The visible intake address defaults to `deals@intake.suttongroup.ca`. Override it with `NEXT_PUBLIC_INTAKE_EMAIL_ADDRESS` if the mailbox changes.
 
 Set one of these on the Postmark webhook request:
 
@@ -106,9 +106,19 @@ x-cron-secret: $EMAIL_ROUTING_JOB_SECRET
 
 `EMAIL_ROUTING_JOB_SECRET` defaults to `CRON_SECRET` when unset. The job reads first-page PDF subsets / image attachments, runs light routing, matches to an existing deal or creates a draft deal, and leaves the transaction awaiting admin processing.
 
+Reminder follow-ups are sent by a separate scheduler. Run it frequently enough to honor the follow-up timeline, for example every 15 minutes:
+
+```text
+GET https://<app-domain>/api/cron/reminders
+x-cron-secret: $CRON_SECRET
+```
+
+The route sends due reminders through Postmark, advances `next_followup_at`, and stops automatically when all requested documents are resolved or the deal is closed/cancelled/archived.
+
 ## Deploy (Railway)
 
 1. Create a Railway service from this repo (`app/` as root).
 2. Set all env vars from `.env.example`.
 3. Add a daily cron hitting `/api/cron/cleanup` with the `x-cron-secret` header.
-4. Optional: add a frequent retry cron, for example every 5 minutes, hitting `/api/jobs/email-routing?limit=5` with the `x-cron-secret` or `x-job-secret` header.
+4. Add a reminder cron hitting `/api/cron/reminders` with the `x-cron-secret` header, for example every 15 minutes.
+5. Optional: add a frequent retry cron, for example every 5 minutes, hitting `/api/jobs/email-routing?limit=5` with the `x-cron-secret` or `x-job-secret` header.

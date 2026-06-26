@@ -33,6 +33,7 @@ import { ProcessDealButton } from "@/components/process-deal-button";
 import { EmailAttachmentIngestButton } from "@/components/email-attachment-ingest-button";
 import { SubmitArchiveButton } from "@/components/submit-archive-button";
 import { toast } from "sonner";
+import { INTAKE_ADDRESS } from "@/lib/intake-address";
 import {
   FIELD_SECTIONS,
   DOCUMENT_TYPES,
@@ -49,6 +50,7 @@ type DealRow = {
   file_name: string;
   status: string;
   transaction_type: string;
+  transaction_code: string | null;
   scenario_key: string | null;
   scenario_label: string | null;
   property_address: string | null;
@@ -1795,14 +1797,21 @@ function ReminderDialog({
   const recipientOption = recipientOptions.find((option) => option.id === recipientMode);
   const recipientLabel = recipientOption?.label.split(" - ")[0] ?? (recipient || "Other recipient");
   const recipientInitials = initialsFor(recipientLabel);
-  const subject = previewReminder?.subject ?? `Missing transaction documents - ${shortDealAddress(deal)}`;
+  const subject = previewReminder?.subject ?? `Action required: Missing documents for ${formatDealTitle(deal)}`;
   const body = previewReminder?.body ?? buildReminderPreviewBody({
     deal,
     recipientLabel,
     tasks: selectedTasks,
   });
   async function sendSelectedReminder(followupEnabled: boolean) {
-    const reminder = previewReminder?.status === "draft" ? previewReminder : await onGenerateDraft({ followupEnabled });
+    const reminder =
+      previewReminder?.status === "draft" && draftMatchesSelectedSchedule(previewReminder, followupEnabled, {
+        followupDelayBusinessDays,
+        maxFollowups,
+        escalateAfterDays,
+      })
+        ? previewReminder
+        : await onGenerateDraft({ followupEnabled });
     if (reminder?.id) await onMarkSent(reminder.id);
   }
   const applyStandardSchedule = () => {
@@ -2498,22 +2507,66 @@ function buildReminderPreviewBody({
   recipientLabel: string;
   tasks: ReminderTaskOption[];
 }) {
-  const firstName = recipientLabel.split(/\s+/)[0] || "there";
-  const address = shortDealAddress(deal);
-  const taskLines = tasks.map((task) => `- ${task.title}`).join("\n");
+  const agentName = recipientLabel || "there";
+  const taskLines = tasks.map((task, index) => `${index + 1}. ${cleanReminderDocumentTitle(task.title)}`).join("\n");
   return [
-    `Hi ${firstName},`,
+    `Hello ${agentName},`,
     "",
-    `We're still waiting on ${tasks.length || "the"} document${tasks.length === 1 ? "" : "s"} for ${address}:`,
+    "We are completing the deal package for:",
     "",
-    taskLines,
+    formatDealTitle(deal),
+    deal.scenario_label ? `Scenario: ${deal.scenario_label}` : null,
     "",
-    deal.scenario_label ? `Scenario: ${deal.scenario_label}.` : null,
+    "The following documents are still required:",
     "",
-    "Once received, we'll update the transaction file for compliance review.",
+    taskLines || "1. Missing transaction documents",
+    "",
+    "Please reply to this email with the documents attached, or upload them using the transaction intake link below:",
+    "",
+    reminderUploadLink(deal),
+    "",
+    "If these have already been sent, please disregard this reminder or reply and let us know.",
+    "",
+    "Thank you,",
+    "Team Admiral",
   ]
     .filter((line) => line !== null)
     .join("\n");
+}
+
+function draftMatchesSelectedSchedule(
+  reminder: ReminderRow,
+  followupEnabled: boolean,
+  schedule: { followupDelayBusinessDays: number; maxFollowups: number; escalateAfterDays: number },
+) {
+  return (
+    Boolean(reminder.followup_enabled) === followupEnabled &&
+    (reminder.followup_delay_business_days ?? 2) === schedule.followupDelayBusinessDays &&
+    (reminder.max_followups ?? 0) === (followupEnabled ? schedule.maxFollowups : 0) &&
+    (reminder.escalate_after_days ?? 7) === schedule.escalateAfterDays
+  );
+}
+
+function cleanReminderDocumentTitle(title: string) {
+  return title.replace(/^Request\s+/i, "").trim();
+}
+
+function formatDealTitle(deal: DealRow) {
+  const dealNumber = formatDealNumber(deal.transaction_code);
+  const address = shortDealAddress(deal);
+  if (dealNumber && address) return `${dealNumber} - ${address}`;
+  return dealNumber ?? address ?? "this transaction";
+}
+
+function formatDealNumber(transactionCode: string | null) {
+  const value = transactionCode?.trim();
+  if (!value) return null;
+  return value.startsWith("#") ? value : `#${value}`;
+}
+
+function reminderUploadLink(deal: DealRow) {
+  const subject = encodeURIComponent(`Missing documents for ${formatDealTitle(deal)}`);
+  return `mailto:${INTAKE_ADDRESS}?subject=${subject}`;
 }
 
 function relativeTime(value: string | null) {
