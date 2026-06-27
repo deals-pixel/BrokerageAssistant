@@ -263,7 +263,6 @@ export function ReviewScreen({
   const [saving, setSaving] = useState(false);
   const [renderedAt] = useState(() => new Date().toISOString());
   const [savingFieldKey, setSavingFieldKey] = useState<string | null>(null);
-  const [workingTaskId, setWorkingTaskId] = useState<string | null>(null);
   const [draftingReminder, setDraftingReminder] = useState(false);
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState("");
@@ -481,49 +480,6 @@ export function ReviewScreen({
     toast.success("Summary copied to clipboard.");
   }
 
-  async function syncTasks() {
-    const res = await fetch(`/api/deals/${deal.id}/tasks/sync`, { method: "POST" });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      toast.error(body?.error ?? "Could not sync tasks");
-      return;
-    }
-    toast.success("Tasks synced from missing documents.");
-    router.refresh();
-  }
-
-  async function updateTask(taskId: string, status: "completed" | "dismissed" | "open") {
-    setWorkingTaskId(taskId);
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    try {
-      const { error } = await supabase
-        .from("deal_tasks")
-        .update({
-          status,
-          completed_at: status === "completed" ? new Date().toISOString() : null,
-        })
-        .eq("id", taskId);
-      if (error) throw new Error(error.message);
-
-      await supabase.from("audit_logs").insert({
-        user_id: user?.id,
-        deal_id: deal.id,
-        action: `task_${status}`,
-        details: { task_id: taskId },
-      });
-      toast.success(status === "completed" ? "Task completed." : "Task updated.");
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not update task");
-    } finally {
-      setWorkingTaskId(null);
-    }
-  }
-
   async function generateReminderDraft(options: { followupEnabled?: boolean } = {}) {
     setDraftingReminder(true);
     try {
@@ -678,7 +634,6 @@ export function ReviewScreen({
               {deal.property_address ?? deal.file_name}
             </h1>
             <Badge className="capitalize">{deal.transaction_type}</Badge>
-            <Badge variant="secondary">{checklistResult.scenario.shortLabel}</Badge>
             <Badge variant="outline">{deal.status}</Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -765,87 +720,12 @@ export function ReviewScreen({
         onSave={saveClassificationOverride}
       />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_420px]">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between py-3">
-            <CardTitle className="text-base">Tasks</CardTitle>
-            <Button size="sm" variant="outline" onClick={syncTasks}>
-              Sync
-            </Button>
-          </CardHeader>
-          <CardContent className="max-h-80 space-y-2 overflow-y-auto">
-            {tasks.length > 0 ? (
-              tasks.map((task) => (
-                <div key={task.id} className="rounded border p-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-medium">{task.title}</p>
-                      {task.description && (
-                        <p className="mt-1 text-xs text-muted-foreground">{task.description}</p>
-                      )}
-                    </div>
-                    <Badge variant={task.status === "open" ? "destructive" : "secondary"}>
-                      {task.status}
-                    </Badge>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {task.status !== "completed" && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => updateTask(task.id, "completed")}
-                        disabled={workingTaskId === task.id}
-                      >
-                        Complete
-                      </Button>
-                    )}
-                    {task.status === "open" && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => updateTask(task.id, "dismissed")}
-                        disabled={workingTaskId === task.id}
-                      >
-                        Dismiss
-                      </Button>
-                    )}
-                    {task.status !== "open" && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => updateTask(task.id, "open")}
-                        disabled={workingTaskId === task.id}
-                      >
-                        Reopen
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                No tasks yet. Sync after processing to create missing-document tasks.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="py-3">
-              <CardTitle className="text-base">Update Package Documents</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <UploadDropzone dealId={deal.id} compact />
-            </CardContent>
-          </Card>
-
-          <EmailAttachmentsPanel
-            dealId={deal.id}
-            attachments={emailAttachments}
-            renderedAttachmentIds={renderedEmailAttachmentIds}
-          />
-        </div>
+      <div className="space-y-4">
+        <EmailAttachmentsPanel
+          dealId={deal.id}
+          attachments={emailAttachments}
+          renderedAttachmentIds={renderedEmailAttachmentIds}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(560px,0.95fr)_1fr]">
@@ -1032,7 +912,7 @@ export function ReviewScreen({
       <Separator />
 
       {/* Bottom: export */}
-      <div className="grid grid-cols-1 gap-4">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
         <Card>
           <CardHeader className="py-3">
             <CardTitle className="text-base">Export & Submission</CardTitle>
@@ -1070,6 +950,15 @@ export function ReviewScreen({
                 confirmation.
               </p>
             )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="py-3">
+            <CardTitle className="text-base">Update Package Documents</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <UploadDropzone dealId={deal.id} compact />
           </CardContent>
         </Card>
       </div>
