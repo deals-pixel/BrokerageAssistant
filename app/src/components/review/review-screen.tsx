@@ -1,10 +1,10 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState, type ComponentType } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, CheckIcon, Clock3Icon, DownloadIcon, FileTextIcon, MailIcon, MapPinIcon, PauseIcon, PencilIcon, SendIcon } from "lucide-react";
+import { BellIcon, CalendarIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, Clock3Icon, DownloadIcon, FileTextIcon, MailIcon, MapPinIcon, PauseIcon, PencilIcon, RefreshCwIcon, SendIcon, UsersIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,14 +20,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { ProcessDealButton } from "@/components/process-deal-button";
 import { EmailAttachmentIngestButton } from "@/components/email-attachment-ingest-button";
@@ -185,7 +177,7 @@ type PackageFilter =
   | "needs_review"
   | "pending_lonewolf";
 
-type PackageBucket = "uploaded_matched" | "needs_review" | "outstanding" | "not_required";
+type PackageBucket = "awaiting_sync" | "uploaded_matched" | "needs_review" | "outstanding" | "not_required";
 
 type PackageDocumentRow = {
   id: string;
@@ -359,6 +351,9 @@ export function ReviewScreen({
   };
 
   const dirty = Object.keys(edited).length > 0;
+  const packageCounts = packageFilterCounts(packageRows);
+  const sentReminderCount = reminders.filter((reminder) => reminder.status === "sent").length;
+  const closingDate = currentValue("closing_date");
 
   function setCheckboxFieldEdit(fieldKey: string, checked: boolean) {
     setEdited((prev) => {
@@ -511,8 +506,12 @@ export function ReviewScreen({
     }
   }
 
-  function openReminderDialog() {
-    setSelectedReminderTaskIds(reminderTasks.map((task) => task.id));
+  function openReminderDialog(targetRows?: PackageDocumentRow | PackageDocumentRow[]) {
+    const targetList = Array.isArray(targetRows) ? targetRows : targetRows ? [targetRows] : outstandingRows;
+    const targetIds = targetList
+      .map((row) => openTasksByRequirementId.get(row.requirementId)?.id)
+      .filter((id): id is string => Boolean(id));
+    setSelectedReminderTaskIds(targetIds.length > 0 ? targetIds : reminderTasks.map((task) => task.id));
     setReminderDialogOpen(true);
   }
 
@@ -621,53 +620,103 @@ export function ReviewScreen({
     }
   }
 
+  async function markAllLoneWolfUploaded(rows: PackageDocumentRow[]) {
+    for (const row of rows.filter((candidate) => candidate.canMarkLoneWolfUploaded)) {
+      await markLoneWolfUploaded(row.requirementId);
+    }
+  }
+
   return (
-    <div className="mx-auto max-w-[1400px] space-y-4 p-6">
-      {/* Header */}
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-3">
-            <Link href="/" className="text-sm text-muted-foreground hover:underline">
-              &lt;- Dashboard
-            </Link>
-            <h1 className="text-xl font-semibold">
-              {deal.property_address ?? deal.file_name}
-            </h1>
-            <Badge className="capitalize">{deal.transaction_type}</Badge>
-            <Badge variant="outline">{deal.status}</Badge>
+    <div className="mx-auto max-w-[1400px] space-y-5 p-6">
+      <header className="sticky top-0 z-20 -mx-6 border-b bg-background/95 px-6 py-4 backdrop-blur">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              <Link href="/" className="hover:text-foreground hover:underline">
+                Dashboard
+              </Link>
+              <span>/</span>
+              <span className="truncate">{shortDealAddress(deal)}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="max-w-[900px] text-2xl font-semibold leading-tight">
+                {deal.property_address ?? deal.file_name}
+              </h1>
+              <Badge className="capitalize">{deal.transaction_type}</Badge>
+              <Badge variant="outline">{deal.status}</Badge>
+            </div>
+            {deal.error_message && (
+              <p className="text-sm text-destructive">Error: {deal.error_message}</p>
+            )}
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Scenario: {deal.scenario_label ?? checklistResult.scenario.label} | Completion{" "}
-            {checklistResult.completionPct}%
-            {latestReminder ? ` | Last reminder: ${relativeTime(latestReminder.sent_at ?? latestReminder.drafted_at ?? latestReminder.created_at)}` : ""}
-          </p>
-          {deal.error_message && (
-            <p className="mt-1 text-sm text-destructive">Error: {deal.error_message}</p>
-          )}
+          <div className="flex flex-wrap justify-end gap-2">
+            <ProcessDealButton
+              dealId={deal.id}
+              status={deal.status}
+              pageCount={deal.page_count}
+              variant="outline"
+            />
+            <Button
+              variant="outline"
+              onClick={() => saveEdits()}
+              disabled={!dirty || saving}
+            >
+              Save edits
+            </Button>
+            <Button onClick={() => openReminderDialog()} disabled={draftingReminder || reminderTasks.length === 0}>
+              <BellIcon className="size-4" />
+              Send reminder
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <ProcessDealButton
-            dealId={deal.id}
-            status={deal.status}
-            pageCount={deal.page_count}
-            variant={deal.status === "uploaded" ? "default" : "outline"}
+
+        <div className="mt-4 grid gap-3 border-t pt-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <DealMetaItem icon={UsersIcon} label="Representation" value={checklistResult.scenario.shortLabel} />
+          <DealMetaItem icon={FileTextIcon} label="Scenario" value={deal.scenario_label ?? checklistResult.scenario.label} />
+          <DealMetaItem icon={CalendarIcon} label="Closing" value={closingDate ? formatDateOnly(closingDate) : "Not captured"} />
+          <DealMetaItem
+            icon={Clock3Icon}
+            label="Last reminder"
+            value={latestReminder ? relativeTime(latestReminder.sent_at ?? latestReminder.drafted_at ?? latestReminder.created_at) : "None sent"}
           />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => saveEdits()}
-            disabled={!dirty || saving}
-          >
-            Save edits
-          </Button>
         </div>
       </header>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <DealStatCard
+          icon={Clock3Icon}
+          label="Completion"
+          value={`${checklistResult.completionPct}%`}
+          detail={`${packageCounts.uploadedMatched} of ${packageCounts.all} docs complete`}
+        />
+        <DealStatCard
+          icon={Clock3Icon}
+          label="Outstanding"
+          value={String(packageCounts.outstanding)}
+          detail="documents missing"
+          tone="red"
+        />
+        <DealStatCard
+          icon={RefreshCwIcon}
+          label="Awaiting sync"
+          value={String(packageCounts.pendingLoneWolf)}
+          detail="pending Lone Wolf upload"
+          tone="amber"
+        />
+        <DealStatCard
+          icon={MailIcon}
+          label="Reminders sent"
+          value={String(sentReminderCount)}
+          detail={`${reminderTasks.length} open document${reminderTasks.length === 1 ? "" : "s"} available`}
+        />
+      </div>
 
       <PackageDocumentsPanel
         rows={packageRows}
         activeFilter={packageFilter}
         onFilterChange={setPackageFilter}
         onMarkLoneWolfUploaded={markLoneWolfUploaded}
+        onMarkAllLoneWolfUploaded={markAllLoneWolfUploaded}
         onGenerateReminder={openReminderDialog}
         onReviewMatch={openClassificationReview}
         workingRequirementId={workingRequirementId}
@@ -1003,6 +1052,7 @@ function PackageDocumentsPanel({
   activeFilter,
   onFilterChange,
   onMarkLoneWolfUploaded,
+  onMarkAllLoneWolfUploaded,
   onGenerateReminder,
   onReviewMatch,
   workingRequirementId,
@@ -1011,8 +1061,9 @@ function PackageDocumentsPanel({
   rows: PackageDocumentRow[];
   activeFilter: PackageFilter;
   onFilterChange: (filter: PackageFilter) => void;
-  onMarkLoneWolfUploaded: (requirementId: string) => void;
-  onGenerateReminder: (row: PackageDocumentRow) => void;
+  onMarkLoneWolfUploaded: (requirementId: string) => void | Promise<void>;
+  onMarkAllLoneWolfUploaded: (rows: PackageDocumentRow[]) => void | Promise<void>;
+  onGenerateReminder: (row?: PackageDocumentRow | PackageDocumentRow[]) => void;
   onReviewMatch: (row: PackageDocumentRow) => void;
   workingRequirementId: string | null;
   draftingReminder: boolean;
@@ -1023,117 +1074,89 @@ function PackageDocumentsPanel({
   const counts = packageFilterCounts(rows);
   const filters: { id: PackageFilter; label: string; count: number }[] = [
     { id: "all", label: "All", count: counts.all },
-    { id: "uploaded_matched", label: "Uploaded & matched", count: counts.uploadedMatched },
+    { id: "uploaded_matched", label: "Matched", count: counts.uploadedMatched },
     { id: "outstanding", label: "Outstanding", count: counts.outstanding },
+    { id: "pending_lonewolf", label: "Awaiting sync", count: counts.pendingLoneWolf },
     { id: "not_required", label: "Not required", count: counts.notRequired },
     ...(counts.needsReview > 0
       ? [{ id: "needs_review" as const, label: "Needs review", count: counts.needsReview }]
-      : []),
-    ...(counts.pendingLoneWolf > 0
-      ? [
-          {
-            id: "pending_lonewolf" as const,
-            label: "Pending Lone Wolf",
-            count: counts.pendingLoneWolf,
-          },
-        ]
       : []),
   ];
 
   return (
     <Card>
-      <CardHeader className="space-y-3 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <CardTitle className="text-base">Package Documents</CardTitle>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {filters.map((filter) => (
-              <Button
-                key={filter.id}
-                type="button"
-                size="sm"
-                variant={activeFilter === filter.id ? "default" : "outline"}
-                onClick={() => onFilterChange(filter.id)}
-              >
-                {filter.label} <span className="text-xs opacity-70">{filter.count}</span>
-              </Button>
-            ))}
+      <CardHeader className="border-b py-4">
+        <div className="grid gap-3 lg:grid-cols-[120px_1fr] lg:items-center">
+          <CardTitle className="text-base leading-tight">Package documents</CardTitle>
+          <div className="grid grid-cols-2 gap-1.5 md:grid-cols-5">
+            {filters.map((filter) => {
+              const active = activeFilter === filter.id;
+              return (
+                <button
+                  key={filter.id}
+                  type="button"
+                  className={`rounded-lg border px-3 py-2 text-center transition ${
+                    active
+                      ? "border-foreground bg-background shadow-sm"
+                      : "border-border bg-muted/20 hover:bg-muted"
+                  }`}
+                  onClick={() => onFilterChange(filter.id)}
+                >
+                  <span className="block text-sm font-medium leading-tight">{filter.label}</span>
+                  <span className="block text-lg font-semibold leading-tight">{filter.count}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="min-w-[320px] px-4">Document / requirement</TableHead>
-              <TableHead className="min-w-[260px]">Pipeline</TableHead>
-              <TableHead className="px-4 text-right">Action</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredRows.length > 0 ? (
-              groups.map((group) => {
-                const isCollapsed = group.id === "not_required" && !notRequiredExpanded;
-
-                return (
-                  <Fragment key={group.id}>
-                    <PackageGroupHeader
-                      group={group}
-                      isCollapsed={isCollapsed}
-                      onToggle={
-                        group.id === "not_required"
-                          ? () => setNotRequiredExpanded((expanded) => !expanded)
-                          : undefined
-                      }
-                    />
-                    {!isCollapsed &&
-                      group.rows.map((row) => (
-                        <TableRow key={row.id}>
-                          <TableCell className="px-4 whitespace-normal">
-                            <div className="font-medium leading-tight">{row.label}</div>
-                            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                              {row.pages.length > 0 ? (
-                                <button
-                                  type="button"
-                                  className="text-blue-600 hover:underline"
-                                  onClick={() => onReviewMatch(row)}
-                                >
-                                  {row.documentLabel}
-                                </button>
-                              ) : (
-                                <span>{row.documentLabel}</span>
-                              )}
-                              {row.condition && <span>{row.condition}</span>}
-                            </div>
-                          </TableCell>
-                          <TableCell className="whitespace-normal">
-                            <PipelineIndicator row={row} />
-                          </TableCell>
-                          <TableCell className="px-4">
-                            <PackageRowActions
-                              row={row}
-                              workingRequirementId={workingRequirementId}
-                              draftingReminder={draftingReminder}
-                              onMarkLoneWolfUploaded={onMarkLoneWolfUploaded}
-                              onGenerateReminder={onGenerateReminder}
-                              onReviewMatch={onReviewMatch}
-                            />
-                          </TableCell>
-                        </TableRow>
+        {filteredRows.length > 0 ? (
+          <div className="divide-y">
+            {groups.map((group) => {
+              const isCollapsed = group.id === "not_required" && !notRequiredExpanded;
+              return (
+                <section key={group.id}>
+                  <PackageGroupHeader
+                    group={group}
+                    isCollapsed={isCollapsed}
+                    onToggle={
+                      group.id === "not_required"
+                        ? () => setNotRequiredExpanded((expanded) => !expanded)
+                        : undefined
+                    }
+                    onMarkAllUploaded={
+                      group.id === "awaiting_sync" ? () => onMarkAllLoneWolfUploaded(group.rows) : undefined
+                    }
+                    onRemindAll={
+                      group.id === "outstanding" ? () => onGenerateReminder(group.rows) : undefined
+                    }
+                    draftingReminder={draftingReminder}
+                  />
+                  {!isCollapsed && (
+                    <div className="divide-y">
+                      {group.rows.map((row) => (
+                        <PackageDocumentListRow
+                          key={row.id}
+                          row={row}
+                          workingRequirementId={workingRequirementId}
+                          draftingReminder={draftingReminder}
+                          onMarkLoneWolfUploaded={onMarkLoneWolfUploaded}
+                          onGenerateReminder={onGenerateReminder}
+                          onReviewMatch={onReviewMatch}
+                        />
                       ))}
-                  </Fragment>
-                );
-              })
-            ) : (
-              <TableRow>
-                <TableCell colSpan={3} className="px-4 py-6 text-center text-muted-foreground">
-                  No documents match this filter.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+            No documents match this filter.
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -1235,27 +1258,41 @@ function PackageGroupHeader({
   group,
   isCollapsed = false,
   onToggle,
+  onMarkAllUploaded,
+  onRemindAll,
+  draftingReminder = false,
 }: {
   group: PackageGroup;
   isCollapsed?: boolean;
   onToggle?: () => void;
+  onMarkAllUploaded?: () => void;
+  onRemindAll?: () => void;
+  draftingReminder?: boolean;
 }) {
   const dotClass =
     group.tone === "green"
-      ? "bg-green-700"
+      ? "bg-green-600"
       : group.tone === "amber"
         ? "bg-amber-600"
         : group.tone === "red"
-          ? "bg-red-800"
+          ? "bg-red-600"
           : "bg-muted-foreground";
+  const headerClass =
+    group.tone === "green"
+      ? "bg-green-50/45"
+      : group.tone === "amber"
+        ? "bg-amber-50/55"
+        : group.tone === "red"
+          ? "bg-red-50/45"
+          : "bg-muted/25";
 
   return (
-    <TableRow className="bg-background hover:bg-background">
-      <TableCell colSpan={3} className="px-4 pt-5 pb-2">
+    <div className={`flex min-h-14 flex-wrap items-center justify-between gap-3 px-4 py-3 ${headerClass}`}>
+      <div>
         {onToggle ? (
           <button
             type="button"
-            className="flex w-full items-center gap-2 text-left text-sm font-medium text-foreground hover:text-primary"
+            className="flex items-center gap-2 text-left text-sm font-medium text-foreground hover:text-primary"
             onClick={onToggle}
             aria-expanded={!isCollapsed}
           >
@@ -1269,112 +1306,22 @@ function PackageGroupHeader({
         ) : (
           <div className="flex items-center gap-2 text-sm font-medium text-foreground">
             <span className={`size-2 rounded-full ${dotClass}`} />
-            <span>{group.label}</span>
-            <span className="text-xs font-normal text-muted-foreground">{group.rows.length}</span>
+            <span>{group.label} - {group.rows.length}</span>
           </div>
         )}
-      </TableCell>
-    </TableRow>
-  );
-}
-
-function PipelineIndicator({ row }: { row: PackageDocumentRow }) {
-  if (packageBucket(row) === "not_required") {
-    return <span className="text-sm text-muted-foreground">Not required for this scenario</span>;
-  }
-
-  if (row.missing) {
-    return <OutstandingReminderChip row={row} />;
-  }
-
-  const steps = [
-    { id: "received", complete: row.found, current: false },
-    { id: "processed", complete: row.found && !row.unprocessed, current: row.found && row.unprocessed },
-    {
-      id: "matched",
-      complete: row.found && !row.unprocessed && !row.needsReview,
-      current: row.found && !row.unprocessed && row.needsReview,
-    },
-    {
-      id: "lonewolf",
-      complete:
-        row.found &&
-        !row.needsReview &&
-        (row.loneWolfLabel === "Uploaded" || row.loneWolfLabel === "Not Required"),
-      current: row.pendingLoneWolf && !row.needsReview,
-    },
-  ];
-
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center">
-        {steps.map((step, index) => (
-          <PipelineStep
-            key={step.id}
-            complete={step.complete}
-            current={step.current}
-            showConnector={index < steps.length - 1}
-          />
-        ))}
       </div>
-      <p className="text-sm text-foreground">{pipelineLabel(row)}</p>
-    </div>
-  );
-}
-
-function OutstandingReminderChip({ row }: { row: PackageDocumentRow }) {
-  const label =
-    row.reminderStatus === "none"
-      ? "Not requested"
-      : row.reminderOverdue
-        ? "Overdue"
-        : row.reminderFollowupCount > 0
-          ? "Follow-up sent"
-          : row.reminderStatus === "sent"
-            ? "Reminder sent"
-            : "Not requested";
-  const className =
-    label === "Overdue"
-      ? "border-red-200 bg-red-50 text-red-800"
-      : label === "Reminder sent" || label === "Follow-up sent"
-        ? "border-blue-200 bg-blue-50 text-blue-800"
-        : "border-muted bg-muted/30 text-muted-foreground";
-
-  return (
-    <div className="space-y-1">
-      <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-medium ${className}`}>
-        {label}
-      </span>
-      {row.reminderNextFollowupAt && !row.reminderOverdue && (
-        <p className="text-xs text-muted-foreground">Next follow-up {formatShortDateTime(row.reminderNextFollowupAt)}</p>
+      {onMarkAllUploaded && (
+        <Button variant="outline" onClick={onMarkAllUploaded}>
+          Mark all uploaded
+        </Button>
+      )}
+      {onRemindAll && (
+        <Button variant="outline" onClick={onRemindAll} disabled={draftingReminder}>
+          <BellIcon className="size-4" />
+          Remind all
+        </Button>
       )}
     </div>
-  );
-}
-
-function PipelineStep({
-  complete,
-  current,
-  showConnector,
-}: {
-  complete: boolean;
-  current: boolean;
-  showConnector: boolean;
-}) {
-  const dotClass = complete
-    ? "border-green-200 bg-green-100 text-green-800"
-    : current
-      ? "border-amber-200 bg-amber-50 text-amber-800"
-      : "border-border bg-background text-transparent";
-  const connectorClass = complete ? "bg-green-200" : "bg-border";
-
-  return (
-    <>
-      <span className={`grid size-4 place-items-center rounded-full border ${dotClass}`}>
-        {complete ? <CheckIcon className="size-3" /> : current ? <Clock3Icon className="size-3" /> : null}
-      </span>
-      {showConnector && <span className={`h-px w-5 ${connectorClass}`} />}
-    </>
   );
 }
 
@@ -1529,7 +1476,7 @@ function fieldStatusTextClass(tone: FieldStatusTone) {
   return "text-muted-foreground";
 }
 
-function PackageRowActions({
+function PackageDocumentListRow({
   row,
   workingRequirementId,
   draftingReminder,
@@ -1540,61 +1487,239 @@ function PackageRowActions({
   row: PackageDocumentRow;
   workingRequirementId: string | null;
   draftingReminder: boolean;
-  onMarkLoneWolfUploaded: (requirementId: string) => void;
-  onGenerateReminder: (row: PackageDocumentRow) => void;
+  onMarkLoneWolfUploaded: (requirementId: string) => void | Promise<void>;
+  onGenerateReminder: (row?: PackageDocumentRow | PackageDocumentRow[]) => void;
   onReviewMatch: (row: PackageDocumentRow) => void;
 }) {
-  if (row.needsReview && row.pages.length > 0) {
-    return (
-      <div className="flex justify-end">
-        <Button size="sm" variant="outline" onClick={() => onReviewMatch(row)}>
-          Review match
-        </Button>
-      </div>
-    );
-  }
+  const primaryAction = packagePrimaryAction(row);
 
-  if (row.canMarkLoneWolfUploaded) {
-    return (
-      <div className="flex justify-end">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => onMarkLoneWolfUploaded(row.requirementId)}
-          disabled={workingRequirementId === row.requirementId}
-        >
-          Mark uploaded
-        </Button>
+  return (
+    <div className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(260px,1fr)_220px_170px] md:items-center">
+      <div className="min-w-0">
+        <div className="font-medium leading-tight">{row.label}</div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          {row.pages.length > 0 ? (
+            <button
+              type="button"
+              className="truncate text-left text-blue-600 hover:underline"
+              onClick={() => onReviewMatch(row)}
+            >
+              {row.documentLabel}
+            </button>
+          ) : (
+            <span className="truncate">{row.documentLabel}</span>
+          )}
+          {row.condition && <span>{row.condition}</span>}
+        </div>
       </div>
-    );
-  }
 
-  if (row.missing) {
-    const hasReminder = row.reminderStatus !== "none";
-    return (
-      <div className="flex flex-wrap justify-end gap-1.5">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => onGenerateReminder(row)}
-          disabled={draftingReminder}
+      <PackageStatusLabel row={row} />
+
+      <div className="flex items-center justify-start gap-2 md:justify-end">
+        {primaryAction === "review" && (
+          <Button variant="outline" onClick={() => onReviewMatch(row)}>
+            Review match
+          </Button>
+        )}
+        {primaryAction === "mark_uploaded" && (
+          <Button
+            variant="outline"
+            onClick={() => onMarkLoneWolfUploaded(row.requirementId)}
+            disabled={workingRequirementId === row.requirementId}
+          >
+            Mark uploaded
+          </Button>
+        )}
+        {primaryAction === "remind" && (
+          <Button variant="outline" onClick={() => onGenerateReminder(row)} disabled={draftingReminder}>
+            <BellIcon className="size-4" />
+            Remind
+          </Button>
+        )}
+        {primaryAction === "send_now" && (
+          <Button variant="outline" onClick={() => onGenerateReminder(row)} disabled={draftingReminder}>
+            <SendIcon className="size-4" />
+            Send now
+          </Button>
+        )}
+        {primaryAction === "none" && <span className="text-sm text-muted-foreground">-</span>}
+        <PackageOverflowActions
+          row={row}
+          draftingReminder={draftingReminder}
+          onGenerateReminder={onGenerateReminder}
+        />
+      </div>
+    </div>
+  );
+}
+
+function PackageStatusLabel({ row }: { row: PackageDocumentRow }) {
+  const status = packagePlainStatus(row);
+  return (
+    <div className={`flex items-center gap-2 text-sm ${status.className}`}>
+      <span className={`size-1.5 rounded-full ${status.dotClass}`} />
+      <span>{status.label}</span>
+      {row.reminderNextFollowupAt && packageBucket(row) === "outstanding" && !row.reminderOverdue && (
+        <span className="text-xs text-muted-foreground">Next {formatShortDateTime(row.reminderNextFollowupAt)}</span>
+      )}
+    </div>
+  );
+}
+
+function PackageOverflowActions({
+  row,
+  draftingReminder,
+  onGenerateReminder,
+}: {
+  row: PackageDocumentRow;
+  draftingReminder: boolean;
+  onGenerateReminder: (row?: PackageDocumentRow | PackageDocumentRow[]) => void;
+}) {
+  const bucket = packageBucket(row);
+  if (bucket === "uploaded_matched" || bucket === "not_required") return null;
+
+  return (
+    <details className="relative">
+      <summary className="flex h-9 w-11 cursor-pointer list-none items-center justify-center rounded-lg border bg-background text-sm font-semibold hover:bg-muted">
+        ...
+      </summary>
+      <div className="absolute right-0 z-10 mt-1 w-44 rounded-lg border bg-background p-1 shadow-lg">
+        {row.missing && (
+          <button
+            type="button"
+            className="block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted disabled:opacity-50"
+            onClick={() => onGenerateReminder(row)}
+            disabled={draftingReminder}
+          >
+            Edit schedule
+          </button>
+        )}
+        {row.needsReview && row.pages.length > 0 && (
+          <button
+            type="button"
+            className="block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+            onClick={() => onGenerateReminder(row)}
+          >
+            Draft reminder
+          </button>
+        )}
+        <button
+          type="button"
+          className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground"
+          disabled
+          title="Manual not-required workflow is coming next."
         >
-          {hasReminder ? "Open reminder" : "Generate reminder"}
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => onGenerateReminder(row)}>
-          Send now
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => onGenerateReminder(row)}>
-          Edit schedule
-        </Button>
-        <Button size="sm" variant="outline" disabled title="Manual not-required workflow is coming next.">
           Mark not required
-        </Button>
+        </button>
       </div>
-    );
-  }
+    </details>
+  );
+}
 
-  return <div className="text-right text-muted-foreground">-</div>;
+function packagePrimaryAction(row: PackageDocumentRow): "review" | "mark_uploaded" | "remind" | "send_now" | "none" {
+  if (row.needsReview && row.pages.length > 0) return "review";
+  if (row.canMarkLoneWolfUploaded) return "mark_uploaded";
+  if (row.missing && row.reminderStatus === "none") return "remind";
+  if (row.missing) return "send_now";
+  return "none";
+}
+
+function packagePlainStatus(row: PackageDocumentRow) {
+  if (packageBucket(row) === "awaiting_sync") {
+    return {
+      label: "Pending Lone Wolf",
+      className: "text-amber-700",
+      dotClass: "bg-amber-500",
+    };
+  }
+  if (row.needsReview) {
+    return {
+      label: "Needs review",
+      className: "text-amber-700",
+      dotClass: "bg-amber-500",
+    };
+  }
+  if (row.missing && row.reminderStatus === "sent") {
+    return {
+      label: "Reminder sent",
+      className: "text-green-700",
+      dotClass: "bg-green-600",
+    };
+  }
+  if (row.missing && row.reminderStatus === "draft") {
+    return {
+      label: "Reminder drafted",
+      className: "text-blue-700",
+      dotClass: "bg-blue-600",
+    };
+  }
+  if (row.missing) {
+    return {
+      label: "Not requested",
+      className: "text-foreground",
+      dotClass: "bg-muted-foreground",
+    };
+  }
+  if (packageBucket(row) === "not_required") {
+    return {
+      label: "Not required",
+      className: "text-muted-foreground",
+      dotClass: "bg-muted-foreground",
+    };
+  }
+  return {
+    label: "Matched",
+    className: "text-green-700",
+    dotClass: "bg-green-600",
+  };
+}
+
+function DealMetaItem({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-start gap-2 border-border/70 text-foreground lg:border-l lg:pl-4 first:lg:border-l-0 first:lg:pl-0">
+      <Icon className="mt-0.5 size-4 text-muted-foreground" />
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="truncate font-medium leading-tight">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function DealStatCard({
+  icon: Icon,
+  label,
+  value,
+  detail,
+  tone = "neutral",
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "neutral" | "red" | "amber";
+}) {
+  const valueClass = tone === "red" ? "text-red-700" : tone === "amber" ? "text-amber-700" : "text-foreground";
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 text-sm">
+          <Icon className="size-4 text-muted-foreground" />
+          <span>{label}</span>
+        </div>
+        <p className={`mt-2 text-3xl font-semibold leading-none ${valueClass}`}>{value}</p>
+        <p className="mt-2 text-sm text-muted-foreground">{detail}</p>
+      </CardContent>
+    </Card>
+  );
 }
 
 function FieldStatusLegendItem({ tone, label }: { tone: FieldStatusTone; label: string }) {
@@ -2284,6 +2409,7 @@ function emailAttachmentStatusVariant(
 
 function packageBucket(row: PackageDocumentRow): PackageBucket {
   if (row.found && row.needsReview) return "needs_review";
+  if (row.pendingLoneWolf) return "awaiting_sync";
   if (row.found) return "uploaded_matched";
   if (row.requirementLevel === "required") return "outstanding";
   return "not_required";
@@ -2291,9 +2417,10 @@ function packageBucket(row: PackageDocumentRow): PackageBucket {
 
 function buildPackageGroups(rows: PackageDocumentRow[]): PackageGroup[] {
   const definitions: Omit<PackageGroup, "rows">[] = [
-    { id: "uploaded_matched", label: "Uploaded & matched", tone: "green" },
+    { id: "awaiting_sync", label: "Awaiting sync", tone: "amber" },
     { id: "needs_review", label: "Needs review", tone: "amber" },
-    { id: "outstanding", label: "Outstanding requirements", tone: "red" },
+    { id: "outstanding", label: "Outstanding", tone: "red" },
+    { id: "uploaded_matched", label: "Uploaded & matched", tone: "green" },
     { id: "not_required", label: "Not required for this deal", tone: "neutral" },
   ];
 
@@ -2312,18 +2439,8 @@ function packageFilterCounts(rows: PackageDocumentRow[]) {
     outstanding: rows.filter((row) => packageBucket(row) === "outstanding").length,
     notRequired: rows.filter((row) => packageBucket(row) === "not_required").length,
     needsReview: rows.filter((row) => packageBucket(row) === "needs_review").length,
-    pendingLoneWolf: rows.filter((row) => row.pendingLoneWolf).length,
+    pendingLoneWolf: rows.filter((row) => packageBucket(row) === "awaiting_sync").length,
   };
-}
-
-function pipelineLabel(row: PackageDocumentRow) {
-  if (packageBucket(row) === "not_required") return "Not required for this scenario";
-  if (!row.found) return "Not started";
-  if (row.unprocessed) return "Pending processing";
-  if (row.needsReview) return "Needs review";
-  if (row.pendingLoneWolf) return "Pending Lone Wolf upload";
-  if (row.loneWolfLabel === "Uploaded") return "Uploaded to Lone Wolf";
-  return "Matched";
 }
 
 function filterPackageRows(rows: PackageDocumentRow[], filter: PackageFilter) {
@@ -2333,7 +2450,7 @@ function filterPackageRows(rows: PackageDocumentRow[], filter: PackageFilter) {
   if (filter === "outstanding") return rows.filter((row) => packageBucket(row) === "outstanding");
   if (filter === "not_required") return rows.filter((row) => packageBucket(row) === "not_required");
   if (filter === "needs_review") return rows.filter((row) => packageBucket(row) === "needs_review");
-  if (filter === "pending_lonewolf") return rows.filter((row) => row.pendingLoneWolf);
+  if (filter === "pending_lonewolf") return rows.filter((row) => packageBucket(row) === "awaiting_sync");
   return rows;
 }
 
@@ -2480,6 +2597,16 @@ function formatShortDateTime(value: string | null | undefined) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+  }).format(date);
+}
+
+function formatDateOnly(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-CA", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   }).format(date);
 }
 
