@@ -452,7 +452,7 @@ function TransactionCard({
     <div
       className={`min-w-0 overflow-hidden rounded-lg border bg-background p-2 ${
         hasUpdate
-          ? "border-amber-400 bg-amber-50/35 shadow-[0_0_0_1px_rgba(217,119,6,0.18),0_1px_4px_rgba(90,51,25,0.08)]"
+          ? "border-blue-400 bg-blue-50 shadow-[0_0_0_1px_rgba(55,138,221,0.22),0_1px_4px_rgba(12,68,124,0.08)]"
           : ready
           ? "border-l-4 border-l-emerald-500 shadow-[0_1px_2px_rgba(28,90,62,0.08)]"
           : column.cardClassName
@@ -484,7 +484,7 @@ function TransactionCard({
           <DealOperationalStatusBadge status={statusBadge} />
         </div>
         {updateSummary && (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] leading-4 text-amber-900">
+          <div className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] leading-4 text-blue-800">
             {updateSummary}
           </div>
         )}
