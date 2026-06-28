@@ -1811,23 +1811,27 @@ function DepositVerificationCard({
   const amountValue = formatDepositAmount(depositAmount);
 
   return (
-    <Card className="overflow-hidden border-amber-300">
-      <CardHeader className="flex flex-row items-center justify-between gap-4 border-b border-amber-300 bg-amber-50/80 px-4 py-2.5">
+    <Card className="overflow-hidden border-orange-300 shadow-none">
+      <CardHeader className="flex flex-row items-center justify-between gap-4 border-b border-orange-300 bg-orange-50 px-4 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
-          <ShieldCheckIcon className="size-4 shrink-0 text-amber-800" />
+          <ShieldCheckIcon className="size-4 shrink-0 text-orange-700" />
           <CardTitle className="shrink-0 text-sm font-semibold">Deposit verification</CardTitle>
-          <p className="truncate text-xs text-amber-900/80">
+          <p className="truncate text-xs text-orange-900/85">
             Confirm the bank deposit matches the proof of deposit received.
           </p>
         </div>
         <Badge
-          className={confirmed ? "border-green-200 bg-green-50 text-green-700" : ""}
+          className={
+            confirmed
+              ? "border-green-200 bg-green-50 text-green-700"
+              : "border-red-200 bg-red-50 text-red-700"
+          }
           variant="outline"
         >
           {confirmed ? "Verified" : "Not verified"}
         </Badge>
       </CardHeader>
-      <CardContent className="grid gap-4 p-3 lg:grid-cols-[1fr_auto] lg:items-center">
+      <CardContent className="grid gap-4 p-2.5 lg:grid-cols-[1fr_auto] lg:items-center">
         <div className="grid gap-0 sm:grid-cols-2 xl:grid-cols-4">
           <DepositMeta label="Proof status" value={proofFound ? "Proof received" : "Proof not found"} tone={proofFound ? "default" : "red"} />
           <DepositMeta label="Amount" value={amountValue} />
@@ -1844,7 +1848,7 @@ function DepositVerificationCard({
             variant="outline"
             onClick={onConfirm}
             disabled={confirming}
-            className="border-border bg-background"
+            className="border-border bg-background px-3"
           >
             <CheckCircle2Icon className="size-4" />
             {confirmed ? "Confirm again" : "Confirm received"}
