@@ -366,13 +366,11 @@ export function ReviewScreen({
 
   const dirty = Object.keys(edited).length > 0;
   const packageCounts = packageFilterCounts(packageRows);
-  const activePackageCount =
-    packageCounts.uploadedMatched +
-    packageCounts.outstanding +
-    packageCounts.pendingLoneWolf +
-    packageCounts.needsReview;
-  const packageCompletionPct =
-    activePackageCount === 0 ? 100 : Math.round((packageCounts.uploadedMatched / activePackageCount) * 100);
+  const receivedRequiredCount = checklistResult.requiredItems.length - checklistResult.missingRequired.length;
+  const receivedPct =
+    checklistResult.requiredItems.length === 0
+      ? 100
+      : Math.round((receivedRequiredCount / checklistResult.requiredItems.length) * 100);
   const sentReminderCount = reminders.filter((reminder) => reminder.status === "sent").length;
   const closingDate = currentValue("closing_date");
   const depositAmount = currentValue("deposit_amount");
@@ -732,9 +730,9 @@ export function ReviewScreen({
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DealStatCard
           icon={Clock3Icon}
-          label="Completion"
-          value={`${packageCompletionPct}%`}
-          detail={`${packageCounts.uploadedMatched} of ${activePackageCount} active docs processed`}
+          label="Received"
+          value={`${receivedPct}%`}
+          detail={`${receivedRequiredCount} of ${checklistResult.requiredItems.length} required docs received`}
         />
         <DealStatCard
           icon={Clock3Icon}
@@ -1829,17 +1827,10 @@ function DepositVerificationCard({
             <p className="text-sm text-muted-foreground">
               Confirmed {formatShortDateTime(verification.confirmed_at)} by {confirmer}
             </p>
-          ) : (
-            <p className="max-w-sm text-sm text-muted-foreground">
-              Any signed-in staff member can confirm once the bank account and proof amount match.
-            </p>
-          )}
-          <Button onClick={onConfirm} disabled={confirming || !proofFound}>
+          ) : null}
+          <Button onClick={onConfirm} disabled={confirming}>
             {confirmed ? "Confirm again" : "Confirm deposit received"}
           </Button>
-          {!proofFound && (
-            <p className="text-xs text-muted-foreground">Upload or classify a proof of deposit before confirming.</p>
-          )}
           {proofLabels.length > 0 && (
             <p className="text-xs text-muted-foreground">Source: {Array.from(new Set(proofLabels)).join(", ")}</p>
           )}
