@@ -1074,7 +1074,7 @@ function PackageDocumentsPanel({
   const counts = packageFilterCounts(rows);
   const filters: { id: PackageFilter; label: string; count: number }[] = [
     { id: "all", label: "All", count: counts.all },
-    { id: "uploaded_matched", label: "Matched", count: counts.uploadedMatched },
+    { id: "uploaded_matched", label: "Processed", count: counts.uploadedMatched },
     { id: "outstanding", label: "Outstanding", count: counts.outstanding },
     { id: "pending_lonewolf", label: "Awaiting sync", count: counts.pendingLoneWolf },
     { id: "not_required", label: "Not required", count: counts.notRequired },
