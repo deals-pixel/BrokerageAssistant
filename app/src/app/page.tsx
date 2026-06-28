@@ -445,11 +445,15 @@ function TransactionCard({
   const hasIntakeWorkflow = shouldShowIntakeWorkflow(deal) && !hasProcessingRoutedIntake(deal);
   const ready = deal.complianceStatus === "Ready";
   const statusBadge = dealOperationalStatus(deal);
+  const updateSummary = dealAttentionSummary(deal);
+  const hasUpdate = shouldShowDealAttention(deal);
 
   return (
     <div
       className={`min-w-0 overflow-hidden rounded-lg border bg-background p-2 ${
-        ready
+        hasUpdate
+          ? "border-amber-400 bg-amber-50/35 shadow-[0_0_0_1px_rgba(217,119,6,0.18),0_1px_4px_rgba(90,51,25,0.08)]"
+          : ready
           ? "border-l-4 border-l-emerald-500 shadow-[0_1px_2px_rgba(28,90,62,0.08)]"
           : column.cardClassName
       }`}
@@ -479,6 +483,11 @@ function TransactionCard({
           </div>
           <DealOperationalStatusBadge status={statusBadge} />
         </div>
+        {updateSummary && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] leading-4 text-amber-900">
+            {updateSummary}
+          </div>
+        )}
         <div className="flex min-w-0 flex-wrap gap-1">
           {deal.source === "email" && (
             <Badge variant="outline" className="h-4 px-1.5 text-[11px] leading-4">
@@ -608,7 +617,7 @@ function TimeList({
   deals: DashboardDeal[];
   dealOptions: IntakeDealOption[];
 }) {
-  const intakeDeals = deals.filter((deal) => deal.complianceStatus === "Intake Review");
+  const intakeDeals = sortBoardDeals(deals.filter((deal) => deal.complianceStatus === "Intake Review"));
   const dateTrackedDeals = deals.filter((deal) => deal.complianceStatus !== "Intake Review");
   const groups = [
     {
@@ -620,13 +629,13 @@ function TimeList({
     {
       label: "Closing This Week",
       icon: <CalendarClock className="size-4" />,
-      deals: sortByClosingDate(dateTrackedDeals.filter((deal) => isClosingThisWeek(deal.closingDate))),
+      deals: sortByClosingDateWithUpdates(dateTrackedDeals.filter((deal) => isClosingThisWeek(deal.closingDate))),
       kind: "date" as const,
     },
     {
       label: "Upcoming",
       icon: <CalendarClock className="size-4" />,
-      deals: sortByClosingDate(
+      deals: sortByClosingDateWithUpdates(
         dateTrackedDeals.filter((deal) => deal.closingDate && !isClosingThisWeek(deal.closingDate)),
       ),
       kind: "date" as const,
@@ -634,7 +643,7 @@ function TimeList({
     {
       label: "No Closing Date",
       icon: <CalendarClock className="size-4" />,
-      deals: dateTrackedDeals.filter((deal) => !deal.closingDate),
+      deals: sortBoardDeals(dateTrackedDeals.filter((deal) => !deal.closingDate)),
       kind: "date" as const,
     },
   ].filter((group) => group.deals.length > 0);
@@ -680,14 +689,14 @@ function TimeListDealRow({
   const isProcessing = deal.status === "processing" || hasProcessingRoutedIntake(deal);
   const hasIntakeWorkflow = shouldShowIntakeWorkflow(deal) && !hasProcessingRoutedIntake(deal);
   const statusBadge = dealOperationalStatus(deal);
+  const updateSummary = dealAttentionSummary(deal);
 
   return (
     <div
-      className={
-        kind === "intake"
-          ? "grid gap-3 border-b p-3 last:border-b-0 md:grid-cols-[minmax(0,0.85fr)_minmax(0,2fr)]"
-          : "grid gap-3 border-b p-3 last:border-b-0 md:grid-cols-[minmax(0,1.5fr)_8rem_9rem_minmax(12rem,1fr)_9rem]"
-      }
+      className={`${kind === "intake"
+        ? "grid gap-3 border-b p-3 last:border-b-0 md:grid-cols-[minmax(0,0.85fr)_minmax(0,2fr)]"
+        : "grid gap-3 border-b p-3 last:border-b-0 md:grid-cols-[minmax(0,1.5fr)_8rem_9rem_minmax(12rem,1fr)_9rem]"
+      } ${updateSummary ? "border-l-4 border-l-amber-400 bg-amber-50/25" : ""}`}
     >
       <div className="min-w-0">
         {isVirtualIntakeDeal(deal) ? (
@@ -703,6 +712,11 @@ function TimeListDealRow({
         {kind === "intake" && (
           <div className="mt-2">
             <DealOperationalStatusBadge status={statusBadge} />
+          </div>
+        )}
+        {updateSummary && (
+          <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] leading-4 text-amber-900">
+            {updateSummary}
           </div>
         )}
       </div>
@@ -1076,13 +1090,19 @@ function boardColumnMatches(deal: DashboardDeal, columnStatus: ComplianceStatus)
 
 function sortBoardDeals(deals: DashboardDeal[]) {
   return [...deals].sort((a, b) => {
-    const aReady = a.complianceStatus === "Ready" ? 1 : 0;
-    const bReady = b.complianceStatus === "Ready" ? 1 : 0;
-    if (aReady !== bReady) return bReady - aReady;
-
     const aNew = shouldShowDealAttention(a) ? 1 : 0;
     const bNew = shouldShowDealAttention(b) ? 1 : 0;
     if (aNew !== bNew) return bNew - aNew;
+
+    if (aNew && bNew) {
+      const aAttentionTime = parseDate(a.attention_at)?.getTime() ?? 0;
+      const bAttentionTime = parseDate(b.attention_at)?.getTime() ?? 0;
+      if (aAttentionTime !== bAttentionTime) return bAttentionTime - aAttentionTime;
+    }
+
+    const aReady = a.complianceStatus === "Ready" ? 1 : 0;
+    const bReady = b.complianceStatus === "Ready" ? 1 : 0;
+    if (aReady !== bReady) return bReady - aReady;
 
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
@@ -1097,6 +1117,13 @@ function shouldShowDealAttention(deal: DashboardDeal) {
   if (!deal.attention_at) return false;
   if (!deal.attention_cleared_at) return true;
   return new Date(deal.attention_cleared_at).getTime() < new Date(deal.attention_at).getTime();
+}
+
+function dealAttentionSummary(deal: DashboardDeal) {
+  if (!shouldShowDealAttention(deal)) return "";
+  const label = deal.attention_reason === "updated_from_intake" ? "Updated from intake" : "New intake activity";
+  const when = deal.attention_at ? ` ${formatRelativeDashboardTime(deal.attention_at)}` : "";
+  return `${label}${when}.`;
 }
 
 function dealOperationalStatus(deal: DashboardDeal): DealOperationalStatus {
@@ -1329,6 +1356,22 @@ function sortByClosingDate(deals: DashboardDeal[]) {
   });
 }
 
+function sortByClosingDateWithUpdates(deals: DashboardDeal[]) {
+  return [...deals].sort((a, b) => {
+    const aAttention = shouldShowDealAttention(a) ? 1 : 0;
+    const bAttention = shouldShowDealAttention(b) ? 1 : 0;
+    if (aAttention !== bAttention) return bAttention - aAttention;
+    if (aAttention && bAttention) {
+      const aAttentionTime = parseDate(a.attention_at)?.getTime() ?? 0;
+      const bAttentionTime = parseDate(b.attention_at)?.getTime() ?? 0;
+      if (aAttentionTime !== bAttentionTime) return bAttentionTime - aAttentionTime;
+    }
+    const aTime = a.closingDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    const bTime = b.closingDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    return aTime - bTime;
+  });
+}
+
 function ClosingSummaryCard({
   title,
   deals,
@@ -1390,6 +1433,19 @@ function ClosingSummaryCard({
 
 function formatShortDate(date: Date) {
   return new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric" }).format(date);
+}
+
+function formatRelativeDashboardTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const diffMs = date.getTime() - Date.now();
+  const diffMinutes = Math.round(diffMs / 60_000);
+  const absMinutes = Math.abs(diffMinutes);
+  if (absMinutes < 1) return "just now";
+  if (absMinutes < 60) return `${absMinutes}m ago`;
+  const absHours = Math.round(absMinutes / 60);
+  if (absHours < 24) return `${absHours}h ago`;
+  return `on ${new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric" }).format(date)}`;
 }
 
 function FilterButton({ active, href, label }: { active: boolean; href: string; label: string }) {
