@@ -366,7 +366,13 @@ export function ReviewScreen({
 
   const dirty = Object.keys(edited).length > 0;
   const packageCounts = packageFilterCounts(packageRows);
-  const completedRequiredCount = checklistResult.requiredItems.length - checklistResult.missingRequired.length;
+  const activePackageCount =
+    packageCounts.uploadedMatched +
+    packageCounts.outstanding +
+    packageCounts.pendingLoneWolf +
+    packageCounts.needsReview;
+  const packageCompletionPct =
+    activePackageCount === 0 ? 100 : Math.round((packageCounts.uploadedMatched / activePackageCount) * 100);
   const sentReminderCount = reminders.filter((reminder) => reminder.status === "sent").length;
   const closingDate = currentValue("closing_date");
   const depositAmount = currentValue("deposit_amount");
@@ -727,8 +733,8 @@ export function ReviewScreen({
         <DealStatCard
           icon={Clock3Icon}
           label="Completion"
-          value={`${checklistResult.completionPct}%`}
-          detail={`${completedRequiredCount} of ${checklistResult.requiredItems.length} required docs complete`}
+          value={`${packageCompletionPct}%`}
+          detail={`${packageCounts.uploadedMatched} of ${activePackageCount} active docs processed`}
         />
         <DealStatCard
           icon={Clock3Icon}
@@ -1138,9 +1144,8 @@ function PackageDocumentsPanel({
   return (
     <Card>
       <CardHeader className="border-b py-4">
-        <div className="grid gap-3 lg:grid-cols-[120px_1fr] lg:items-center">
-          <CardTitle className="text-base leading-tight">Package documents</CardTitle>
-          <div className="grid grid-cols-2 gap-1.5 md:grid-cols-5">
+        <div>
+          <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3 xl:grid-cols-6">
             {filters.map((filter) => {
               const active = activeFilter === filter.id;
               return (
