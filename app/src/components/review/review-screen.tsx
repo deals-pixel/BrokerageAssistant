@@ -215,6 +215,7 @@ type PackageDocumentRow = {
 };
 
 type FieldStatusTone = "confirmed" | "review" | "missing" | "neutral";
+type FieldReviewFilter = "all" | "needs_review" | "confirmed" | "unverified";
 
 type FieldStatus = {
   tone: FieldStatusTone;
@@ -279,6 +280,7 @@ export function ReviewScreen({
   const [escalateAfterDays, setEscalateAfterDays] = useState(7);
   const [selectedFieldKey, setSelectedFieldKey] = useState<string | null>(null);
   const [selectedSourceIndex, setSelectedSourceIndex] = useState<number | null>(null);
+  const [fieldReviewFilter, setFieldReviewFilter] = useState<FieldReviewFilter>("all");
   const [packageFilter, setPackageFilter] = useState<PackageFilter>("all");
   const [workingRequirementId, setWorkingRequirementId] = useState<string | null>(null);
   const [confirmingDeposit, setConfirmingDeposit] = useState(false);
@@ -380,6 +382,13 @@ export function ReviewScreen({
     row.docTypes.some((docType) => docType === "deposit_proof" || docType === "copy_deposit_receipt_other_brokerage"),
   );
   const depositProofFound = depositProofRows.some((row) => row.found);
+  const fieldReviewStats = buildFieldReviewStats({
+    fieldMap,
+    currentValue,
+    isHidden: (fieldKey) => isConditionalFieldHidden(fieldKey, currentValue),
+  });
+  const fieldReviewPct =
+    fieldReviewStats.all === 0 ? 100 : Math.round((fieldReviewStats.confirmed / fieldReviewStats.all) * 100);
 
   function setCheckboxFieldEdit(fieldKey: string, checked: boolean) {
     setEdited((prev) => {
@@ -407,6 +416,11 @@ export function ReviewScreen({
     setSelectedFieldKey(fieldKey);
     setSelectedSourceIndex(index);
     setSelectedPage(source.sourcePage);
+  }
+
+  function selectConflictSource(fieldKey: string, source: FieldSourceCandidate, index: number) {
+    setEdited((prev) => ({ ...prev, [fieldKey]: source.value }));
+    jumpToConflictSource(fieldKey, source, index);
   }
 
   async function persistFieldEdits(entries: [string, string][]) {
@@ -762,7 +776,6 @@ export function ReviewScreen({
         depositHolder={depositHolder}
         depositMethod={depositMethod}
         proofFound={depositProofFound}
-        proofLabels={depositProofRows.map((row) => row.label)}
         confirming={confirmingDeposit}
         onConfirm={confirmDeposit}
       />
@@ -851,166 +864,194 @@ export function ReviewScreen({
 
         {/* Right: fields form */}
         <div className="space-y-4">
-          <Card>
-            <CardContent className="flex flex-wrap gap-x-5 gap-y-2 p-3">
-              <FieldStatusLegendItem tone="confirmed" label="Confirmed" />
-              <FieldStatusLegendItem tone="review" label="Needs review" />
-              <FieldStatusLegendItem tone="missing" label="Missing" />
-            </CardContent>
-          </Card>
+          <Card className="overflow-hidden py-0">
+            <CardHeader className="border-b px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-[220px] flex-1">
+                  <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                    <span>Review progress</span>
+                    <span>{fieldReviewStats.confirmed} of {fieldReviewStats.all} confirmed</span>
+                  </div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full rounded-full bg-green-600" style={{ width: `${fieldReviewPct}%` }} />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { id: "all" as const, label: "All", count: fieldReviewStats.all },
+                    { id: "needs_review" as const, label: "Needs review", count: fieldReviewStats.needsReview },
+                    { id: "confirmed" as const, label: "Confirmed", count: fieldReviewStats.confirmed },
+                    { id: "unverified" as const, label: "Unverified", count: fieldReviewStats.unverified },
+                  ].map((filter) => (
+                    <button
+                      key={filter.id}
+                      type="button"
+                      className={`h-8 rounded-md border px-2.5 text-sm transition ${
+                        fieldReviewFilter === filter.id
+                          ? "border-foreground bg-background shadow-sm"
+                          : "border-border bg-muted/20 hover:bg-muted"
+                      }`}
+                      onClick={() => setFieldReviewFilter(filter.id)}
+                    >
+                      {filter.label} <span className="font-semibold">{filter.count}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </CardHeader>
 
-          {FIELD_SECTIONS.map((section) => (
-            <Card key={section.title}>
-              <CardHeader className="py-4">
-                <CardTitle className="text-base">{section.title}</CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                {section.fields.map((f) => {
-                  if (isConditionalFieldHidden(f.key, currentValue)) return null;
+            <CardContent className="space-y-4 p-4">
+              {FIELD_SECTIONS.map((section) => {
+                const visibleFields = section.fields.filter((f) => {
+                  if (isConditionalFieldHidden(f.key, currentValue)) return false;
                   const row = fieldMap.get(f.key);
-                  const inputId = `field-${f.key}`;
                   const value = currentValue(f.key);
-                  const sourceLabel = row?.source_doc_type
-                    ? documentTypeLabel(row.source_doc_type)
-                    : row?.source_page != null
-                      ? pageLabelByNumber.get(row.source_page)
-                      : null;
                   const conflictSources = validConflictSources(row?.conflict_sources);
                   const fieldStatus = getFieldStatus(f.key, row, conflictSources.length, fieldMap, value);
-                  const fieldDirty = edited[f.key] !== undefined;
-                  const fieldSaving = savingFieldKey === f.key;
-                  const isCheckboxField = CHECKBOX_FIELD_KEYS.has(f.key);
-                  const inputClassName =
-                    fieldStatus.className +
-                    (fieldDirty ? " ring-2 ring-blue-300" : "");
-                  return (
-                    <div
-                      key={f.key}
-                      className={`rounded-md border p-3 ${fieldShellClass(fieldStatus.tone)} ${
-                        fieldGridSpanClass(f.wide, isCheckboxField)
-                      }`}
-                    >
-                      <div className="mb-2">
-                        <label
-                          htmlFor={inputId}
-                          className="text-sm font-medium leading-tight text-foreground"
-                        >
-                          {f.label}
-                        </label>
-                      </div>
-                      <div className={f.multiline ? "flex items-start gap-2" : "flex items-center gap-2"}>
-                        {isCheckboxField ? (
-                          <div className="flex min-h-9 flex-1 items-center gap-3 rounded-md border border-input bg-background px-3 text-sm">
-                            <input
-                              id={inputId}
-                              type="checkbox"
-                              className="size-4 rounded border-input accent-primary"
-                              checked={isCheckedValue(value)}
-                              onFocus={() => jumpToFieldSource(row, f.key)}
-                              onChange={(event) => setCheckboxFieldEdit(f.key, event.target.checked)}
-                            />
-                            <span>{isCheckedValue(value) ? "Yes" : "No"}</span>
-                          </div>
-                        ) : f.multiline ? (
-                          <Textarea
-                            id={inputId}
-                            className={`min-h-20 flex-1 ${inputClassName}`}
-                            title={
-                              row?.source_page != null
-                                ? `Source: ${sourceLabel ?? "uploaded document"}`
-                                : undefined
-                            }
-                            value={value}
-                            onFocus={() => jumpToFieldSource(row, f.key)}
-                            onChange={(e) =>
-                              setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))
-                            }
-                          />
-                        ) : (
-                          <Input
-                            id={inputId}
-                            className={`flex-1 ${inputClassName}`}
-                            title={
-                              row?.source_page != null
-                                ? `Source: ${sourceLabel ?? "uploaded document"}`
-                                : undefined
-                            }
-                            value={value}
-                            onFocus={() => jumpToFieldSource(row, f.key)}
-                            onChange={(e) =>
-                              setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))
-                            }
-                          />
-                        )}
-                        {fieldDirty && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="shrink-0"
-                            onClick={() => saveFieldEdit(f.key)}
-                            disabled={saving || fieldSaving}
-                          >
-                            {fieldSaving ? "Saving..." : "Save"}
-                          </Button>
-                        )}
-                      </div>
-                      <div className="mt-2 flex items-start gap-2 text-xs">
-                        <FieldStatusDot tone={fieldStatus.tone} className="mt-1" />
-                        <div>
-                          <p className={fieldStatusTextClass(fieldStatus.tone)}>
-                            {fieldStatus.label}
-                          </p>
-                          <p className="text-muted-foreground">{fieldStatus.detail}</p>
-                        </div>
-                      </div>
-                      {row?.notes && (
-                        <p className="mt-2 text-xs text-amber-800">{row.notes}</p>
-                      )}
-                      {conflictSources.length > 1 && (
-                        <div className="mt-2 space-y-1">
-                          <p className="text-xs text-amber-800">
-                            {conflictSources.length} sources disagree
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
-                          {conflictSources.map((source, index) => {
-                            const active =
-                              selectedFieldKey === f.key && selectedSourceIndex === index;
-                            const label = source.sourceDocumentType
-                              ? documentTypeLabel(source.sourceDocumentType)
-                              : source.sourcePage != null
-                                ? pageLabelByNumber.get(source.sourcePage) ?? "Source document"
-                                : "Source document";
-                            return (
-                              <button
-                                key={`${source.sourceDocumentType ?? "source"}-${source.sourcePage ?? "?"}-${index}`}
-                                type="button"
-                                className={`max-w-full rounded border px-2 py-1 text-left text-[11px] leading-tight ${
-                                  active
-                                    ? "border-amber-500 bg-amber-100 text-amber-950"
-                                    : "border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"
-                                }`}
-                                onClick={() => jumpToConflictSource(f.key, source, index)}
-                                title={`${label}: ${source.value}`}
-                              >
-                                <span className="font-medium">
-                                  {label}
-                                </span>
-                                <span className="ml-1 text-amber-800">
-                                  {truncateSourceValue(source.value)}
-                                </span>
-                              </button>
-                            );
-                          })}
-                          </div>
-                        </div>
-                      )}
+                  return fieldMatchesReviewFilter(fieldStatus, fieldReviewFilter);
+                });
+                if (visibleFields.length === 0) return null;
+
+                return (
+                  <section key={section.title} className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="h-px flex-1 bg-border" />
+                      <h2 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {friendlyFieldSectionTitle(section.title)}
+                      </h2>
+                      <div className="h-px flex-1 bg-border" />
                     </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          ))}
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                      {visibleFields.map((f) => {
+                        const row = fieldMap.get(f.key);
+                        const inputId = `field-${f.key}`;
+                        const value = currentValue(f.key);
+                        const conflictSources = validConflictSources(row?.conflict_sources);
+                        const fieldStatus = getFieldStatus(f.key, row, conflictSources.length, fieldMap, value);
+                        const fieldDirty = edited[f.key] !== undefined;
+                        const fieldSaving = savingFieldKey === f.key;
+                        const isCheckboxField = CHECKBOX_FIELD_KEYS.has(f.key);
+                        const sourceLabel = fieldSourceLabel(row, pageLabelByNumber);
+                        const inputClassName = reviewInputClass(fieldStatus.tone, fieldDirty);
+                        const wideClass = f.wide || f.multiline || conflictSources.length > 1 ? "md:col-span-2" : "";
+
+                        return (
+                          <div key={f.key} className={`rounded-md border p-2.5 ${reviewFieldShellClass(fieldStatus.tone)} ${wideClass}`}>
+                            <label htmlFor={inputId} className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              {f.label}
+                            </label>
+                            <div className={f.multiline ? "mt-1.5 flex items-start gap-2" : "mt-1.5 flex items-center gap-2"}>
+                              {isCheckboxField ? (
+                                <div className={`flex min-h-8 flex-1 items-center gap-3 rounded-md border px-3 text-sm ${inputClassName}`}>
+                                  <input
+                                    id={inputId}
+                                    type="checkbox"
+                                    className="size-4 rounded border-input accent-primary"
+                                    checked={isCheckedValue(value)}
+                                    onFocus={() => jumpToFieldSource(row, f.key)}
+                                    onChange={(event) => setCheckboxFieldEdit(f.key, event.target.checked)}
+                                  />
+                                  <span>{isCheckedValue(value) ? "Yes" : "No"}</span>
+                                </div>
+                              ) : f.multiline ? (
+                                <Textarea
+                                  id={inputId}
+                                  className={`min-h-16 flex-1 ${inputClassName}`}
+                                  value={value}
+                                  onFocus={() => jumpToFieldSource(row, f.key)}
+                                  onChange={(e) => setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                                />
+                              ) : (
+                                <Input
+                                  id={inputId}
+                                  className={`h-8 flex-1 ${inputClassName}`}
+                                  value={value}
+                                  onFocus={() => jumpToFieldSource(row, f.key)}
+                                  onChange={(e) => setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                                />
+                              )}
+                              {fieldDirty && conflictSources.length <= 1 && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="shrink-0"
+                                  onClick={() => saveFieldEdit(f.key)}
+                                  disabled={saving || fieldSaving}
+                                >
+                                  {fieldSaving ? "Saving..." : "Save"}
+                                </Button>
+                              )}
+                            </div>
+
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+                              <FieldStatusDot tone={fieldStatus.tone} />
+                              <span className={`font-medium ${fieldStatusTextClass(fieldStatus.tone)}`}>{reviewStatusLabel(fieldStatus)}</span>
+                              {sourceLabel && (
+                                <button
+                                  type="button"
+                                  className="rounded-full border bg-background px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
+                                  onClick={() => jumpToFieldSource(row, f.key)}
+                                >
+                                  Source: {sourceLabel}
+                                </button>
+                              )}
+                              {templateFallbackNote(row) && (
+                                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800">
+                                  Template fallback
+                                </span>
+                              )}
+                            </div>
+
+                            {conflictSources.length > 1 && (
+                              <div className="mt-2 overflow-hidden rounded-md border border-amber-300 bg-background">
+                                <div className="border-b border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-900">
+                                  Which value is correct?
+                                </div>
+                                <div className="divide-y">
+                                  {conflictSources.map((source, index) => {
+                                    const active = selectedFieldKey === f.key && selectedSourceIndex === index;
+                                    const label = conflictSourceLabel(source, pageLabelByNumber);
+                                    return (
+                                      <button
+                                        key={`${source.sourceDocumentType ?? "source"}-${source.sourcePage ?? "?"}-${index}`}
+                                        type="button"
+                                        className={`grid w-full grid-cols-[auto_1fr] gap-x-2 px-2.5 py-2 text-left text-xs ${
+                                          active ? "bg-amber-50" : "hover:bg-muted/40"
+                                        }`}
+                                        onClick={() => selectConflictSource(f.key, source, index)}
+                                      >
+                                        <span className={`mt-0.5 size-3 rounded-full border ${active ? "border-amber-700 bg-amber-700" : "border-amber-400"}`} />
+                                        <span>
+                                          <span className="block font-semibold text-foreground">{source.value}</span>
+                                          <span className="block text-[11px] text-muted-foreground">{label}</span>
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <div className="flex items-center justify-between gap-3 border-t border-amber-200 bg-amber-50/40 px-2.5 py-2">
+                                  <span className="text-xs text-amber-900">Select the correct value, then confirm</span>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => saveFieldEdit(f.key)}
+                                    disabled={edited[f.key] === undefined || saving || fieldSaving}
+                                  >
+                                    {fieldSaving ? "Saving..." : "Confirm selection"}
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })}
+            </CardContent>
+          </Card>
         </div>
       </div>
 
@@ -1451,6 +1492,91 @@ function getFieldStatus(
   };
 }
 
+function buildFieldReviewStats({
+  fieldMap,
+  currentValue,
+  isHidden,
+}: {
+  fieldMap: Map<string, FieldRow>;
+  currentValue: (key: string) => string;
+  isHidden: (key: string) => boolean;
+}) {
+  const stats = { all: 0, needsReview: 0, confirmed: 0, unverified: 0 };
+
+  for (const section of FIELD_SECTIONS) {
+    for (const field of section.fields) {
+      if (isHidden(field.key)) continue;
+      const row = fieldMap.get(field.key);
+      const value = currentValue(field.key);
+      const conflictSources = validConflictSources(row?.conflict_sources);
+      const status = getFieldStatus(field.key, row, conflictSources.length, fieldMap, value);
+      stats.all += 1;
+      if (status.tone === "review") stats.needsReview += 1;
+      else if (status.tone === "confirmed") stats.confirmed += 1;
+      else stats.unverified += 1;
+    }
+  }
+
+  return stats;
+}
+
+function fieldMatchesReviewFilter(status: FieldStatus, filter: FieldReviewFilter) {
+  if (filter === "all") return true;
+  if (filter === "needs_review") return status.tone === "review";
+  if (filter === "confirmed") return status.tone === "confirmed";
+  return status.tone !== "confirmed" && status.tone !== "review";
+}
+
+function friendlyFieldSectionTitle(title: string) {
+  if (title === "Deal Summary") return "Transaction Details";
+  if (title === "Seller / Landlord" || title === "Buyer / Tenant") return "Parties";
+  return title;
+}
+
+function reviewStatusLabel(status: FieldStatus) {
+  if (status.tone === "confirmed") return "Confirmed";
+  if (status.tone === "review") return status.label.startsWith("Conflict") ? status.label : "Needs review";
+  if (status.tone === "missing") return "Unverified - click to confirm";
+  return "Unverified";
+}
+
+function fieldSourceLabel(row: FieldRow | undefined, pageLabelByNumber: Map<number, string>) {
+  if (!row) return null;
+  if (row.source_doc_type) return documentTypeLabel(row.source_doc_type);
+  if (row.source_page != null) return pageLabelByNumber.get(row.source_page) ?? `Page ${row.source_page}`;
+  return null;
+}
+
+function conflictSourceLabel(source: FieldSourceCandidate, pageLabelByNumber: Map<number, string>) {
+  const sourceLabel = source.sourceDocumentType
+    ? documentTypeLabel(source.sourceDocumentType)
+    : source.sourcePage != null
+      ? pageLabelByNumber.get(source.sourcePage) ?? "Source document"
+      : "Source document";
+  return source.sourcePage != null ? `${sourceLabel} - p.${source.sourcePage}` : sourceLabel;
+}
+
+function templateFallbackNote(row: FieldRow | undefined) {
+  return row?.notes?.toLowerCase().includes("template fallback") ?? false;
+}
+
+function reviewFieldShellClass(tone: FieldStatusTone) {
+  if (tone === "confirmed") return "border-green-200 bg-green-50/35";
+  if (tone === "review") return "border-amber-300 bg-amber-50/40";
+  if (tone === "missing") return "border-border bg-muted/10";
+  return "border-border bg-background";
+}
+
+function reviewInputClass(tone: FieldStatusTone, dirty: boolean) {
+  const base =
+    tone === "confirmed"
+      ? "border-green-300 bg-green-50/70 focus-visible:ring-green-200"
+      : tone === "review"
+        ? "border-amber-300 bg-amber-50/70 focus-visible:ring-amber-200"
+        : "border-border bg-background focus-visible:ring-muted";
+  return `${base}${dirty ? " ring-2 ring-blue-300" : ""}`;
+}
+
 function isConditionalFieldHidden(fieldKey: string, currentValue: (key: string) => string) {
   const gateKey = CONDITIONAL_FIELD_GATES[fieldKey];
   if (!gateKey) return false;
@@ -1527,7 +1653,7 @@ function fieldShellClass(tone: FieldStatusTone) {
 function fieldStatusTextClass(tone: FieldStatusTone) {
   if (tone === "confirmed") return "text-green-800";
   if (tone === "review") return "text-amber-800";
-  if (tone === "missing") return "text-red-800";
+  if (tone === "missing") return "text-muted-foreground";
   return "text-muted-foreground";
 }
 
@@ -1793,7 +1919,6 @@ function DepositVerificationCard({
   depositHolder,
   depositMethod,
   proofFound,
-  proofLabels,
   confirming,
   onConfirm,
 }: {
@@ -1802,7 +1927,6 @@ function DepositVerificationCard({
   depositHolder: string;
   depositMethod: string;
   proofFound: boolean;
-  proofLabels: string[];
   confirming: boolean;
   onConfirm: () => void;
 }) {
@@ -1853,9 +1977,6 @@ function DepositVerificationCard({
             <CheckCircle2Icon className="size-4" />
             {confirmed ? "Confirm again" : "Confirm received"}
           </Button>
-          {proofLabels.length > 0 && (
-            <p className="text-xs text-muted-foreground">Source: {Array.from(new Set(proofLabels)).join(", ")}</p>
-          )}
         </div>
       </CardContent>
     </Card>
