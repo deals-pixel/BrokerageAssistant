@@ -2,6 +2,7 @@ import { after, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildAttachmentStoragePath,
+  EXISTING_DEAL_MATCH_THRESHOLD,
   hasReviewableEmailContent,
   hashAttachment,
   heuristicRouteEmail,
@@ -175,7 +176,7 @@ async function storeInboundAttachments(
     if (storedCount > 0) {
       const routing = heuristicRouteEmail(inbound);
       const match = await matchDeal(supabase, routing, inbound.fromEmail);
-      const strongMatch = match.best && match.score >= 80 ? match.best : null;
+      const strongMatch = match.best && match.score >= EXISTING_DEAL_MATCH_THRESHOLD ? match.best : null;
       if (strongMatch) {
         await supabase.from("deal_email_links").upsert(
           {
@@ -219,7 +220,7 @@ async function storeInboundAttachments(
     if (hasReviewableEmailContent(inbound)) {
       const routing = heuristicRouteEmail(inbound);
       const match = await matchDeal(supabase, routing, inbound.fromEmail);
-      const strongMatch = match.best && match.score >= 80 ? match.best : null;
+      const strongMatch = match.best && match.score >= EXISTING_DEAL_MATCH_THRESHOLD ? match.best : null;
       if (strongMatch) {
         await supabase.from("deal_email_links").upsert(
           {

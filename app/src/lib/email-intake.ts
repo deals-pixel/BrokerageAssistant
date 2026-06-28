@@ -49,6 +49,8 @@ export type EmailBodyFieldGuess = {
   source: "email_body";
 };
 
+export const EXISTING_DEAL_MATCH_THRESHOLD = 50;
+
 const DOC_TYPE_FILENAME_HINTS: Partial<Record<DocumentType, string[]>> = {
   agreement_of_purchase_and_sale: ["aps", "agreement of purchase", "purchase and sale"],
   agreement_to_lease: ["agreement to lease", "lease agreement", "atl"],
@@ -443,11 +445,14 @@ function normalizeEmailTransactionType(value: string) {
 }
 
 function extractLikelyAddress(text: string) {
-  const line = text
-    .split(/\r?\n/)
-    .map((item) => item.trim())
-    .find((item) => /^\d{1,6}\s+/.test(item) && /(street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|blvd|boulevard)/i.test(item));
-  return line?.replace(/^property\s*:\s*/i, "").slice(0, 180) ?? "";
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim().replace(/^property\s*:\s*/i, "");
+    const address = line.match(
+      /\b(\d{1,6}\s+.{2,80}\b(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|blvd|boulevard)\b\.?)/i,
+    );
+    if (address) return address[1].trim().slice(0, 180);
+  }
+  return "";
 }
 
 function extractLikelyAddressFromFilenames(filenames: string[]) {

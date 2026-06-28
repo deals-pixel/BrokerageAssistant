@@ -1,4 +1,4 @@
-import { heuristicRouteEmail, transactionTypeForDeal, type InboundEmailInput, type LightRoutingResult } from "@/lib/email-intake";
+import { EXISTING_DEAL_MATCH_THRESHOLD, heuristicRouteEmail, transactionTypeForDeal, type InboundEmailInput, type LightRoutingResult } from "@/lib/email-intake";
 import { matchDeal } from "@/lib/email-routing-job";
 
 type SupabaseClient = {
@@ -251,7 +251,7 @@ export async function restoreInboundEmailToReview({
   const input = inboundEmailToInput(inbound);
   const routing = heuristicRouteEmail(input);
   const match = await matchDeal(supabase as Parameters<typeof matchDeal>[0], routing, input.fromEmail);
-  const strongMatch = match.best && match.score >= 80 ? match.best : null;
+  const strongMatch = match.best && match.score >= EXISTING_DEAL_MATCH_THRESHOLD ? match.best : null;
 
   await table(supabase, "deal_email_links")
     .update({ match_status: "rejected", confirmed_by: userId })

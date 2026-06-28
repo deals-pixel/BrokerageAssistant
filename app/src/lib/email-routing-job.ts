@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  EXISTING_DEAL_MATCH_THRESHOLD,
   hasReviewableEmailContent,
   heuristicRouteEmail,
   type InboundEmailInput,
@@ -155,7 +156,7 @@ export async function processInboundEmailRouting(inboundEmailId: string) {
       .filter((id): id is string => Boolean(id));
     const completedAt = new Date().toISOString();
 
-    if (match.best && match.score >= 50) {
+    if (match.best && match.score >= EXISTING_DEAL_MATCH_THRESHOLD) {
       await supabase.from("deal_email_links").upsert(
         {
           deal_id: match.best.id,
