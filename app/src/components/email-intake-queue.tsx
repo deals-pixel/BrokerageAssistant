@@ -831,56 +831,72 @@ function IntakeReviewModal({
         )}
 
         <div className="rounded-lg border">
-          <div className="flex flex-wrap items-center gap-2 border-b p-2">
-            {previewableAttachments.length === 0 ? (
-              <span className="px-1 text-xs text-muted-foreground">No stored document attachments to preview.</span>
-            ) : (
-              previewableAttachments.map((attachment) => (
-                <button
-                  key={attachment.id}
-                  type="button"
-                  className={`max-w-48 truncate rounded-md border px-2 py-1 text-left text-xs ${
-                    selectedAttachment?.id === attachment.id ? "border-primary bg-primary text-primary-foreground" : "bg-background"
-                  }`}
-                  onClick={() => onChange({ ...dialog, previewAttachmentId: attachment.id })}
-                  title={attachment.original_filename ?? undefined}
-                >
-                  {attachment.original_filename || "Attachment"}
-                </button>
-              ))
-            )}
-          </div>
-          <div className="h-[34rem] bg-muted/25">
-            {selectedAttachment ? (
-              attachmentCanPreview(selectedAttachment) ? (
-                <iframe
-                  title={selectedAttachment.original_filename ?? "Attachment preview"}
-                  src={`/api/email-attachments/${selectedAttachment.id}/download`}
-                  className="h-full w-full bg-background"
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
-                  Preview is not available for this file type. Use Download to inspect it.
+          {previewableAttachments.length === 0 ? (
+            <>
+              <div className="border-b p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Email body</div>
+                <div className="mt-1 text-sm font-medium">{dialog.email.subject || "No subject"}</div>
+                <div className="text-xs text-muted-foreground">
+                  {dialog.email.from_name || dialog.email.from_email || "Unknown sender"}
+                  {dialog.email.received_at ? ` | ${new Date(dialog.email.received_at).toLocaleString()}` : ""}
                 </div>
-              )
-            ) : (
-              <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
-                Select an attachment to preview.
               </div>
-            )}
-          </div>
-          {selectedAttachment && (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t p-2 text-xs text-muted-foreground">
-              <span className="truncate">{attachmentMeta(selectedAttachment)}</span>
-              <Button
-                size="sm"
-                variant="outline"
-                nativeButton={false}
-                render={<Link href={`/api/email-attachments/${selectedAttachment.id}/download`} target="_blank" />}
-              >
-                Download
-              </Button>
-            </div>
+              <div className="h-[34rem] overflow-y-auto bg-background p-4 text-sm leading-6">
+                <pre className="whitespace-pre-wrap break-words font-sans">
+                  {emailBody || "No readable email body was included with this forwarded package."}
+                </pre>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2 border-b p-2">
+                {previewableAttachments.map((attachment) => (
+                  <button
+                    key={attachment.id}
+                    type="button"
+                    className={`max-w-48 truncate rounded-md border px-2 py-1 text-left text-xs ${
+                      selectedAttachment?.id === attachment.id ? "border-primary bg-primary text-primary-foreground" : "bg-background"
+                    }`}
+                    onClick={() => onChange({ ...dialog, previewAttachmentId: attachment.id })}
+                    title={attachment.original_filename ?? undefined}
+                  >
+                    {attachment.original_filename || "Attachment"}
+                  </button>
+                ))}
+              </div>
+              <div className="h-[34rem] bg-muted/25">
+                {selectedAttachment ? (
+                  attachmentCanPreview(selectedAttachment) ? (
+                    <iframe
+                      title={selectedAttachment.original_filename ?? "Attachment preview"}
+                      src={`/api/email-attachments/${selectedAttachment.id}/download`}
+                      className="h-full w-full bg-background"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
+                      Preview is not available for this file type. Use Download to inspect it.
+                    </div>
+                  )
+                ) : (
+                  <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
+                    Select an attachment to preview.
+                  </div>
+                )}
+              </div>
+              {selectedAttachment && (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t p-2 text-xs text-muted-foreground">
+                  <span className="truncate">{attachmentMeta(selectedAttachment)}</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    nativeButton={false}
+                    render={<Link href={`/api/email-attachments/${selectedAttachment.id}/download`} target="_blank" />}
+                  >
+                    Download
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
