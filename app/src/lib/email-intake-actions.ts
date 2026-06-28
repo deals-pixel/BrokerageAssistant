@@ -49,6 +49,16 @@ type InboundEmailRouting = {
   routing_json: Partial<LightRoutingResult> | null;
 };
 
+type InboundEmailEvidence = {
+  id: string;
+  from_email: string | null;
+  from_name: string | null;
+  subject: string | null;
+  body_text: string | null;
+  body_html: string | null;
+  received_at: string | null;
+};
+
 type EmailBodyDealField = {
   field_key: string;
   value: string | null;
@@ -60,6 +70,11 @@ type DealForLink = {
   id: string;
   property_address: string | null;
   file_name: string;
+};
+
+type DealDepositField = {
+  field_key: string;
+  value: string | null;
 };
 
 const LINKABLE_ATTACHMENT_STATUSES = ["stored", "light_classified", "linked_to_transaction"];
@@ -104,6 +119,12 @@ export async function confirmInboundEmailMatch({
 
   await linkAttachmentsToDeal(supabase, inboundEmailId, dealId);
   const emailBodyFieldsApplied = await applyEmailBodyFieldsToDeal(supabase, inboundEmailId, dealId);
+  const depositConfirmedByEmail = await confirmDepositFromInboundEmail({
+    supabase,
+    inboundEmailId,
+    dealId,
+    userId,
+  });
   await markDealNeedsAttention(supabase, dealId, ATTENTION_REASONS.updatedFromIntake);
   await table(supabase, "inbound_emails")
     .update({ status: "matched", error_message: null })
@@ -113,7 +134,12 @@ export async function confirmInboundEmailMatch({
     user_id: userId,
     deal_id: dealId,
     action: "email_match_confirmed",
-    details: { inbound_email_id: inboundEmailId, match_score: matchScore ?? 100, email_body_fields_applied: emailBodyFieldsApplied },
+    details: {
+      inbound_email_id: inboundEmailId,
+      match_score: matchScore ?? 100,
+      email_body_fields_applied: emailBodyFieldsApplied,
+      deposit_confirmed_by_email: depositConfirmedByEmail,
+    },
   });
 
   return { deal };
@@ -344,6 +370,15 @@ async function fetchInboundRouting(supabase: SupabaseClient, inboundEmailId: str
   return data as InboundEmailRouting;
 }
 
+async function fetchInboundEmailEvidence(supabase: SupabaseClient, inboundEmailId: string) {
+  const { data, error } = await table(supabase, "inbound_emails")
+    .select("id, from_email, from_name, subject, body_text, body_html, received_at")
+    .eq("id", inboundEmailId)
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "Inbound email not found");
+  return data as InboundEmailEvidence;
+}
+
 async function applyEmailBodyFieldsToDeal(supabase: SupabaseClient, inboundEmailId: string, dealId: string) {
   const inbound = await fetchInboundRouting(supabase, inboundEmailId);
   const fields = emailBodyFieldsFromRouting(inbound.routing_json);
@@ -389,6 +424,113 @@ async function applyEmailBodyFieldsToDeal(supabase: SupabaseClient, inboundEmail
   }
 
   return applied;
+}
+
+async function confirmDepositFromInboundEmail({
+  supabase,
+  inboundEmailId,
+  dealId,
+  userId,
+}: {
+  supabase: SupabaseClient;
+  inboundEmailId: string;
+  dealId: string;
+  userId: string;
+}) {
+  const inbound = await fetchInboundEmailEvidence(supabase, inboundEmailId);
+  const evidence = depositConfirmationEvidence(inbound);
+  if (!evidence.confirmed) return false;
+
+  const { data: fields } = (await table(supabase, "deal_fields")
+    .select("field_key, value")
+    .eq("deal_id", dealId)
+    .in("field_key", ["deposit_amount", "deposit_holder", "deposit_method"])) as { data: DealDepositField[] | null };
+  const fieldMap = new Map((fields ?? []).map((field) => [field.field_key, field.value ?? ""]));
+  const proofAmount = fieldMap.get("deposit_amount")?.trim() || evidence.amount || null;
+  const confirmedAt = new Date().toISOString();
+  const note = [
+    "Confirmed by inbound email.",
+    inbound.subject ? `Subject: ${inbound.subject}` : null,
+    inbound.from_email ? `Sender: ${inbound.from_email}` : null,
+    inbound.received_at ? `Received: ${inbound.received_at}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const { error } = await table(supabase, "deal_deposit_verifications").upsert(
+    {
+      deal_id: dealId,
+      status: "confirmed",
+      proof_amount: proofAmount,
+      confirmed_amount: proofAmount,
+      note,
+      confirmed_by: userId,
+      confirmed_at: confirmedAt,
+    },
+    { onConflict: "deal_id" },
+  );
+  if (error) throw new Error(error.message);
+
+  await table(supabase, "audit_logs").insert({
+    user_id: userId,
+    deal_id: dealId,
+    action: "deposit_confirmed_by_email",
+    details: {
+      inbound_email_id: inboundEmailId,
+      from_email: inbound.from_email,
+      from_name: inbound.from_name,
+      subject: inbound.subject,
+      received_at: inbound.received_at,
+      confirmed_at: confirmedAt,
+      proof_amount: proofAmount,
+      confirmed_amount: proofAmount,
+      deposit_holder: fieldMap.get("deposit_holder") || null,
+      deposit_method: fieldMap.get("deposit_method") || null,
+      evidence_text: evidence.excerpt,
+    },
+  });
+
+  return true;
+}
+
+function depositConfirmationEvidence(email: InboundEmailEvidence) {
+  const text = [email.subject, inboundEmailText(email)].filter(Boolean).join("\n");
+  const normalized = text.toLowerCase();
+  const hasDepositContext =
+    normalized.includes("deposit") ||
+    normalized.includes("branch number") ||
+    /\bpp\s+to\b/.test(normalized) ||
+    /\bpayment\s+posted\b/.test(normalized);
+  const hasConfirmation =
+    /\bposted\b/.test(normalized) ||
+    /\breceived\b/.test(normalized) ||
+    /\bconfirmed\b/.test(normalized) ||
+    /\bdeposit(ed)?\b/.test(normalized);
+  const amount = text.match(/\$\s*\d[\d,]*(?:\.\d{2})?/)?.[0]?.replace(/\s+/g, "") ?? null;
+
+  return {
+    confirmed: hasDepositContext && hasConfirmation,
+    amount,
+    excerpt: text.replace(/\s+/g, " ").trim().slice(0, 500),
+  };
+}
+
+function inboundEmailText(email: Pick<InboundEmailEvidence, "body_text" | "body_html">) {
+  if (email.body_text?.trim()) return email.body_text.trim();
+  if (!email.body_html) return "";
+  return email.body_html
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
 }
 
 function emailBodyFieldsFromRouting(routing: Partial<LightRoutingResult> | null | undefined) {
