@@ -4,7 +4,7 @@ import { useMemo, useState, type ComponentType } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { BellIcon, CalendarIcon, CheckCircle2Icon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, Clock3Icon, DownloadIcon, FileTextIcon, MailIcon, MapPinIcon, PauseIcon, PencilIcon, RefreshCwIcon, SendIcon, ShieldCheckIcon, UsersIcon } from "lucide-react";
+import { AlertTriangleIcon, ArrowUpRightIcon, BellIcon, CalendarIcon, CheckCircle2Icon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, Clock3Icon, DownloadIcon, FileTextIcon, MailIcon, MapPinIcon, PauseIcon, PencilIcon, RefreshCwIcon, SendIcon, ShieldCheckIcon, UsersIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -990,14 +990,16 @@ export function ReviewScreen({
                               {sourceLabel && (
                                 <button
                                   type="button"
-                                  className="rounded-full border bg-background px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
+                                  className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
                                   onClick={() => jumpToFieldSource(row, f.key)}
                                 >
-                                  Source: {sourceLabel}
+                                  <ArrowUpRightIcon className="size-3" />
+                                  {sourceLabel}
                                 </button>
                               )}
                               {templateFallbackNote(row) && (
-                                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800">
+                                <span className="inline-flex items-center gap-1 rounded-full px-1 py-0.5 text-[11px] text-muted-foreground">
+                                  <AlertTriangleIcon className="size-3" />
                                   Template fallback
                                 </span>
                               )}
@@ -2129,7 +2131,7 @@ function ReminderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[92vh] w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden rounded-xl bg-[#f7f5ef] p-0 sm:max-w-[1040px]">
+      <DialogContent className="flex max-h-[92vh] w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden rounded-xl bg-muted p-0 sm:max-w-[1040px]">
         <DialogHeader className="border-b bg-background px-5 py-4 pr-14">
           <DialogTitle>Send reminder</DialogTitle>
           <DialogDescription className="flex min-w-0 items-start gap-1 text-xs text-foreground">
@@ -2142,7 +2144,7 @@ function ReminderDialog({
           <section className="flex min-w-0 flex-col gap-3 bg-background p-5 pb-6">
             <div>
               <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Sending to</p>
-              <div className="flex flex-col gap-3 rounded-lg border bg-[#f7f5ef] p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-3 rounded-lg border bg-muted p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-medium text-blue-800">
                     {recipientInitials}
@@ -2202,7 +2204,7 @@ function ReminderDialog({
                 {reminderTasks.map((task) => {
                   const checked = selectedReminderTaskIds.includes(task.id);
                   return (
-                    <label key={task.id} className="flex items-start gap-3 rounded-lg border bg-[#f7f5ef] p-3 text-sm">
+                    <label key={task.id} className="flex items-start gap-3 rounded-lg border bg-muted p-3 text-sm">
                       <input
                         type="checkbox"
                         className="mt-1 size-4"
@@ -2247,7 +2249,7 @@ function ReminderDialog({
                   <p className="text-xs text-muted-foreground">Edit your own schedule</p>
                 </div>
               </div>
-              <div className="mt-2 rounded-lg border bg-[#f7f5ef] p-3 text-sm">
+              <div className="mt-2 rounded-lg border bg-muted p-3 text-sm">
                 <div className="grid gap-2">
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-muted-foreground">Next follow-up</span>
@@ -2269,7 +2271,7 @@ function ReminderDialog({
             </div>
 
             <div className="overflow-hidden rounded-lg border bg-background">
-              <div className="flex items-center justify-between border-b bg-[#f7f5ef] p-3">
+              <div className="flex items-center justify-between border-b bg-muted p-3">
                 <div className="flex items-center gap-2 text-sm">
                   <MailIcon className="size-4" />
                   <span>Draft preview</span>
@@ -2294,7 +2296,7 @@ function ReminderDialog({
             </div>
           </section>
 
-          <aside className="border-t bg-[#f0eee7] p-4 pb-6 lg:border-l lg:border-t-0">
+          <aside className="border-t bg-muted p-4 pb-6 lg:border-l lg:border-t-0">
             <div className="mb-3 flex items-center justify-between gap-3">
               <p className="text-sm font-medium">Reminder History</p>
               <Badge variant="outline">{sortedReminders.length}</Badge>
