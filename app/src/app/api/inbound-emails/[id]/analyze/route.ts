@@ -116,10 +116,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       );
     }
 
-    const status = !analysis.is_deal_package
-      ? "not_deal_suggested"
-      : matchedDeal
-        ? "needs_match_review"
+    const status = matchedDeal
+      ? "needs_match_review"
+      : !analysis.is_deal_package
+        ? "not_deal_suggested"
         : "new_deal_suggested";
 
     await admin
@@ -128,7 +128,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         status,
         routing_json: analysis,
         routing_completed_at: completedAt,
-        error_message: analysis.is_deal_package ? null : analysis.not_deal_reason || "AI did not identify a deal package.",
+        error_message: status === "not_deal_suggested" ? analysis.not_deal_reason || "AI did not identify a deal package." : null,
       })
       .eq("id", id);
 
