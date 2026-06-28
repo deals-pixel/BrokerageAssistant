@@ -79,6 +79,14 @@ export default async function DealPage({
     .select("requirement_id, lonewolf_status, lonewolf_uploaded_at, lonewolf_uploaded_by")
     .eq("deal_id", id);
 
+  const { data: depositVerification } = await supabase
+    .from("deal_deposit_verifications")
+    .select("id, status, proof_amount, confirmed_amount, note, confirmed_by, confirmed_at, profiles(email, full_name)")
+    .eq("deal_id", id)
+    .order("confirmed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   const { data: emailAttachments } = await supabase
     .from("email_attachments")
     .select(
@@ -119,6 +127,7 @@ export default async function DealPage({
       }
       agents={agents ?? []}
       requirementStatuses={requirementStatuses ?? []}
+      depositVerification={depositVerification ?? null}
       emailAttachments={emailAttachments ?? []}
       auditLogs={auditLogs ?? []}
       initialReminderOpen={query?.reminder === "1"}

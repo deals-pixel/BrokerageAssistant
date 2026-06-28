@@ -156,6 +156,17 @@ type RequirementStatusRow = {
   lonewolf_uploaded_by: string | null;
 };
 
+type DepositVerificationRow = {
+  id: string;
+  status: "confirmed";
+  proof_amount: string | null;
+  confirmed_amount: string | null;
+  note: string | null;
+  confirmed_by: string | null;
+  confirmed_at: string;
+  profiles?: { email: string | null; full_name: string | null } | { email: string | null; full_name: string | null }[] | null;
+};
+
 type EmailAttachmentRow = {
   id: string;
   original_filename: string | null;
@@ -233,6 +244,7 @@ export function ReviewScreen({
   inboundEmailContacts = [],
   agents,
   requirementStatuses,
+  depositVerification,
   emailAttachments,
   auditLogs,
   initialReminderOpen = false,
@@ -246,6 +258,7 @@ export function ReviewScreen({
   inboundEmailContacts?: InboundEmailContact[];
   agents: AgentRow[];
   requirementStatuses: RequirementStatusRow[];
+  depositVerification: DepositVerificationRow | null;
   emailAttachments: EmailAttachmentRow[];
   auditLogs: AuditLogRow[];
   initialReminderOpen?: boolean;
@@ -268,6 +281,7 @@ export function ReviewScreen({
   const [selectedSourceIndex, setSelectedSourceIndex] = useState<number | null>(null);
   const [packageFilter, setPackageFilter] = useState<PackageFilter>("all");
   const [workingRequirementId, setWorkingRequirementId] = useState<string | null>(null);
+  const [confirmingDeposit, setConfirmingDeposit] = useState(false);
   const [reminderDialogOpen, setReminderDialogOpen] = useState(initialReminderOpen);
   const [classificationReviewRow, setClassificationReviewRow] = useState<PackageDocumentRow | null>(null);
   const [classificationReviewPage, setClassificationReviewPage] = useState<number | null>(null);
@@ -352,8 +366,16 @@ export function ReviewScreen({
 
   const dirty = Object.keys(edited).length > 0;
   const packageCounts = packageFilterCounts(packageRows);
+  const completedRequiredCount = checklistResult.requiredItems.length - checklistResult.missingRequired.length;
   const sentReminderCount = reminders.filter((reminder) => reminder.status === "sent").length;
   const closingDate = currentValue("closing_date");
+  const depositAmount = currentValue("deposit_amount");
+  const depositHolder = currentValue("deposit_holder");
+  const depositMethod = currentValue("deposit_method");
+  const depositProofRows = packageRows.filter((row) =>
+    row.docTypes.some((docType) => docType === "deposit_proof" || docType === "copy_deposit_receipt_other_brokerage"),
+  );
+  const depositProofFound = depositProofRows.some((row) => row.found);
 
   function setCheckboxFieldEdit(fieldKey: string, checked: boolean) {
     setEdited((prev) => {
@@ -626,6 +648,25 @@ export function ReviewScreen({
     }
   }
 
+  async function confirmDeposit() {
+    setConfirmingDeposit(true);
+    try {
+      const res = await fetch(`/api/deals/${deal.id}/deposit-verification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? "Could not confirm deposit");
+      toast.success("Deposit verification recorded.");
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not confirm deposit");
+    } finally {
+      setConfirmingDeposit(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-[1400px] space-y-5 p-6">
       <header className="sticky top-0 z-20 -mx-6 border-b bg-background/95 px-6 py-4 backdrop-blur">
@@ -687,7 +728,7 @@ export function ReviewScreen({
           icon={Clock3Icon}
           label="Completion"
           value={`${checklistResult.completionPct}%`}
-          detail={`${packageCounts.uploadedMatched} of ${packageCounts.all} docs complete`}
+          detail={`${completedRequiredCount} of ${checklistResult.requiredItems.length} required docs complete`}
         />
         <DealStatCard
           icon={Clock3Icon}
@@ -710,6 +751,17 @@ export function ReviewScreen({
           detail={`${reminderTasks.length} open document${reminderTasks.length === 1 ? "" : "s"} available`}
         />
       </div>
+
+      <DepositVerificationCard
+        verification={depositVerification}
+        depositAmount={depositAmount}
+        depositHolder={depositHolder}
+        depositMethod={depositMethod}
+        proofFound={depositProofFound}
+        proofLabels={depositProofRows.map((row) => row.label)}
+        confirming={confirmingDeposit}
+        onConfirm={confirmDeposit}
+      />
 
       <PackageDocumentsPanel
         rows={packageRows}
@@ -1722,6 +1774,90 @@ function DealStatCard({
   );
 }
 
+function DepositVerificationCard({
+  verification,
+  depositAmount,
+  depositHolder,
+  depositMethod,
+  proofFound,
+  proofLabels,
+  confirming,
+  onConfirm,
+}: {
+  verification: DepositVerificationRow | null;
+  depositAmount: string;
+  depositHolder: string;
+  depositMethod: string;
+  proofFound: boolean;
+  proofLabels: string[];
+  confirming: boolean;
+  onConfirm: () => void;
+}) {
+  const confirmed = verification?.status === "confirmed";
+  const confirmer = verification ? verificationProfileLabel(verification) : null;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-4 py-4">
+        <div>
+          <CardTitle className="text-base">Deposit Verification</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Confirm the bank deposit matches the proof of deposit received.
+          </p>
+        </div>
+        <Badge
+          className={confirmed ? "border-green-200 bg-green-50 text-green-700" : ""}
+          variant="outline"
+        >
+          {confirmed ? "Verified" : "Not verified"}
+        </Badge>
+      </CardHeader>
+      <CardContent className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <DepositMeta label="Proof status" value={proofFound ? "Proof received" : "Proof not found"} />
+          <DepositMeta label="Proof amount" value={depositAmount || "Not extracted"} />
+          <DepositMeta label="Held by" value={depositHolder || "Not extracted"} />
+          <DepositMeta label="Method" value={depositMethod || "Not extracted"} />
+        </div>
+        <div className="flex flex-col gap-2 lg:items-end">
+          {confirmed ? (
+            <p className="text-sm text-muted-foreground">
+              Confirmed {formatShortDateTime(verification.confirmed_at)} by {confirmer}
+            </p>
+          ) : (
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Any signed-in staff member can confirm once the bank account and proof amount match.
+            </p>
+          )}
+          <Button onClick={onConfirm} disabled={confirming || !proofFound}>
+            {confirmed ? "Confirm again" : "Confirm deposit received"}
+          </Button>
+          {!proofFound && (
+            <p className="text-xs text-muted-foreground">Upload or classify a proof of deposit before confirming.</p>
+          )}
+          {proofLabels.length > 0 && (
+            <p className="text-xs text-muted-foreground">Source: {Array.from(new Set(proofLabels)).join(", ")}</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DepositMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border bg-muted/20 p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm font-medium">{value}</p>
+    </div>
+  );
+}
+
+function verificationProfileLabel(verification: DepositVerificationRow) {
+  const profile = Array.isArray(verification.profiles) ? verification.profiles[0] : verification.profiles;
+  return profile?.full_name || profile?.email || "staff member";
+}
+
 function FieldStatusLegendItem({ tone, label }: { tone: FieldStatusTone; label: string }) {
   return (
     <div className="flex items-center gap-2 text-sm text-foreground">
@@ -2640,6 +2776,16 @@ function formatAction(action: string) {
 }
 
 function summarizeDetails(details: Record<string, unknown>) {
+  if (details.confirmed_by_email || details.confirmed_amount || details.proof_amount) {
+    return [
+      details.confirmed_by_email ? `confirmed_by: ${String(details.confirmed_by_email)}` : null,
+      details.confirmed_amount ? `amount: ${String(details.confirmed_amount)}` : null,
+      details.confirmed_at ? `confirmed_at: ${String(details.confirmed_at)}` : null,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+  }
+
   const entries = Object.entries(details).slice(0, 3);
   return entries
     .map(([key, value]) => {
