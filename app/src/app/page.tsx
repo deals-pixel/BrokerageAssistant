@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Archive, BarChart3, Bell, CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LoaderCircle, Settings2, Table2, TriangleAlert, Users } from "lucide-react";
+import { Archive, BarChart3, Bell, CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LoaderCircle, Settings2, Table2, Users } from "lucide-react";
 import { buildChecklistResult, type ChecklistItem } from "@/lib/checklist";
 import { DashboardAutoRefresh } from "@/components/dashboard-auto-refresh";
 import { createClient } from "@/lib/supabase/server";
@@ -177,7 +177,6 @@ export default async function DashboardPage({
   const filteredDeals = viewDeals.filter((deal) => matchesFilter(deal, activeView === "archive" ? "all" : activeFilter));
   const metrics = buildMetrics(deals);
   const closingSoonDeals = upcomingClosingDeals(workspaceDeals, 3);
-  const fintracAlertCount = metrics.missingFintrac;
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-4 p-6">
@@ -207,23 +206,6 @@ export default async function DashboardPage({
         </div>
       </header>
 
-      {fintracAlertCount > 0 && (
-        <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
-          <div className="flex items-center gap-2 text-sm text-amber-950">
-            <TriangleAlert className="size-4 text-amber-700" />
-            <span className="font-medium">
-              {fintracAlertCount} deal{fintracAlertCount === 1 ? "" : "s"} missing FINTRAC documents
-            </span>
-            <span className="text-amber-800">- {metrics.closingThisWeek} closing this week.</span>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" nativeButton={false} render={<Link href={dashboardHref({ view: activeView, filter: "incomplete" })} />}>
-              Review now
-            </Button>
-          </div>
-        </section>
-      )}
-
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard icon={<Columns3 className="size-3.5" />} label="Active transactions" value={metrics.activeTransactions} helper="across all stages" />
         <MetricCard icon={<FileText className="size-3.5" />} label="Missing FINTRAC" value={metrics.missingFintrac} helper="compliance risk" tone="destructive" />
@@ -232,8 +214,8 @@ export default async function DashboardPage({
         <MetricCard icon={<CheckCircle2 className="size-3.5" />} label="Ready for submission" value={metrics.readyForSubmission} helper="deals complete" tone="success" />
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(20rem,0.75fr)]">
-        <Card>
+      <section className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(20rem,0.75fr)]">
+        <Card className="h-full">
           <CardHeader className="flex flex-row items-center justify-between gap-3 border-b py-3">
             <CardTitle className="text-base">Submit a package</CardTitle>
             <p className="text-xs text-muted-foreground">PDF, JPG, JPEG - max 50 MB per file</p>
@@ -243,20 +225,13 @@ export default async function DashboardPage({
           </CardContent>
         </Card>
 
-        <div className="space-y-3">
-          <ClosingSummaryCard
-            title="Closing this week"
-            deals={workspaceDeals.filter((deal) => isClosingThisWeek(deal.closingDate))}
-            empty="No closings this week"
-            href={dashboardHref({ view: activeView, filter: "closing_week" })}
-          />
-          <ClosingSummaryCard
-            title="Closing soon"
-            deals={closingSoonDeals}
-            empty="No upcoming closings"
-            href={dashboardHref({ view: "time", filter: activeFilter })}
-          />
-        </div>
+        <ClosingSummaryCard
+          title="Closing soon"
+          deals={closingSoonDeals}
+          empty="No upcoming closings"
+          href={dashboardHref({ view: "time", filter: activeFilter })}
+          className="h-full"
+        />
       </section>
 
       <section className="space-y-4 rounded-xl border bg-card p-4 shadow-sm">
@@ -1271,14 +1246,16 @@ function ClosingSummaryCard({
   deals,
   empty,
   href,
+  className = "",
 }: {
   title: string;
   deals: DashboardDeal[];
   empty: string;
   href: string;
+  className?: string;
 }) {
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader className="flex flex-row items-center justify-between border-b py-3">
         <CardTitle className="text-sm font-semibold">{title}</CardTitle>
         <Button variant="ghost" size="sm" nativeButton={false} render={<Link href={href} />}>
