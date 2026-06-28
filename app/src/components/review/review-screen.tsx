@@ -162,6 +162,10 @@ type DepositVerificationRow = {
   proof_amount: string | null;
   confirmed_amount: string | null;
   note: string | null;
+  source_inbound_email_id: string | null;
+  source_email: string | null;
+  source_name: string | null;
+  source_received_at: string | null;
   confirmed_by: string | null;
   confirmed_at: string;
   profiles?: { email: string | null; full_name: string | null } | { email: string | null; full_name: string | null }[] | null;
@@ -1933,7 +1937,7 @@ function DepositVerificationCard({
   onConfirm: () => void;
 }) {
   const confirmed = verification?.status === "confirmed";
-  const confirmer = verification ? verificationProfileLabel(verification) : null;
+  const confirmer = verification ? verificationSourceLabel(verification) : null;
   const amountValue = formatDepositAmount(depositAmount);
 
   return (
@@ -2006,7 +2010,8 @@ function formatDepositAmount(value: string) {
   }).format(numeric);
 }
 
-function verificationProfileLabel(verification: DepositVerificationRow) {
+function verificationSourceLabel(verification: DepositVerificationRow) {
+  if (verification.source_email) return verification.source_email;
   const profile = Array.isArray(verification.profiles) ? verification.profiles[0] : verification.profiles;
   return profile?.full_name || profile?.email || "staff member";
 }
@@ -2929,6 +2934,18 @@ function formatAction(action: string) {
 }
 
 function summarizeDetails(details: Record<string, unknown>) {
+  if (details.source_email || details.from_email || details.source_name || details.from_name) {
+    return [
+      details.source_name || details.from_name ? `sender_name: ${String(details.source_name ?? details.from_name)}` : null,
+      details.source_email || details.from_email ? `sender_email: ${String(details.source_email ?? details.from_email)}` : null,
+      details.confirmed_amount || details.proof_amount ? `amount: ${String(details.confirmed_amount ?? details.proof_amount)}` : null,
+      details.source_received_at || details.received_at ? `received_at: ${String(details.source_received_at ?? details.received_at)}` : null,
+      details.confirmed_at ? `confirmed_at: ${String(details.confirmed_at)}` : null,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+  }
+
   if (details.confirmed_by_email || details.confirmed_amount || details.proof_amount) {
     return [
       details.confirmed_by_email ? `confirmed_by: ${String(details.confirmed_by_email)}` : null,

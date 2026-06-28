@@ -81,7 +81,7 @@ export default async function DealPage({
 
   const { data: depositVerification } = await supabase
     .from("deal_deposit_verifications")
-    .select("id, status, proof_amount, confirmed_amount, note, confirmed_by, confirmed_at, profiles(email, full_name)")
+    .select("id, status, proof_amount, confirmed_amount, note, source_inbound_email_id, source_email, source_name, source_received_at, confirmed_by, confirmed_at, profiles(email, full_name)")
     .eq("deal_id", id)
     .order("confirmed_at", { ascending: false })
     .limit(1)
