@@ -169,10 +169,11 @@ export function DealIntakeWorkflow({
         toast.success("Email linked to transaction.");
       }
       if (dialog.mode === "create") {
-        await postAction(`/api/inbound-emails/${dialog.email.id}/create-draft`, {
+        const result = await postAction(`/api/inbound-emails/${dialog.email.id}/create-draft`, {
           propertyAddress: dialog.propertyAddress,
           transactionType: dialog.transactionType,
         });
+        rememberDashboardScrollTarget(result.deal as IntakeLinkedDeal | undefined);
         toast.success("Draft transaction created.");
       }
       if (dialog.mode === "ignore") {
@@ -214,6 +215,7 @@ export function DealIntakeWorkflow({
 
       if (!hasProcessableAttachments) {
         toast.success(action === "link" ? "Email linked for review." : "Draft transaction created for review.");
+        rememberDashboardScrollTarget(approvedDeal);
         setDialog(null);
         router.refresh();
         return;
@@ -237,6 +239,7 @@ export function DealIntakeWorkflow({
       }
 
       await updateInboundEmailStatus(dialog.email.id, action === "link" ? "matched" : "draft_transaction_created");
+      rememberDashboardScrollTarget(approvedDeal);
       if (options.successMessage) {
         toast.success(options.successMessage, {
           duration: 5000,
@@ -1699,6 +1702,11 @@ async function postAction(url: string, body: Record<string, unknown>) {
     throw new Error(payload?.error ?? "Request failed");
   }
   return res.json();
+}
+
+function rememberDashboardScrollTarget(deal: IntakeLinkedDeal | undefined) {
+  if (!deal?.id || typeof window === "undefined") return;
+  window.sessionStorage.setItem("dashboard-scroll-deal-id", deal.id);
 }
 
 function bestLink(email: IntakeEmailRow) {

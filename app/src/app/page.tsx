@@ -450,6 +450,7 @@ function TransactionCard({
 
   return (
     <div
+      data-deal-id={deal.id}
       className={`min-w-0 overflow-hidden rounded-lg border bg-background p-2 ${
         hasUpdate
           ? "border-blue-400 bg-background shadow-[0_0_0_1px_rgba(55,138,221,0.22),0_1px_4px_rgba(12,68,124,0.08)]"
@@ -1121,14 +1122,19 @@ function shouldShowDealAttention(deal: DashboardDeal) {
 
 function dealAttentionSummary(deal: DashboardDeal) {
   if (!shouldShowDealAttention(deal)) return "";
-  const label = deal.attention_reason === "updated_from_intake" ? "Updated from intake" : "New intake activity";
+  const label =
+    deal.attention_reason === "updated_from_intake"
+      ? "Updated from intake"
+      : deal.attention_reason === "created_from_intake"
+        ? "Draft created from intake"
+        : "New intake activity";
   const when = deal.attention_at ? ` ${formatRelativeDashboardTime(deal.attention_at)}` : "";
   return `${label}${when}.`;
 }
 
 function dealOperationalStatus(deal: DashboardDeal): DealOperationalStatus {
   if (shouldShowDealAttention(deal)) {
-    return deal.attention_reason === "updated_from_intake"
+    return deal.attention_reason === "updated_from_intake" || deal.attention_reason === "created_from_intake"
       ? { label: "Update", tone: "updated" }
       : { label: "New", tone: "new" };
   }
