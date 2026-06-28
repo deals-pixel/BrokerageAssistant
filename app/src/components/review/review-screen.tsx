@@ -715,7 +715,7 @@ export function ReviewScreen({
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 border-t pt-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
           <DealMetaItem icon={UsersIcon} label="Representation" value={checklistResult.scenario.shortLabel} />
           <DealMetaItem icon={FileTextIcon} label="Scenario" value={deal.scenario_label ?? checklistResult.scenario.label} />
           <DealMetaItem icon={CalendarIcon} label="Closing" value={closingDate ? formatDateOnly(closingDate) : "Not captured"} />
@@ -1141,7 +1141,7 @@ function PackageDocumentsPanel({
 
   return (
     <Card>
-      <CardHeader className="border-b py-4">
+      <CardHeader className="border-b px-4 py-3">
         <div>
           <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3 xl:grid-cols-6">
             {filters.map((filter) => {
@@ -1150,15 +1150,15 @@ function PackageDocumentsPanel({
                 <button
                   key={filter.id}
                   type="button"
-                  className={`rounded-lg border px-3 py-2 text-center transition ${
+                  className={`flex h-9 items-center justify-center gap-2 rounded-md border px-2 text-center transition ${
                     active
                       ? "border-foreground bg-background shadow-sm"
                       : "border-border bg-muted/20 hover:bg-muted"
                   }`}
                   onClick={() => onFilterChange(filter.id)}
                 >
-                  <span className="block text-sm font-medium leading-tight">{filter.label}</span>
-                  <span className="block text-lg font-semibold leading-tight">{filter.count}</span>
+                  <span className="min-w-0 truncate text-sm font-medium leading-tight">{filter.label}</span>
+                  <span className="text-sm font-semibold leading-tight">{filter.count}</span>
                 </button>
               );
             })}
@@ -1811,8 +1811,8 @@ function DepositVerificationCard({
   const amountValue = formatDepositAmount(depositAmount);
 
   return (
-    <Card className="overflow-hidden border-orange-300 shadow-none">
-      <CardHeader className="flex flex-row items-center justify-between gap-4 border-b border-orange-300 bg-orange-50 px-4 py-2.5">
+    <Card className="gap-0 overflow-hidden border border-orange-300 py-0 shadow-none ring-1 ring-orange-300">
+      <div className="flex flex-row items-center justify-between gap-4 border-b border-orange-300 bg-orange-50 px-4 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
           <ShieldCheckIcon className="size-4 shrink-0 text-orange-700" />
           <CardTitle className="shrink-0 text-sm font-semibold">Deposit verification</CardTitle>
@@ -1830,7 +1830,7 @@ function DepositVerificationCard({
         >
           {confirmed ? "Verified" : "Not verified"}
         </Badge>
-      </CardHeader>
+      </div>
       <CardContent className="grid gap-4 p-2.5 lg:grid-cols-[1fr_auto] lg:items-center">
         <div className="grid gap-0 sm:grid-cols-2 xl:grid-cols-4">
           <DepositMeta label="Proof status" value={proofFound ? "Proof received" : "Proof not found"} tone={proofFound ? "default" : "red"} />
