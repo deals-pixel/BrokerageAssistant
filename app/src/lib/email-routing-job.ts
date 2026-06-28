@@ -299,12 +299,18 @@ function scoreDeal(deal: DealCandidate, routing: LightRoutingResult, senderEmail
     reasons.push("MLS exact match");
   }
   if (routing.property_address && address) {
-    if (normalizeText(address) === normalizeText(routing.property_address)) {
+    const storedAddress = normalizeText(address);
+    const routedAddress = normalizeText(routing.property_address);
+    const coreMatch = addressCoreMatch(address, routing.property_address);
+    if (storedAddress === routedAddress) {
       score += 50;
       reasons.push("property address exact match");
+    } else if (coreMatch) {
+      score += 50;
+      reasons.push(coreMatch);
     } else if (
-      normalizeText(address).includes(normalizeText(routing.property_address)) ||
-      normalizeText(routing.property_address).includes(normalizeText(address))
+      storedAddress.includes(routedAddress) ||
+      routedAddress.includes(storedAddress)
     ) {
       score += 35;
       reasons.push("property address fuzzy match");
@@ -330,6 +336,97 @@ function scoreDeal(deal: DealCandidate, routing: LightRoutingResult, senderEmail
 
 function normalizeText(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function addressCoreMatch(storedAddress: string, routedAddress: string) {
+  const stored = parseAddressCore(storedAddress);
+  const routed = parseAddressCore(routedAddress);
+  if (!stored || !routed) return null;
+  if (stored.civic !== routed.civic || stored.street !== routed.street) return null;
+  if (stored.unit && routed.unit && stored.unit !== routed.unit) return null;
+  if (stored.unit && routed.unit) return "property address unit/core match";
+  return "property address civic/street match";
+}
+
+function parseAddressCore(value: string) {
+  const tokens = value
+    .toLowerCase()
+    .replace(/#\s+/g, "#")
+    .replace(/[^a-z0-9#]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  const civicIndex = tokens.findIndex((token) => /^\d{1,6}[a-z]?$/.test(token));
+  if (civicIndex < 0) return null;
+
+  const civic = tokens[civicIndex];
+  const street: string[] = [];
+  let unit = "";
+  let afterStreetSuffix = false;
+
+  for (let index = civicIndex + 1; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (isUnitToken(token)) {
+      unit = token.startsWith("#") ? normalizeUnitToken(token) : normalizeUnitToken(tokens[index + 1] ?? "");
+      break;
+    }
+    if (isAddressTailToken(token)) break;
+    if (isStreetSuffix(token)) {
+      afterStreetSuffix = true;
+      continue;
+    }
+    if (afterStreetSuffix) {
+      if (/^\d+[a-z]?$/.test(token)) unit = token;
+      break;
+    }
+    if (/^\d+[a-z]?$/.test(token) && street.length > 0) {
+      unit = token;
+      break;
+    }
+    street.push(token);
+  }
+
+  if (street.length === 0) return null;
+  return { civic, street: street.join(" "), unit };
+}
+
+function isUnitToken(token: string) {
+  return token.startsWith("#") || ["unit", "apt", "apartment", "suite", "ste"].includes(token);
+}
+
+function normalizeUnitToken(token: string) {
+  return token.replace(/^#/, "").replace(/[^a-z0-9]/g, "");
+}
+
+function isStreetSuffix(token: string) {
+  return [
+    "ave",
+    "avenue",
+    "blvd",
+    "boulevard",
+    "circle",
+    "cir",
+    "court",
+    "ct",
+    "drive",
+    "dr",
+    "lane",
+    "ln",
+    "place",
+    "pl",
+    "road",
+    "rd",
+    "street",
+    "st",
+    "terrace",
+    "terr",
+    "trail",
+    "trl",
+    "way",
+  ].includes(token);
+}
+
+function isAddressTailToken(token: string) {
+  return ["tor", "toronto", "on", "ontario", "canada"].includes(token) || /^[a-z]\d[a-z]\d[a-z]\d$/.test(token);
 }
 
 function nameMatches(candidate: string, values: string[]) {
