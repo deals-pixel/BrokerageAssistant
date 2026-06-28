@@ -452,7 +452,7 @@ function TransactionCard({
     <div
       className={`min-w-0 overflow-hidden rounded-lg border bg-background p-2 ${
         hasUpdate
-          ? "border-blue-400 bg-blue-50 shadow-[0_0_0_1px_rgba(55,138,221,0.22),0_1px_4px_rgba(12,68,124,0.08)]"
+          ? "border-blue-400 bg-background shadow-[0_0_0_1px_rgba(55,138,221,0.22),0_1px_4px_rgba(12,68,124,0.08)]"
           : ready
           ? "border-l-4 border-l-emerald-500 shadow-[0_1px_2px_rgba(28,90,62,0.08)]"
           : column.cardClassName
@@ -560,7 +560,7 @@ function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
 function DealOperationalStatusBadge({ status }: { status: DealOperationalStatus }) {
   const toneClassName: Record<DealOperationalStatus["tone"], string> = {
     new: "border-blue-200 bg-blue-50 text-blue-800",
-    updated: "border-amber-200 bg-amber-50 text-amber-800",
+    updated: "border-blue-200 bg-blue-50 text-blue-800",
     reminded: "border-violet-200 bg-violet-50 text-violet-800",
     ready: "border-emerald-200 bg-emerald-50 text-emerald-800",
     review: "border-slate-200 bg-slate-50 text-slate-700",
