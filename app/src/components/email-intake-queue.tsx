@@ -358,11 +358,15 @@ export function DealIntakeWorkflow({
   ) {
     const nextDialog = dialogStateForEmail("review", email);
     if (email.status === "not_deal_suggested") {
-      await submitDialogWithMode({
-        ...nextDialog,
-        mode: "ignore",
-        reason: nextDialog.reason || "AI suggested this intake is not a deal package.",
-      });
+      if (suggestedDeal) {
+        await approveAndProcess(
+          { ...nextDialog, selectedDealId: suggestedDeal.id },
+          "link",
+          { successMessage: "Communication saved to the transaction." },
+        );
+      } else {
+        openDialog("link", email);
+      }
       return;
     }
     if (email.status === "new_deal_suggested" || !suggestedDeal) {
@@ -458,7 +462,11 @@ export function DealIntakeWorkflow({
                       }}
                       disabled={isWorking}
                     >
-                      {email.status === "new_deal_suggested" ? "Create Deal" : "Confirm"}
+                      {email.status === "new_deal_suggested"
+                        ? "Create Deal"
+                        : email.status === "not_deal_suggested"
+                          ? "Attach"
+                          : "Confirm"}
                     </Button>
                     <Button
                       size="sm"
@@ -468,13 +476,22 @@ export function DealIntakeWorkflow({
                         event.stopPropagation();
                         if (email.status === "new_deal_suggested") {
                           openDialog("review", email);
+                        } else if (email.status === "not_deal_suggested") {
+                          submitDialogWithMode({
+                            ...dialogStateForEmail("ignore", email),
+                            reason: "AI suggested this intake is not a deal package.",
+                          });
                         } else {
                           rejectRoutingSuggestion(email);
                         }
                       }}
                       disabled={isWorking}
                     >
-                      {email.status === "new_deal_suggested" ? "Review" : "Reject"}
+                      {email.status === "new_deal_suggested"
+                        ? "Review"
+                        : email.status === "not_deal_suggested"
+                          ? "Ignore"
+                          : "Reject"}
                     </Button>
                   </>
                 )}
@@ -751,27 +768,37 @@ function IntakeReviewModal({
   const [overrideOpen, setOverrideOpen] = useState(false);
 
   const suggestionTitle = notDealSuggested
-    ? "Not a deal package"
+    ? suggestedDeal
+      ? "Communication for existing transaction"
+      : "Not a deal package"
     : newDealSuggested
       ? "Create a new transaction"
       : suggestedDeal
         ? "Match to existing transaction"
         : "Review intake";
   const suggestionPrimary = notDealSuggested
-    ? "AI suggests this intake should be ignored."
+    ? suggestedDeal
+      ? shortDealTitle(suggestedDeal.property_address, suggestedDeal.file_name)
+      : "AI suggests this intake should be ignored."
     : newDealSuggested
       ? routingAddress(routing) || "AI did not find a confident existing transaction."
       : suggestedDeal
         ? shortDealTitle(suggestedDeal.property_address, suggestedDeal.file_name)
         : routingAddress(routing) || "No confident route is available.";
   const suggestionMeta = notDealSuggested
-    ? dialog.email.error_message || "No confident deal-document signal was found."
+    ? suggestedDeal
+      ? primaryLink?.match_reason || "Save this email to the deal portal without processing it as a document package."
+      : dialog.email.error_message || "No confident deal-document signal was found."
     : newDealSuggested
       ? "No existing deal match reached the routing threshold."
       : primaryLink?.match_reason || routingSummary(routing) || "Review the suggested destination.";
   function proceedWithSuggestion() {
     if (notDealSuggested) {
-      onIgnore();
+      if (suggestedDeal) {
+        onConfirmExisting();
+      } else {
+        setOverrideOpen(true);
+      }
       return;
     }
     if (newDealSuggested || !suggestedDeal) {
@@ -875,7 +902,7 @@ function IntakeReviewModal({
 
             <div className="mt-4 grid grid-cols-2 gap-2">
               <Button onClick={proceedWithSuggestion} disabled={working}>
-                {working ? "Working..." : "Proceed"}
+                {working ? "Working..." : notDealSuggested ? "Attach communication" : "Proceed"}
               </Button>
               <Button variant="outline" onClick={() => setOverrideOpen((current) => !current)} disabled={working}>
                 Override

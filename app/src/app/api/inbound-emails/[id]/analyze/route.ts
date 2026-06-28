@@ -88,7 +88,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       ? await analyzeInboundPackage(inbound, attachments, { inboundEmailId: id })
       : heuristicAnalysis(heuristic, lightweightAttachments.length);
     const match = await matchDeal(admin, analysis, inbound.fromEmail);
-    const matchedDeal = analysis.is_deal_package && match.best && match.score >= 50 ? match.best : null;
+    const matchedDeal = match.best && match.score >= 50 ? match.best : null;
     const completedAt = new Date().toISOString();
 
     for (const attachment of attachments) {
@@ -142,6 +142,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         match_score: matchedDeal ? match.score : 0,
         match_reason: matchedDeal ? match.reason : null,
         recommended_action: analysis.recommended_action,
+        communication_only: !analysis.is_deal_package && Boolean(matchedDeal),
         ai_used: useAi,
       },
     });
