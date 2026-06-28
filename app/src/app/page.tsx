@@ -1013,6 +1013,7 @@ function toIntakeDashboardDeal(email: IntakeEmailRow): DashboardDeal {
   const address = stringRoutingValue(routing, "property_address");
   const typeGuess = stringRoutingValue(routing, "transaction_type_guess");
   const transactionCode = stringRoutingValue(routing, "transaction_code");
+  const attentionReason = intakeAttentionReason(email.status);
 
   return {
     id: `intake:${email.id}`,
@@ -1026,8 +1027,8 @@ function toIntakeDashboardDeal(email: IntakeEmailRow): DashboardDeal {
     scenario_key: null,
     scenario_label: null,
     submitted_at: null,
-    attention_reason: null,
-    attention_at: null,
+    attention_reason: attentionReason,
+    attention_at: attentionReason ? receivedAt : null,
     attention_cleared_at: null,
     attention_cleared_by: null,
     created_at: receivedAt,
@@ -1114,7 +1115,7 @@ function isIntakeArrivedDeal(deal: DashboardDeal) {
 }
 
 function shouldShowDealAttention(deal: DashboardDeal) {
-  if (isVirtualIntakeDeal(deal)) return false;
+  if (isVirtualIntakeDeal(deal)) return Boolean(deal.attention_at && deal.attention_reason);
   if (!deal.attention_at) return false;
   if (!deal.attention_cleared_at) return true;
   return new Date(deal.attention_cleared_at).getTime() < new Date(deal.attention_at).getTime();
@@ -1127,6 +1128,8 @@ function dealAttentionSummary(deal: DashboardDeal) {
       ? "Updated from intake"
       : deal.attention_reason === "created_from_intake"
         ? "Draft created from intake"
+        : deal.attention_reason === "new_deal_suggested"
+          ? "New deal suggested"
         : "New intake activity";
   const when = deal.attention_at ? ` ${formatRelativeDashboardTime(deal.attention_at)}` : "";
   return `${label}${when}.`;
@@ -1134,7 +1137,9 @@ function dealAttentionSummary(deal: DashboardDeal) {
 
 function dealOperationalStatus(deal: DashboardDeal): DealOperationalStatus {
   if (shouldShowDealAttention(deal)) {
-    return deal.attention_reason === "updated_from_intake" || deal.attention_reason === "created_from_intake"
+    return deal.attention_reason === "updated_from_intake" ||
+      deal.attention_reason === "created_from_intake" ||
+      deal.attention_reason === "new_deal_suggested"
       ? { label: "Update", tone: "updated" }
       : { label: "New", tone: "new" };
   }
@@ -1145,6 +1150,12 @@ function dealOperationalStatus(deal: DashboardDeal): DealOperationalStatus {
 
 function hasSentReminder(deal: DashboardDeal) {
   return deal.reminder_emails.some((reminder) => reminder.status === "sent" || Boolean(reminder.sent_at));
+}
+
+function intakeAttentionReason(status: string) {
+  if (status === "new_deal_suggested") return "new_deal_suggested";
+  if (status === "draft_transaction_created") return "created_from_intake";
+  return null;
 }
 
 function shouldShowIntakeWorkflow(deal: DashboardDeal) {
