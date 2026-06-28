@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Archive, BarChart3, Bell, CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LoaderCircle, Settings2, Table2, Users } from "lucide-react";
+import { Archive, BarChart3, Bell, CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LoaderCircle, Search, Settings2, Table2, Users } from "lucide-react";
 import { buildChecklistResult, type ChecklistItem } from "@/lib/checklist";
 import { DashboardAutoRefresh } from "@/components/dashboard-auto-refresh";
 import { createClient } from "@/lib/supabase/server";
@@ -77,11 +77,12 @@ type DealOperationalStatus =
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ filter?: string; view?: string }>;
+  searchParams?: Promise<{ filter?: string; view?: string; q?: string }>;
 }) {
   const params = await searchParams;
   const activeFilter = parseFilter(params?.filter);
   const activeView = parseView(params?.view);
+  const activeSearch = normalizeSearchInput(params?.q);
   const supabase = await createClient();
   const {
     data: { user },
@@ -174,7 +175,9 @@ export default async function DashboardPage({
   const workspaceDeals = deals.filter((deal) => deal.complianceStatus !== "Submitted");
   const archivedDeals = deals.filter((deal) => deal.complianceStatus === "Submitted");
   const viewDeals = activeView === "archive" ? archivedDeals : workspaceDeals;
-  const filteredDeals = viewDeals.filter((deal) => matchesFilter(deal, activeView === "archive" ? "all" : activeFilter));
+  const filteredDeals = viewDeals
+    .filter((deal) => matchesFilter(deal, activeView === "archive" ? "all" : activeFilter))
+    .filter((deal) => matchesDealSearch(deal, activeSearch));
   const metrics = buildMetrics(deals);
   const closingSoonDeals = upcomingClosingDeals(workspaceDeals, 3);
 
@@ -229,7 +232,7 @@ export default async function DashboardPage({
           title="Closing soon"
           deals={closingSoonDeals}
           empty="No upcoming closings"
-          href={dashboardHref({ view: "time", filter: activeFilter })}
+          href={dashboardHref({ view: "time", filter: activeFilter, q: activeSearch })}
           className="h-full"
         />
       </section>
@@ -248,25 +251,25 @@ export default async function DashboardPage({
           <div className="flex flex-wrap gap-2">
             <ViewButton
               active={activeView === "status"}
-              href={dashboardHref({ view: "status", filter: activeFilter })}
+              href={dashboardHref({ view: "status", filter: activeFilter, q: activeSearch })}
               label="By Status"
               icon={<Columns3 className="size-3.5" />}
             />
             <ViewButton
               active={activeView === "time"}
-              href={dashboardHref({ view: "time", filter: activeFilter })}
+              href={dashboardHref({ view: "time", filter: activeFilter, q: activeSearch })}
               label="By Time"
               icon={<CalendarClock className="size-3.5" />}
             />
             <ViewButton
               active={activeView === "table"}
-              href={dashboardHref({ view: "table", filter: activeFilter })}
+              href={dashboardHref({ view: "table", filter: activeFilter, q: activeSearch })}
               label="All Records"
               icon={<Table2 className="size-3.5" />}
             />
             <ViewButton
               active={activeView === "archive"}
-              href={dashboardHref({ view: "archive", filter: "all" })}
+              href={dashboardHref({ view: "archive", filter: "all", q: activeSearch })}
               label={`Submitted & Archived ${metrics.submittedTransactions}`}
               icon={<Archive className="size-3.5" />}
             />
@@ -279,32 +282,56 @@ export default async function DashboardPage({
             Submitted and archived transactions are separated from the active workspace.
           </div>
         ) : (
-          <div className="flex flex-wrap gap-2 border-y py-3">
+          <div className="flex flex-wrap items-center gap-2 border-y py-3">
             <FilterButton
               active={activeFilter === "all"}
-              href={dashboardHref({ view: activeView, filter: "all" })}
+              href={dashboardHref({ view: activeView, filter: "all", q: activeSearch })}
               label={`All ${workspaceDeals.length}`}
             />
             <FilterButton
               active={activeFilter === "intake"}
-              href={dashboardHref({ view: activeView, filter: "intake" })}
+              href={dashboardHref({ view: activeView, filter: "intake", q: activeSearch })}
               label={`Intake ${metrics.intakeTransactions}`}
             />
             <FilterButton
               active={activeFilter === "incomplete"}
-              href={dashboardHref({ view: activeView, filter: "incomplete" })}
+              href={dashboardHref({ view: activeView, filter: "incomplete", q: activeSearch })}
               label={`Active Deals ${metrics.incompleteTransactions}`}
             />
             <FilterButton
               active={activeFilter === "ready"}
-              href={dashboardHref({ view: activeView, filter: "ready" })}
+              href={dashboardHref({ view: activeView, filter: "ready", q: activeSearch })}
               label={`Ready ${metrics.readyForSubmission}`}
             />
             <FilterButton
               active={activeFilter === "closing_week"}
-              href={dashboardHref({ view: activeView, filter: "closing_week" })}
+              href={dashboardHref({ view: activeView, filter: "closing_week", q: activeSearch })}
               label={`Closing This Week ${metrics.closingThisWeek}`}
             />
+            <form action="/" className="ml-auto flex min-w-[240px] max-w-sm flex-1 items-center gap-2 sm:flex-none">
+              <input type="hidden" name="view" value={activeView} />
+              <input type="hidden" name="filter" value={activeFilter} />
+              <label className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  name="q"
+                  defaultValue={activeSearch}
+                  placeholder="Search address"
+                  className="h-8 w-full rounded-md border bg-background pl-8 pr-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                />
+              </label>
+              <Button type="submit" size="sm" variant="outline">Search</Button>
+              {activeSearch && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  nativeButton={false}
+                  render={<Link href={dashboardHref({ view: activeView, filter: activeFilter })} />}
+                >
+                  Clear
+                </Button>
+              )}
+            </form>
           </div>
         )}
 
@@ -1161,10 +1188,11 @@ function parseView(value: string | undefined): ViewKey {
   return "status";
 }
 
-function dashboardHref({ view, filter }: { view: ViewKey; filter: FilterKey }) {
+function dashboardHref({ view, filter, q }: { view: ViewKey; filter: FilterKey; q?: string }) {
   const params = new URLSearchParams();
   if (view !== "status") params.set("view", view);
   if (filter !== "all") params.set("filter", filter);
+  if (q) params.set("q", q);
   const query = params.toString();
   return query ? `/?${query}` : "/";
 }
@@ -1176,6 +1204,66 @@ function matchesFilter(deal: DashboardDeal, filter: FilterKey) {
   if (filter === "ready") return deal.complianceStatus === "Ready";
   if (filter === "closing_week") return isClosingThisWeek(deal.closingDate);
   return true;
+}
+
+function normalizeSearchInput(value: string | undefined) {
+  return (value ?? "").trim().slice(0, 80);
+}
+
+function matchesDealSearch(deal: DashboardDeal, query: string) {
+  if (!query) return true;
+  const haystacks = [
+    deal.property_address,
+    deal.file_name,
+    deal.transaction_code,
+    shortDealTitle(deal.property_address, deal.file_name),
+  ].filter((value): value is string => Boolean(value));
+
+  return haystacks.some((value) => fuzzyAddressMatch(value, query));
+}
+
+function fuzzyAddressMatch(value: string, query: string) {
+  const normalizedValue = normalizeAddressSearchText(value);
+  const normalizedQuery = normalizeAddressSearchText(query);
+  if (!normalizedQuery) return true;
+  if (normalizedValue.includes(normalizedQuery)) return true;
+
+  const valueTokens = normalizedValue.split(" ").filter(Boolean);
+  const queryTokens = normalizedQuery.split(" ").filter(Boolean);
+  if (queryTokens.length === 0) return true;
+
+  const tokenPrefixMatch = queryTokens.every((queryToken) =>
+    valueTokens.some((valueToken) => valueToken.startsWith(queryToken) || queryToken.startsWith(valueToken)),
+  );
+  if (tokenPrefixMatch) return true;
+
+  return isSubsequence(normalizedQuery.replace(/\s/g, ""), normalizedValue.replace(/\s/g, ""));
+}
+
+function normalizeAddressSearchText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/\b(street|st)\b/g, "st")
+    .replace(/\b(avenue|ave)\b/g, "ave")
+    .replace(/\b(road|rd)\b/g, "rd")
+    .replace(/\b(drive|dr)\b/g, "dr")
+    .replace(/\b(circle|cir)\b/g, "cir")
+    .replace(/\b(court|ct)\b/g, "ct")
+    .replace(/\b(boulevard|blvd)\b/g, "blvd")
+    .replace(/\b(unit|suite|apt|apartment)\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function isSubsequence(query: string, value: string) {
+  if (query.length < 3) return false;
+  let queryIndex = 0;
+  for (let valueIndex = 0; valueIndex < value.length && queryIndex < query.length; valueIndex += 1) {
+    if (query[queryIndex] === value[valueIndex]) queryIndex += 1;
+  }
+  return queryIndex === query.length;
 }
 
 function routingFeedDetail(email: IntakeEmailRow) {

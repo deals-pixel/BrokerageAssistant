@@ -1961,7 +1961,7 @@ function DepositVerificationCard({
         <div className="grid gap-0 sm:grid-cols-2 xl:grid-cols-4">
           <DepositMeta label="Proof status" value={proofFound ? "Proof received" : "Proof not found"} tone={proofFound ? "default" : "red"} />
           <DepositMeta label="Amount" value={amountValue} />
-          <DepositMeta label="Held by" value={depositHolder || "Not extracted"} />
+          <DepositMeta label="Held by Sutton Admiral" value={depositHolder || "Not extracted"} />
           <DepositMeta label="Method" value={depositMethod || "Not extracted"} />
         </div>
         <div className="flex flex-col gap-2 lg:items-end">
