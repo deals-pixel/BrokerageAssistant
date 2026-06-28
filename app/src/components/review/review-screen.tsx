@@ -4,7 +4,7 @@ import { useMemo, useState, type ComponentType } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { BellIcon, CalendarIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, Clock3Icon, DownloadIcon, FileTextIcon, MailIcon, MapPinIcon, PauseIcon, PencilIcon, RefreshCwIcon, SendIcon, UsersIcon } from "lucide-react";
+import { BellIcon, CalendarIcon, CheckCircle2Icon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, Clock3Icon, DownloadIcon, FileTextIcon, MailIcon, MapPinIcon, PauseIcon, PencilIcon, RefreshCwIcon, SendIcon, ShieldCheckIcon, UsersIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -727,7 +727,7 @@ export function ReviewScreen({
         </div>
       </header>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid overflow-hidden rounded-lg border bg-card sm:grid-cols-2 xl:grid-cols-4 xl:divide-x">
         <DealStatCard
           icon={Clock3Icon}
           label="Received"
@@ -1763,17 +1763,27 @@ function DealStatCard({
   tone?: "neutral" | "red" | "amber";
 }) {
   const valueClass = tone === "red" ? "text-red-700" : tone === "amber" ? "text-amber-700" : "text-foreground";
+  const iconClass =
+    tone === "red"
+      ? "bg-red-50 text-red-700"
+      : tone === "amber"
+        ? "bg-amber-50 text-amber-700"
+        : "bg-muted text-muted-foreground";
   return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2 text-sm">
-          <Icon className="size-4 text-muted-foreground" />
-          <span>{label}</span>
+    <div className="min-h-[58px] border-b p-3 last:border-b-0 sm:[&:nth-last-child(-n+2)]:border-b-0 xl:border-b-0">
+      <div className="flex items-center gap-3">
+        <span className={`flex size-8 items-center justify-center rounded-md ${iconClass}`}>
+          <Icon className="size-4" />
+        </span>
+        <div className="min-w-0">
+          <div className="flex items-baseline gap-2">
+            <p className={`text-lg font-semibold leading-none ${valueClass}`}>{value}</p>
+            <p className="truncate text-sm font-medium leading-tight">{label.toLowerCase()}</p>
+          </div>
+          <p className="mt-1 truncate text-xs text-muted-foreground">{detail}</p>
         </div>
-        <p className={`mt-2 text-3xl font-semibold leading-none ${valueClass}`}>{value}</p>
-        <p className="mt-2 text-sm text-muted-foreground">{detail}</p>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -1798,13 +1808,15 @@ function DepositVerificationCard({
 }) {
   const confirmed = verification?.status === "confirmed";
   const confirmer = verification ? verificationProfileLabel(verification) : null;
+  const amountValue = formatDepositAmount(depositAmount);
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4 py-4">
-        <div>
-          <CardTitle className="text-base">Deposit Verification</CardTitle>
-          <p className="mt-1 text-sm text-muted-foreground">
+    <Card className="overflow-hidden border-amber-300">
+      <CardHeader className="flex flex-row items-center justify-between gap-4 border-b border-amber-300 bg-amber-50/80 px-4 py-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <ShieldCheckIcon className="size-4 shrink-0 text-amber-800" />
+          <CardTitle className="shrink-0 text-sm font-semibold">Deposit verification</CardTitle>
+          <p className="truncate text-xs text-amber-900/80">
             Confirm the bank deposit matches the proof of deposit received.
           </p>
         </div>
@@ -1815,10 +1827,10 @@ function DepositVerificationCard({
           {confirmed ? "Verified" : "Not verified"}
         </Badge>
       </CardHeader>
-      <CardContent className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <DepositMeta label="Proof status" value={proofFound ? "Proof received" : "Proof not found"} />
-          <DepositMeta label="Proof amount" value={depositAmount || "Not extracted"} />
+      <CardContent className="grid gap-4 p-3 lg:grid-cols-[1fr_auto] lg:items-center">
+        <div className="grid gap-0 sm:grid-cols-2 xl:grid-cols-4">
+          <DepositMeta label="Proof status" value={proofFound ? "Proof received" : "Proof not found"} tone={proofFound ? "default" : "red"} />
+          <DepositMeta label="Amount" value={amountValue} />
           <DepositMeta label="Held by" value={depositHolder || "Not extracted"} />
           <DepositMeta label="Method" value={depositMethod || "Not extracted"} />
         </div>
@@ -1828,8 +1840,14 @@ function DepositVerificationCard({
               Confirmed {formatShortDateTime(verification.confirmed_at)} by {confirmer}
             </p>
           ) : null}
-          <Button onClick={onConfirm} disabled={confirming}>
-            {confirmed ? "Confirm again" : "Confirm deposit received"}
+          <Button
+            variant="outline"
+            onClick={onConfirm}
+            disabled={confirming}
+            className="border-border bg-background"
+          >
+            <CheckCircle2Icon className="size-4" />
+            {confirmed ? "Confirm again" : "Confirm received"}
           </Button>
           {proofLabels.length > 0 && (
             <p className="text-xs text-muted-foreground">Source: {Array.from(new Set(proofLabels)).join(", ")}</p>
@@ -1840,13 +1858,25 @@ function DepositVerificationCard({
   );
 }
 
-function DepositMeta({ label, value }: { label: string; value: string }) {
+function DepositMeta({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "red" }) {
   return (
-    <div className="rounded-md border bg-muted/20 p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-sm font-medium">{value}</p>
+    <div className="border-b px-3 py-2.5 last:border-b-0 sm:[&:nth-last-child(-n+2)]:border-b-0 sm:border-r sm:even:border-r-0 xl:border-b-0 xl:even:border-r xl:last:border-r-0">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className={`mt-1 text-sm font-semibold ${tone === "red" ? "text-red-700" : "text-foreground"}`}>{value}</p>
     </div>
   );
+}
+
+function formatDepositAmount(value: string) {
+  if (!value) return "Not extracted";
+  const numeric = Number(value.replace(/[$,\s]/g, ""));
+  if (!Number.isFinite(numeric)) return value;
+  return new Intl.NumberFormat("en-CA", {
+    style: "currency",
+    currency: "CAD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(numeric);
 }
 
 function verificationProfileLabel(verification: DepositVerificationRow) {
