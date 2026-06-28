@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Archive, BarChart3, Bell, CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LoaderCircle, Settings2, Table2 } from "lucide-react";
+import { Archive, BarChart3, Bell, CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LoaderCircle, Settings2, Table2, TriangleAlert, Users } from "lucide-react";
 import { buildChecklistResult, type ChecklistItem } from "@/lib/checklist";
 import { DashboardAutoRefresh } from "@/components/dashboard-auto-refresh";
 import { createClient } from "@/lib/supabase/server";
@@ -176,41 +176,88 @@ export default async function DashboardPage({
   const viewDeals = activeView === "archive" ? archivedDeals : workspaceDeals;
   const filteredDeals = viewDeals.filter((deal) => matchesFilter(deal, activeView === "archive" ? "all" : activeFilter));
   const metrics = buildMetrics(deals);
+  const closingSoonDeals = upcomingClosingDeals(workspaceDeals, 3);
+  const fintracAlertCount = metrics.missingFintrac;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 p-6">
+    <div className="mx-auto max-w-[1400px] space-y-4 p-6">
       <DashboardAutoRefresh />
 
-      <header className="flex flex-wrap items-center justify-between gap-3">
+      <header className="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
         <div>
-          <h1 className="text-2xl font-semibold">Broker Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Signed in as {user?.email}</p>
+          <h1 className="text-xl font-semibold">Broker dashboard</h1>
+          <Badge variant="outline" className="mt-1 max-w-full truncate rounded-full px-2 font-normal">
+            {user?.email}
+          </Badge>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" nativeButton={false} render={<Link href="/admin/templates" />}>
+          <Button variant="outline" nativeButton={false} render={<Link href="/admin/templates" />}>
             <Settings2 className="size-3.5" />
             Templates
           </Button>
-          <Button variant="outline" size="sm" nativeButton={false} render={<Link href="/admin/ai-usage" />}>
+          <Button variant="outline" nativeButton={false} render={<Link href="/admin/ai-usage" />}>
             <BarChart3 className="size-3.5" />
-            AI Usage
+            AI usage
           </Button>
-          <Button variant="outline" size="sm" nativeButton={false} render={<Link href="/agents" />}>
+          <Button variant="outline" nativeButton={false} render={<Link href="/agents" />}>
+            <Users className="size-3.5" />
             Agents
           </Button>
           <SignOutButton />
         </div>
       </header>
 
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <MetricCard label="Active Transactions" value={metrics.activeTransactions} />
-        <MetricCard label="Missing FINTRAC" value={metrics.missingFintrac} tone="destructive" />
-        <MetricCard label="Missing Deposits" value={metrics.missingDeposits} tone="warning" />
-        <MetricCard label="Missing PEP" value={metrics.missingPep} tone="destructive" />
-        <MetricCard label="Ready For Submission" value={metrics.readyForSubmission} tone="success" />
+      {fintracAlertCount > 0 && (
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+          <div className="flex items-center gap-2 text-sm text-amber-950">
+            <TriangleAlert className="size-4 text-amber-700" />
+            <span className="font-medium">
+              {fintracAlertCount} deal{fintracAlertCount === 1 ? "" : "s"} missing FINTRAC documents
+            </span>
+            <span className="text-amber-800">- {metrics.closingThisWeek} closing this week.</span>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" nativeButton={false} render={<Link href={dashboardHref({ view: activeView, filter: "incomplete" })} />}>
+              Review now
+            </Button>
+          </div>
+        </section>
+      )}
+
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <MetricCard icon={<Columns3 className="size-3.5" />} label="Active transactions" value={metrics.activeTransactions} helper="across all stages" />
+        <MetricCard icon={<FileText className="size-3.5" />} label="Missing FINTRAC" value={metrics.missingFintrac} helper="compliance risk" tone="destructive" />
+        <MetricCard icon={<CircleAlert className="size-3.5" />} label="Missing deposits" value={metrics.missingDeposits} helper="awaiting proof" tone="warning" />
+        <MetricCard icon={<Users className="size-3.5" />} label="Missing PEP" value={metrics.missingPep} helper="declarations needed" tone="destructive" />
+        <MetricCard icon={<CheckCircle2 className="size-3.5" />} label="Ready for submission" value={metrics.readyForSubmission} helper="deals complete" tone="success" />
       </section>
 
-      <UploadDropzone />
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(20rem,0.75fr)]">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-3 border-b py-3">
+            <CardTitle className="text-base">Submit a package</CardTitle>
+            <p className="text-xs text-muted-foreground">PDF, JPG, JPEG - max 50 MB per file</p>
+          </CardHeader>
+          <CardContent className="p-4">
+            <UploadDropzone compact />
+          </CardContent>
+        </Card>
+
+        <div className="space-y-3">
+          <ClosingSummaryCard
+            title="Closing this week"
+            deals={workspaceDeals.filter((deal) => isClosingThisWeek(deal.closingDate))}
+            empty="No closings this week"
+            href={dashboardHref({ view: activeView, filter: "closing_week" })}
+          />
+          <ClosingSummaryCard
+            title="Closing soon"
+            deals={closingSoonDeals}
+            empty="No upcoming closings"
+            href={dashboardHref({ view: "time", filter: activeFilter })}
+          />
+        </div>
+      </section>
 
       <section className="space-y-4 rounded-xl border bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1203,12 +1250,81 @@ function isClosingThisWeek(date: Date | null) {
   return date >= start && date <= end;
 }
 
+function upcomingClosingDeals(deals: DashboardDeal[], limit: number) {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return sortByClosingDate(
+    deals.filter((deal) => deal.closingDate && deal.closingDate >= now && !isVirtualIntakeDeal(deal)),
+  ).slice(0, limit);
+}
+
 function sortByClosingDate(deals: DashboardDeal[]) {
   return [...deals].sort((a, b) => {
     const aTime = a.closingDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
     const bTime = b.closingDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
     return aTime - bTime;
   });
+}
+
+function ClosingSummaryCard({
+  title,
+  deals,
+  empty,
+  href,
+}: {
+  title: string;
+  deals: DashboardDeal[];
+  empty: string;
+  href: string;
+}) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between border-b py-3">
+        <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+        <Button variant="ghost" size="sm" nativeButton={false} render={<Link href={href} />}>
+          View all
+        </Button>
+      </CardHeader>
+      <CardContent className="p-0">
+        {deals.length > 0 ? (
+          <div className="divide-y">
+            {deals.map((deal) => (
+              <div key={deal.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  {isVirtualIntakeDeal(deal) ? (
+                    <p className="truncate text-sm font-semibold">{shortDealTitle(deal.property_address, deal.file_name)}</p>
+                  ) : (
+                    <IntakeDealLink href={`/deals/${deal.id}`} dealId={deal.id} className="block truncate text-sm font-semibold hover:underline">
+                      {shortDealTitle(deal.property_address, deal.file_name)}
+                    </IntakeDealLink>
+                  )}
+                  <p className="truncate text-xs text-muted-foreground">
+                    {deal.transaction_type} - {deal.scenarioShortLabel}
+                  </p>
+                </div>
+                {deal.closingDate && (
+                  <Badge variant="outline" className="rounded-full border-amber-200 bg-amber-50 text-amber-800">
+                    {formatShortDate(deal.closingDate)}
+                  </Badge>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid min-h-28 place-items-center px-4 py-6 text-center text-sm text-muted-foreground">
+            <div>
+              <CalendarClock className="mx-auto mb-2 size-5" />
+              {empty}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function formatShortDate(date: Date) {
+  return new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric" }).format(date);
 }
 
 function FilterButton({ active, href, label }: { active: boolean; href: string; label: string }) {
@@ -1245,12 +1361,16 @@ function ViewButton({
 }
 
 function MetricCard({
+  icon,
   label,
   value,
+  helper,
   tone = "default",
 }: {
+  icon: ReactNode;
   label: string;
   value: number;
+  helper: string;
   tone?: "default" | "destructive" | "warning" | "success";
 }) {
   const toneClass =
@@ -1263,12 +1383,14 @@ function MetricCard({
           : "";
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className={`text-3xl font-semibold tabular-nums ${toneClass}`}>{value}</div>
+    <Card className="rounded-lg">
+      <CardContent className="p-4">
+        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+          <span className="mt-0.5">{icon}</span>
+          <span className="leading-tight">{label}</span>
+        </div>
+        <div className={`mt-2 text-3xl font-semibold leading-none tabular-nums ${toneClass}`}>{value}</div>
+        <p className="mt-2 text-xs text-muted-foreground">{helper}</p>
       </CardContent>
     </Card>
   );
