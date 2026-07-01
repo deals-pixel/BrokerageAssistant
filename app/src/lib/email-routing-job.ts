@@ -7,6 +7,7 @@ import {
   type InboundEmailInput,
   type LightRoutingResult,
 } from "@/lib/email-intake";
+import { markDealNeedsAttention } from "@/lib/deal-attention";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -168,6 +169,7 @@ export async function processInboundEmailRouting(inboundEmailId: string) {
         },
         { onConflict: "deal_id,inbound_email_id" },
       );
+      await markDealNeedsAttention(supabase, match.best.id);
       await supabase
         .from("inbound_emails")
         .update({ status: "needs_match_review", routing_json: routingForMatch, routing_completed_at: completedAt })

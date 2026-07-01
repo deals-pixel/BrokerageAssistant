@@ -4,6 +4,7 @@ import { matchDealWithThreadContext } from "@/lib/email-routing-job";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { hasReviewableEmailContent, heuristicRouteEmail, type InboundEmailInput } from "@/lib/email-intake";
+import { markDealNeedsAttention } from "@/lib/deal-attention";
 
 type InboundEmailRow = {
   id: string;
@@ -87,6 +88,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     let analysis = useAi
       ? await analyzeInboundPackage(inbound, attachments, { inboundEmailId: id })
       : heuristicAnalysis(heuristic, lightweightAttachments.length);
+    analysis = normalizeCommunicationOnlyAnalysis(analysis);
     const {
       match,
       routing: routingForMatch,
@@ -130,6 +132,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         },
         { onConflict: "deal_id,inbound_email_id" },
       );
+      await markDealNeedsAttention(admin, matchedDeal.id);
     }
 
     const communicationOnly = !analysis.is_deal_package && Boolean(matchedDeal);
@@ -212,6 +215,16 @@ function heuristicAnalysis(
       : isDealPackage
         ? "new_deal"
         : "not_deal",
+  };
+}
+
+function normalizeCommunicationOnlyAnalysis<T extends ReturnType<typeof heuristicAnalysis>>(analysis: T): T {
+  const hasDealContext = Boolean(analysis.property_address || analysis.email_body_fields?.length);
+  if (analysis.is_deal_package || !hasDealContext) return analysis;
+  return {
+    ...analysis,
+    not_deal_reason: "Email appears to be deal communication, but not a new document package.",
+    recommended_action: "existing_deal",
   };
 }
 

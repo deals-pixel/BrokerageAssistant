@@ -10,6 +10,7 @@ import {
   shouldStoreAttachment,
 } from "@/lib/email-intake";
 import { matchDealWithThreadContext } from "@/lib/email-routing-job";
+import { markDealNeedsAttention } from "@/lib/deal-attention";
 
 export const maxDuration = 60;
 
@@ -188,6 +189,7 @@ async function storeInboundAttachments(
           },
           { onConflict: "deal_id,inbound_email_id" },
         );
+        await markDealNeedsAttention(supabase, strongMatch.id);
       }
 
       await supabase
@@ -233,6 +235,7 @@ async function storeInboundAttachments(
           },
           { onConflict: "deal_id,inbound_email_id" },
         );
+        await markDealNeedsAttention(supabase, strongMatch.id);
       }
 
       await supabase

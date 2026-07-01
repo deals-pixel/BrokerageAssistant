@@ -1,5 +1,6 @@
 import { EXISTING_DEAL_MATCH_THRESHOLD, heuristicRouteEmail, transactionTypeForDeal, type InboundEmailInput, type LightRoutingResult } from "@/lib/email-intake";
 import { matchDeal } from "@/lib/email-routing-job";
+import { DEAL_ATTENTION_REASONS, markDealNeedsAttention } from "@/lib/deal-attention";
 
 type SupabaseClient = {
   from: (table: string) => unknown;
@@ -79,10 +80,6 @@ type DealDepositField = {
 };
 
 const LINKABLE_ATTACHMENT_STATUSES = ["stored", "light_classified", "linked_to_transaction"];
-const ATTENTION_REASONS = {
-  createdFromIntake: "created_from_intake",
-  updatedFromIntake: "updated_from_intake",
-} as const;
 
 export async function confirmInboundEmailMatch({
   supabase,
@@ -126,7 +123,7 @@ export async function confirmInboundEmailMatch({
     dealId,
     userId,
   });
-  await markDealNeedsAttention(supabase, dealId, ATTENTION_REASONS.updatedFromIntake);
+  await markDealNeedsAttention(supabase, dealId, DEAL_ATTENTION_REASONS.updatedFromIntake);
   await table(supabase, "inbound_emails")
     .update({ status: "matched", error_message: null })
     .eq("id", inboundEmailId);
@@ -192,7 +189,7 @@ export async function createDraftDealFromInboundEmail({
       property_address: resolvedAddress,
       source: "email",
       transaction_code: await nextTransactionCode(supabase),
-      attention_reason: ATTENTION_REASONS.createdFromIntake,
+      attention_reason: DEAL_ATTENTION_REASONS.createdFromIntake,
       attention_at: new Date().toISOString(),
       attention_cleared_at: null,
       attention_cleared_by: null,
@@ -623,17 +620,6 @@ async function linkAttachmentsToDeal(supabase: SupabaseClient, inboundEmailId: s
     .update({ deal_id: dealId, status: "linked_to_transaction", linked_at: new Date().toISOString() })
     .eq("inbound_email_id", inboundEmailId)
     .in("status", LINKABLE_ATTACHMENT_STATUSES);
-}
-
-async function markDealNeedsAttention(supabase: SupabaseClient, dealId: string, reason: string) {
-  await table(supabase, "deals")
-    .update({
-      attention_reason: reason,
-      attention_at: new Date().toISOString(),
-      attention_cleared_at: null,
-      attention_cleared_by: null,
-    })
-    .eq("id", dealId);
 }
 
 async function nextTransactionCode(supabase: SupabaseClient) {

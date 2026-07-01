@@ -763,6 +763,7 @@ function IntakeReviewModal({
   const documentGuesses = routingDocumentGuesses(routing);
   const emailBodyFields = routingEmailBodyFields(routing);
   const hasCommunicationFields = emailBodyFields.length > 0;
+  const hasDealContext = Boolean(routingAddress(routing)) || hasCommunicationFields;
   const hasProcessableAttachments = hasProcessableEmailAttachments(dialog.email);
   const primaryLink = bestLink(dialog.email);
   const suggestedDeal = linkedDealFromRelation(primaryLink?.deals);
@@ -774,7 +775,7 @@ function IntakeReviewModal({
   const suggestionTitle = notDealSuggested
     ? suggestedDeal
       ? "Communication for existing transaction"
-      : hasCommunicationFields
+      : hasDealContext
         ? "Deal communication details found"
         : "Not a deal package"
     : newDealSuggested
@@ -785,7 +786,7 @@ function IntakeReviewModal({
   const suggestionPrimary = notDealSuggested
     ? suggestedDeal
       ? shortDealTitle(suggestedDeal.property_address, suggestedDeal.file_name)
-      : hasCommunicationFields
+      : hasDealContext
         ? routingAddress(routing) || "Attach these email details to the right transaction."
         : "AI suggests this intake should be ignored."
     : newDealSuggested
@@ -796,8 +797,8 @@ function IntakeReviewModal({
   const suggestionMeta = notDealSuggested
     ? suggestedDeal
       ? primaryLink?.match_reason || "Save this email to the deal portal without processing it as a document package."
-      : hasCommunicationFields
-        ? "This is not a document package, but it contains deal fields that can update the selected transaction."
+      : hasDealContext
+        ? "This is not a document package, but it appears to belong on a deal portal. Choose the destination transaction to attach it."
         : dialog.email.error_message || "No confident deal-document signal was found."
     : newDealSuggested
       ? "No existing deal match reached the routing threshold."
@@ -1805,11 +1806,14 @@ function routingSuggestion(
       };
     }
     const communicationFields = routingEmailBodyFields(email.routing_json);
-    if (communicationFields.length > 0) {
+    if (routingAddress(routing) || communicationFields.length > 0) {
       return {
         title: "Attach communication",
         primary: routingAddress(routing) || "Deal communication details found.",
-        meta: `${communicationFields.length} email field${communicationFields.length === 1 ? "" : "s"} found. Attach to the deal to update fields with Email body as the source.`,
+        meta:
+          communicationFields.length > 0
+            ? `${communicationFields.length} email field${communicationFields.length === 1 ? "" : "s"} found. Attach to the deal to update fields with Email body as the source.`
+            : "This is not a document package, but it appears to belong on a deal portal. Choose the destination transaction to attach it.",
       };
     }
     return {
