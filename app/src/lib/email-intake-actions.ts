@@ -25,6 +25,7 @@ type QueryBuilder = {
 type InboundEmailForDraft = {
   id: string;
   subject: string | null;
+  from_email: string | null;
   routing_json: Partial<LightRoutingResult> | null;
   email_attachments: { id: string; file_size: number | null; status: string }[];
 };
@@ -163,6 +164,22 @@ export async function createDraftDealFromInboundEmail({
   const resolvedAddress = propertyAddress?.trim() || routing.property_address || null;
   const resolvedType = normalizeRoutingTransactionType(transactionType || routing.transaction_type_guess);
   const totalSize = inbound.email_attachments.reduce((sum, item) => sum + (item.file_size ?? 0), 0);
+  const existingMatch = await matchDeal(
+    supabase as Parameters<typeof matchDeal>[0],
+    routingForExistingMatch(routing, resolvedAddress, resolvedType),
+    inbound.from_email,
+  );
+
+  if (existingMatch.best && existingMatch.score >= EXISTING_DEAL_MATCH_THRESHOLD) {
+    return confirmInboundEmailMatch({
+      supabase,
+      inboundEmailId,
+      dealId: existingMatch.best.id,
+      userId,
+      matchScore: existingMatch.score,
+      matchReason: `Matched existing transaction before draft creation: ${existingMatch.reason}`,
+    });
+  }
 
   const { data, error } = await table(supabase, "deals")
     .insert({
@@ -343,11 +360,29 @@ async function fetchDeal(supabase: SupabaseClient, dealId: string) {
 
 async function fetchInboundEmailForDraft(supabase: SupabaseClient, inboundEmailId: string) {
   const { data, error } = await table(supabase, "inbound_emails")
-    .select("id, subject, routing_json, email_attachments(id, file_size, status)")
+    .select("id, subject, from_email, routing_json, email_attachments(id, file_size, status)")
     .eq("id", inboundEmailId)
     .single();
   if (error || !data) throw new Error(error?.message ?? "Inbound email not found");
   return data as InboundEmailForDraft;
+}
+
+function routingForExistingMatch(
+  routing: Partial<LightRoutingResult>,
+  resolvedAddress: string | null,
+  resolvedType: LightRoutingResult["transaction_type_guess"],
+): LightRoutingResult {
+  return {
+    property_address: resolvedAddress ?? routing.property_address ?? "",
+    mls_number: routing.mls_number ?? "",
+    transaction_type_guess: resolvedType,
+    party_names: Array.isArray(routing.party_names) ? routing.party_names : [],
+    agent_names: Array.isArray(routing.agent_names) ? routing.agent_names : [],
+    email_body_fields: routing.email_body_fields,
+    document_type_guesses: Array.isArray(routing.document_type_guesses) ? routing.document_type_guesses : [],
+    routing_confidence: typeof routing.routing_confidence === "number" ? routing.routing_confidence : 0,
+    transaction_code: routing.transaction_code ?? "",
+  };
 }
 
 async function fetchInboundEmailForRestore(supabase: SupabaseClient, inboundEmailId: string) {
@@ -381,6 +416,7 @@ async function fetchInboundEmailEvidence(supabase: SupabaseClient, inboundEmailI
 
 async function applyEmailBodyFieldsToDeal(supabase: SupabaseClient, inboundEmailId: string, dealId: string) {
   const inbound = await fetchInboundRouting(supabase, inboundEmailId);
+  const evidence = await fetchInboundEmailEvidence(supabase, inboundEmailId);
   const fields = emailBodyFieldsFromRouting(inbound.routing_json);
   if (fields.length === 0) return 0;
 
@@ -407,7 +443,7 @@ async function applyEmailBodyFieldsToDeal(supabase: SupabaseClient, inboundEmail
       source_box: null,
       conflict_sources: null,
       needs_review: true,
-      notes: "Extracted from email body - admin review needed",
+      notes: emailBodyFieldSourceNote(evidence),
     };
 
     if (existing) {
@@ -424,6 +460,16 @@ async function applyEmailBodyFieldsToDeal(supabase: SupabaseClient, inboundEmail
   }
 
   return applied;
+}
+
+function emailBodyFieldSourceNote(email: InboundEmailEvidence) {
+  const parts = [
+    "Extracted from email body - admin review needed",
+    email.subject ? `Subject: ${email.subject}` : null,
+    email.from_email ? `Sender: ${email.from_email}` : null,
+    email.received_at ? `Received: ${email.received_at}` : null,
+  ];
+  return parts.filter(Boolean).join("; ");
 }
 
 async function confirmDepositFromInboundEmail({

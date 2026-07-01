@@ -407,6 +407,8 @@ function isStreetSuffix(token: string) {
     "cir",
     "court",
     "ct",
+    "crescent",
+    "cres",
     "drive",
     "dr",
     "lane",

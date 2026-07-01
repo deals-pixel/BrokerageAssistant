@@ -762,6 +762,7 @@ function IntakeReviewModal({
   const routing = dialog.email.routing_json;
   const documentGuesses = routingDocumentGuesses(routing);
   const emailBodyFields = routingEmailBodyFields(routing);
+  const hasCommunicationFields = emailBodyFields.length > 0;
   const hasProcessableAttachments = hasProcessableEmailAttachments(dialog.email);
   const primaryLink = bestLink(dialog.email);
   const suggestedDeal = linkedDealFromRelation(primaryLink?.deals);
@@ -773,7 +774,9 @@ function IntakeReviewModal({
   const suggestionTitle = notDealSuggested
     ? suggestedDeal
       ? "Communication for existing transaction"
-      : "Not a deal package"
+      : hasCommunicationFields
+        ? "Deal communication details found"
+        : "Not a deal package"
     : newDealSuggested
       ? "Create a new transaction"
       : suggestedDeal
@@ -782,7 +785,9 @@ function IntakeReviewModal({
   const suggestionPrimary = notDealSuggested
     ? suggestedDeal
       ? shortDealTitle(suggestedDeal.property_address, suggestedDeal.file_name)
-      : "AI suggests this intake should be ignored."
+      : hasCommunicationFields
+        ? routingAddress(routing) || "Attach these email details to the right transaction."
+        : "AI suggests this intake should be ignored."
     : newDealSuggested
       ? routingAddress(routing) || "AI did not find a confident existing transaction."
       : suggestedDeal
@@ -791,7 +796,9 @@ function IntakeReviewModal({
   const suggestionMeta = notDealSuggested
     ? suggestedDeal
       ? primaryLink?.match_reason || "Save this email to the deal portal without processing it as a document package."
-      : dialog.email.error_message || "No confident deal-document signal was found."
+      : hasCommunicationFields
+        ? "This is not a document package, but it contains deal fields that can update the selected transaction."
+        : dialog.email.error_message || "No confident deal-document signal was found."
     : newDealSuggested
       ? "No existing deal match reached the routing threshold."
       : primaryLink?.match_reason || routingSummary(routing) || "Review the suggested destination.";
@@ -1789,6 +1796,14 @@ function routingSuggestion(
 ) {
   const routing = email.routing_json;
   if (email.status === "not_deal_suggested") {
+    const communicationFields = routingEmailBodyFields(email.routing_json);
+    if (communicationFields.length > 0) {
+      return {
+        title: "Attach communication",
+        primary: routingAddress(routing) || "Deal communication details found.",
+        meta: `${communicationFields.length} email field${communicationFields.length === 1 ? "" : "s"} found. Attach to the deal to update fields with Email body as the source.`,
+      };
+    }
     return {
       title: "Not a deal package",
       primary: "AI suggests this intake should be ignored.",

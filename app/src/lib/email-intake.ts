@@ -139,15 +139,19 @@ export function buildAttachmentStoragePath({
 }
 
 export function heuristicRouteEmail(email: InboundEmailInput): LightRoutingResult {
-  const text = [email.subject, inboundEmailPlainText(email)].filter(Boolean).join("\n");
+  const subjectText = email.subject?.trim() ?? "";
+  const bodyText = inboundEmailPlainText(email);
+  const searchableBodyText = contentBeforeSignatureAndQuotedReply(bodyText);
+  const text = [subjectText, bodyText].filter(Boolean).join("\n");
   const normalized = text.toLowerCase();
   const emailBodyFields = extractEmailBodyFields(email);
   const transactionCode = text.match(/\bTX-\d{4}-\d{4,}\b/i)?.[0]?.toUpperCase() ?? "";
   const mlsNumber = text.match(/\b[A-Z]?\d{7,9}\b/i)?.[0] ?? "";
   const propertyAddress =
     emailBodyFields.find((field) => field.field_key === "property_address")?.value ||
-    extractLikelyAddress(text) ||
-    extractLikelyAddressFromFilenames(email.attachments.map((item) => item.name));
+    extractLikelyAddressFromFilenames(email.attachments.map((item) => item.name)) ||
+    extractLikelyAddress(subjectText) ||
+    extractLikelyAddress(searchableBodyText);
   const transactionTypeGuess = inferTransactionType(normalized, email.attachments.map((item) => item.name));
   const documentTypeGuesses = email.attachments.map((attachment) => classifyAttachmentFilename(attachment.name));
   const knownDocumentCount = documentTypeGuesses.filter((guess) => guess.confidence >= 0.55).length;
@@ -176,13 +180,14 @@ export function heuristicRouteEmail(email: InboundEmailInput): LightRoutingResul
 export const lightRouteEmail = heuristicRouteEmail;
 
 export function hasReviewableEmailContent(email: InboundEmailInput) {
-  const text = [email.subject, inboundEmailPlainText(email)].filter(Boolean).join("\n").trim();
+  const bodyText = inboundEmailPlainText(email);
+  const text = [email.subject, bodyText].filter(Boolean).join("\n").trim();
   if (text.length < 40) return false;
 
   if (extractEmailBodyFields(email).length > 0) return true;
   const normalized = text.toLowerCase();
   if (/\bTX-\d{4}-\d{4,}\b/i.test(text)) return true;
-  if (extractLikelyAddress(text)) return true;
+  if (extractLikelyAddress([email.subject, contentBeforeSignatureAndQuotedReply(bodyText)].filter(Boolean).join("\n"))) return true;
   if (/\b[A-Z]?\d{7,9}\b/i.test(text) && /\b(mls|listing)\b/i.test(text)) return true;
 
   const transactionSignals = [
@@ -206,7 +211,7 @@ export function hasReviewableEmailContent(email: InboundEmailInput) {
 }
 
 export function extractEmailBodyFields(email: Pick<InboundEmailInput, "bodyText" | "bodyHtml">): EmailBodyFieldGuess[] {
-  const text = inboundEmailPlainText(email);
+  const text = contentBeforeSignatureAndQuotedReply(inboundEmailPlainText(email));
   if (!text) return [];
 
   const fields = new Map<string, EmailBodyFieldGuess>();
@@ -235,6 +240,10 @@ export function extractEmailBodyFields(email: Pick<InboundEmailInput, "bodyText"
       confidence: mapping.confidence,
       source: "email_body",
     });
+  }
+
+  for (const field of extractSolicitorFields(text)) {
+    if (!fields.has(field.field_key)) fields.set(field.field_key, field);
   }
 
   return Array.from(fields.values());
@@ -376,6 +385,138 @@ function mapEmailBodyLabel(label: string) {
   return mappings.find((mapping) => mapping.patterns.some((pattern) => pattern.test(normalized))) ?? null;
 }
 
+function extractSolicitorFields(text: string): EmailBodyFieldGuess[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => cleanEmailLine(line))
+    .filter(Boolean);
+  const sections = collectSolicitorSections(lines);
+  const fields: EmailBodyFieldGuess[] = [];
+
+  for (const section of sections) {
+    const parsed = parseSolicitorSection(section.lines);
+    for (const [suffix, value] of Object.entries(parsed)) {
+      if (!value) continue;
+      const fieldKey = `${section.side}_lawyer_${suffix}`;
+      fields.push({
+        field_key: fieldKey,
+        label: `${section.side === "seller" ? "Seller/Landlord" : "Buyer/Tenant"} Lawyer ${labelForLawyerSuffix(suffix)}`,
+        raw_label: section.header,
+        value: normalizeEmailBodyFieldValue(fieldKey, value),
+        confidence: 0.82,
+        source: "email_body",
+      });
+    }
+  }
+
+  return fields;
+}
+
+function collectSolicitorSections(lines: string[]) {
+  const sections: { side: "seller" | "buyer"; header: string; lines: string[] }[] = [];
+  let current: { side: "seller" | "buyer"; header: string; lines: string[] } | null = null;
+
+  for (const line of lines) {
+    const side = solicitorHeaderSide(line);
+    if (side) {
+      if (current) sections.push(current);
+      current = { side, header: line, lines: [] };
+      continue;
+    }
+    if (current) current.lines.push(line);
+  }
+  if (current) sections.push(current);
+  return sections;
+}
+
+function solicitorHeaderSide(line: string): "seller" | "buyer" | null {
+  const normalized = line.toLowerCase();
+  const hasLawyerSignal = /\b(solicitor|lawyer)\b/.test(normalized);
+  if (!hasLawyerSignal) return null;
+  if (/\b(seller|landlord)\b/.test(normalized)) return "seller";
+  if (/\b(buyer|tenant)\b/.test(normalized)) return "buyer";
+  return null;
+}
+
+function parseSolicitorSection(lines: string[]) {
+  const usefulLines = lines
+    .map((line) => line.replace(/<mailto:[^>]+>/gi, "").trim())
+    .filter((line) => line && !isBoilerplateSolicitorLine(line));
+  const email = firstEmail(usefulLines);
+  const phone = firstPhone(usefulLines);
+  const name = firstSolicitorName(usefulLines);
+  const firm = firstSolicitorFirm(usefulLines, name);
+  return { name, firm, email, phone };
+}
+
+function firstEmail(lines: string[]) {
+  for (const line of lines) {
+    const match = line.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    if (match) return match[0];
+  }
+  return "";
+}
+
+function firstPhone(lines: string[]) {
+  for (const line of lines) {
+    const match = line.match(/(?:\+?1[\s.-]*)?(?:\(?\d{3}\)?[\s.-]*)\d{3}[\s.-]*\d{4}(?:\s*(?:x|ext\.?|extension)\s*\d+)?/i);
+    if (match) return match[0].replace(/\s+/g, " ").trim();
+  }
+  return "";
+}
+
+function firstSolicitorName(lines: string[]) {
+  return lines.find((line) => isLikelyPersonName(line)) ?? "";
+}
+
+function firstSolicitorFirm(lines: string[], name: string) {
+  const firm = lines.find((line) => {
+    if (line === name) return false;
+    if (line.includes("@")) return false;
+    if (firstPhone([line])) return false;
+    return /\b(llp|law|legal|barrister|solicitor|professional corporation|pc|p\.c\.|firm)\b/i.test(line);
+  });
+  return firm ?? "";
+}
+
+function isLikelyPersonName(line: string) {
+  if (line.includes("@") || firstPhone([line])) return false;
+  if (/\b(solicitor|lawyer|clerk|founder|principal|real estate|conveyancing|office|fax|email|phone|tel|direct|suite|avenue|street|road|drive|crescent)\b/i.test(line)) {
+    return false;
+  }
+  const words = line.split(/\s+/).filter(Boolean);
+  return words.length >= 2 && words.length <= 4 && words.every((word) => /^[A-Z][A-Za-z'.-]+$/.test(word));
+}
+
+function isBoilerplateSolicitorLine(line: string) {
+  return (
+    /^\[.*\]$/.test(line) ||
+    /^description automatically generated$/i.test(line) ||
+    /^\(?[A-Za-z ]+ office\)?$/i.test(line) ||
+    /^thank(s| you)?[,!]?$/i.test(line)
+  );
+}
+
+function cleanEmailLine(line: string) {
+  return line
+    .replace(/<mailto:[^>]+>/gi, "")
+    .replace(/\bmailto:/gi, "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[<>]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\s+-\s*$/, "")
+    .replace(/\s+[-–]\s*$/, "");
+}
+
+function labelForLawyerSuffix(suffix: string) {
+  if (suffix === "name") return "Name";
+  if (suffix === "firm") return "Firm";
+  if (suffix === "email") return "Email";
+  if (suffix === "phone") return "Phone";
+  return suffix;
+}
+
 function normalizeEmailBodyFieldValue(fieldKey: string, value: string) {
   const cleaned = value.replace(/\s+/g, " ").trim();
   if (!cleaned) return "";
@@ -445,12 +586,16 @@ function normalizeEmailTransactionType(value: string) {
 }
 
 function extractLikelyAddress(text: string) {
-  for (const rawLine of text.split(/\r?\n/)) {
+  const lines = text.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index];
+    const hasAddressLabel = /^\s*(property|property address|subject property|subject property address|address)\s*:/i.test(rawLine);
     const line = rawLine.trim().replace(/^property\s*:\s*/i, "");
+    if (!hasAddressLabel && isLikelySignatureAddressLine(lines, index)) continue;
     const address = line.match(
-      /\b(\d{1,6}\s+.{2,80}\b(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|blvd|boulevard)\b\.?)/i,
+      /\b(\d{1,6}\s+.{2,80}\b(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|crescent|cres|blvd|boulevard)\b\.?)/i,
     );
-    if (address) return address[1].trim().slice(0, 180);
+    if (address) return address[1].trim().replace(/[.,;:]+$/, "").slice(0, 180);
   }
   return "";
 }
@@ -459,14 +604,14 @@ function extractLikelyAddressFromFilenames(filenames: string[]) {
   for (const filename of filenames) {
     const candidate = normalizeFilenameForAddress(filename);
     const unitAddress = candidate.match(
-      /^(\d{1,6})\s+(\d{1,6})\s+(.{2,80}\b(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|blvd|boulevard)\b\.?)/i,
+      /^(\d{1,6})\s+(\d{1,6})\s+(.{2,80}\b(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|crescent|cres|blvd|boulevard)\b\.?)/i,
     );
     if (unitAddress) {
       return `${unitAddress[1]} - ${unitAddress[2]} ${titleCaseAddress(unitAddress[3])}`.slice(0, 180);
     }
 
     const address = candidate.match(
-      /\b(\d{1,6}\s+.{2,80}\b(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|blvd|boulevard)\b\.?)/i,
+      /\b(\d{1,6}\s+.{2,80}\b(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|crescent|cres|blvd|boulevard)\b\.?)/i,
     );
     if (address) return titleCaseAddress(address[1]).slice(0, 180);
   }
@@ -495,6 +640,39 @@ function titleCaseAddress(value: string) {
       return lower.charAt(0).toUpperCase() + lower.slice(1);
     })
     .join(" ");
+}
+
+function contentBeforeSignatureAndQuotedReply(text: string) {
+  const lines = text.split(/\r?\n/);
+  const kept: string[] = [];
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (isSignatureBoundary(line)) break;
+    kept.push(rawLine);
+  }
+  return kept.join("\n").trim();
+}
+
+function isSignatureBoundary(line: string) {
+  if (!line) return false;
+  return (
+    /^--\s*$/.test(line) ||
+    /^(thanks|thank you|regards|best regards|kind regards|warm regards|sincerely|cheers)[,!. ]*$/i.test(line) ||
+    /^sent from\b/i.test(line) ||
+    /^on .+\bwrote:$/i.test(line) ||
+    /^(confidentiality notice|disclaimer)\b/i.test(line)
+  );
+}
+
+function isLikelySignatureAddressLine(lines: string[], index: number) {
+  const window = lines
+    .slice(Math.max(0, index - 4), Math.min(lines.length, index + 5))
+    .join(" ")
+    .toLowerCase();
+  const hasContactInfo = /\b(email|e-mail|cell|mobile|phone|tel|fax|website|www\.)\b|@/.test(window);
+  const hasBrokerageBrand = /\b(re\/max|royal lepage|sutton|century 21|right at home|homelife|team admiral)\b/i.test(window);
+  const hasBrokerageRole = /\b(office|broker|brokerage|realtor|sales representative|realty)\b/.test(window);
+  return hasContactInfo || hasBrokerageBrand || (hasBrokerageRole && index > 1);
 }
 
 function extensionOf(name: string) {

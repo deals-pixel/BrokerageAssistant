@@ -165,7 +165,7 @@ export default async function DashboardPage({
   );
   const dealOptions = realDeals.map<IntakeDealOption>((deal) => ({
     id: deal.id,
-    label: deal.property_address ?? deal.file_name,
+    label: shortDealTitle(deal.property_address, deal.file_name),
     status: deal.status,
     transactionType: deal.transaction_type,
     transactionCode: deal.transaction_code,

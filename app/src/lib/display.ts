@@ -69,21 +69,34 @@ const DOC_TYPE_OVERRIDES: Record<string, string> = {
 
 export function shortAddress(value: string | null | undefined) {
   if (!value) return "";
-  const withoutPostal = value
+  const normalized = value
     .replace(/\b[A-Z]\d[A-Z][ -]?\d[A-Z]\d\b/gi, "")
     .replace(/\s{2,}/g, " ")
+    .replace(/\s*,\s*$/, "")
     .trim();
-  const parts = withoutPostal
+  const parts = normalized
     .split(",")
-    .map((part) => part.trim())
+    .map((part) => cleanAddressPart(part))
     .filter(Boolean);
 
+  const streetIndex = parts.findIndex(hasStreetAddress);
+  if (streetIndex >= 0) {
+    const splitStreet = splitUnitAndStreet(parts[streetIndex]);
+    const unit =
+      splitStreet.unit ||
+      firstUnitPart(parts.slice(0, streetIndex)) ||
+      firstUnitPart(parts.slice(streetIndex + 1));
+    const street = splitStreet.street;
+    const city = firstLocationPart(parts, streetIndex + 1);
+    return [unit, street, city].filter(Boolean).join(", ");
+  }
+
   if (parts.length >= 2) {
-    const city = stripProvince(parts[1]);
+    const city = firstLocationPart(parts, 1);
     return [parts[0], city].filter(Boolean).join(", ");
   }
 
-  return stripProvince(withoutPostal);
+  return cleanAddressPart(normalized);
 }
 
 export function shortDealTitle(address: string | null | undefined, fallback: string) {
@@ -109,10 +122,46 @@ export function shortDocumentLabel(value: string | null | undefined) {
   return result;
 }
 
-function stripProvince(value: string) {
+function cleanAddressPart(value: string) {
   return value
     .replace(/\b(Ontario|ON)\b\.?/gi, "")
+    .replace(/\b[NSEWC]\d{2}\b/g, "")
     .replace(/\s*,\s*$/, "")
     .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function firstLocationPart(parts: string[], startIndex: number) {
+  for (const part of parts.slice(startIndex)) {
+    if (!part || isUnitPart(part)) continue;
+    return part;
+  }
+  return "";
+}
+
+function firstUnitPart(parts: string[]) {
+  const unit = parts.find(isUnitPart);
+  return unit ? cleanUnitPart(unit) : "";
+}
+
+function hasStreetAddress(value: string) {
+  return /\d/.test(value) && /\b(?:street|st\.?|avenue|ave\.?|road|rd\.?|drive|dr\.?|lane|ln\.?|court|ct\.?|crescent|cres\.?|blvd|boulevard|highway|hwy)\b/i.test(value);
+}
+
+function isUnitPart(value: string) {
+  return /^(?:unit|suite|apt|apartment|#|ph|sph)?\s*[a-z]?\d+[a-z]?$/i.test(value.trim()) || /^(?:bsmt|basement|lower|main|upper)$/i.test(value.trim());
+}
+
+function splitUnitAndStreet(value: string) {
+  const match = value.match(/^(#?\s*(?:unit\s+|suite\s+|apt\s+|apartment\s+)?[a-z]?\d+[a-z]?|ph\s*\d+[a-z]?|sph\s*\d+[a-z]?|bsmt|basement|lower|main|upper)\s*[-–]\s*(\d{1,6}\s+.+)$/i);
+  if (!match) return { unit: "", street: value };
+  return { unit: cleanUnitPart(match[1]), street: match[2].trim() };
+}
+
+function cleanUnitPart(value: string) {
+  return value
+    .replace(/^#\s*/i, "")
+    .replace(/^(?:unit|suite|apt|apartment)\s+/i, "")
+    .replace(/\s+/g, " ")
     .trim();
 }
