@@ -3,6 +3,7 @@ import {
   EXISTING_DEAL_MATCH_THRESHOLD,
   hasReviewableEmailContent,
   heuristicRouteEmail,
+  heuristicRouteEmailForThreadContext,
   type InboundEmailInput,
   type LightRoutingResult,
 } from "@/lib/email-intake";
@@ -150,7 +151,7 @@ export async function processInboundEmailRouting(inboundEmailId: string) {
         .eq("id", attachment.id);
     }
 
-    const match = await matchDeal(supabase, routing, inbound.fromEmail);
+    const { match, routing: routingForMatch, usedThreadContext } = await matchDealWithThreadContext(supabase, routing, inbound);
     const attachmentIds = routeAttachments
       .map((attachment) => attachment.id)
       .filter((id): id is string => Boolean(id));
@@ -169,7 +170,7 @@ export async function processInboundEmailRouting(inboundEmailId: string) {
       );
       await supabase
         .from("inbound_emails")
-        .update({ status: "needs_match_review", routing_json: routing, routing_completed_at: completedAt })
+        .update({ status: "needs_match_review", routing_json: routingForMatch, routing_completed_at: completedAt })
         .eq("id", inboundEmailId);
       await supabase.from("audit_logs").insert({
         deal_id: match.best.id,
@@ -179,6 +180,8 @@ export async function processInboundEmailRouting(inboundEmailId: string) {
           attachments: attachmentIds.length,
           content_only: attachmentIds.length === 0,
           match_score: match.score,
+          match_reason: match.reason,
+          thread_context_match: usedThreadContext,
         },
       });
       return { inboundEmailId, status: "needs_match_review", dealId: match.best.id };
@@ -273,6 +276,53 @@ export async function matchDeal(
   }
 
   return { best, score, reason };
+}
+
+export async function matchDealWithThreadContext(
+  supabase: AdminClient,
+  routing: LightRoutingResult,
+  inbound: InboundEmailInput,
+) {
+  const primary = await matchDeal(supabase, routing, inbound.fromEmail);
+  if (primary.best && primary.score >= EXISTING_DEAL_MATCH_THRESHOLD) {
+    return { match: primary, routing, usedThreadContext: false };
+  }
+
+  const threadRouting = heuristicRouteEmailForThreadContext(inbound);
+  if (!hasMatchingSignal(threadRouting)) {
+    return { match: primary, routing, usedThreadContext: false };
+  }
+
+  const threadMatch = await matchDeal(supabase, threadRouting, inbound.fromEmail);
+  if (threadMatch.best && threadMatch.score >= EXISTING_DEAL_MATCH_THRESHOLD) {
+    return {
+      match: {
+        ...threadMatch,
+        reason: `${threadMatch.reason} from quoted email thread`,
+      },
+      routing: mergeRoutingForThreadContext(routing, threadRouting),
+      usedThreadContext: true,
+    };
+  }
+
+  return { match: primary, routing, usedThreadContext: false };
+}
+
+function hasMatchingSignal(routing: LightRoutingResult) {
+  return Boolean(routing.transaction_code || routing.mls_number || routing.property_address);
+}
+
+function mergeRoutingForThreadContext(primary: LightRoutingResult, thread: LightRoutingResult): LightRoutingResult {
+  return {
+    ...primary,
+    property_address: primary.property_address || thread.property_address,
+    mls_number: primary.mls_number || thread.mls_number,
+    transaction_code: primary.transaction_code || thread.transaction_code,
+    transaction_type_guess: primary.transaction_type_guess === "unknown" ? thread.transaction_type_guess : primary.transaction_type_guess,
+    party_names: Array.from(new Set([...primary.party_names, ...thread.party_names])),
+    agent_names: Array.from(new Set([...primary.agent_names, ...thread.agent_names])),
+    routing_confidence: Math.max(primary.routing_confidence, thread.routing_confidence),
+  };
 }
 
 function scoreDeal(deal: DealCandidate, routing: LightRoutingResult, senderEmail: string | null) {

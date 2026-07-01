@@ -139,9 +139,22 @@ export function buildAttachmentStoragePath({
 }
 
 export function heuristicRouteEmail(email: InboundEmailInput): LightRoutingResult {
+  return buildHeuristicRouteEmail(email, { includeQuotedThreadContext: false });
+}
+
+export function heuristicRouteEmailForThreadContext(email: InboundEmailInput): LightRoutingResult {
+  return buildHeuristicRouteEmail(email, { includeQuotedThreadContext: true });
+}
+
+function buildHeuristicRouteEmail(
+  email: InboundEmailInput,
+  { includeQuotedThreadContext }: { includeQuotedThreadContext: boolean },
+): LightRoutingResult {
   const subjectText = email.subject?.trim() ?? "";
   const bodyText = inboundEmailPlainText(email);
-  const searchableBodyText = contentBeforeSignatureAndQuotedReply(bodyText);
+  const searchableBodyText = includeQuotedThreadContext
+    ? unquoteEmailThread(bodyText)
+    : contentBeforeSignatureAndQuotedReply(bodyText);
   const text = [subjectText, bodyText].filter(Boolean).join("\n");
   const normalized = text.toLowerCase();
   const emailBodyFields = extractEmailBodyFields(email);
@@ -588,16 +601,27 @@ function normalizeEmailTransactionType(value: string) {
 function extractLikelyAddress(text: string) {
   const lines = text.split(/\r?\n/);
   for (let index = 0; index < lines.length; index += 1) {
-    const rawLine = lines[index];
+    const rawLine = lines[index].replace(/^\s*>+\s?/, "");
     const hasAddressLabel = /^\s*(property|property address|subject property|subject property address|address)\s*:/i.test(rawLine);
-    const line = rawLine.trim().replace(/^property\s*:\s*/i, "");
+    const line = rawLine.trim().replace(/^(?:property|property address|subject property|subject property address|address)\s*:\s*/i, "");
     if (!hasAddressLabel && isLikelySignatureAddressLine(lines, index)) continue;
-    const address = line.match(
-      /\b(\d{1,6}\s+.{2,80}\b(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|crescent|cres|blvd|boulevard)\b\.?)/i,
-    );
-    if (address) return address[1].trim().replace(/[.,;:]+$/, "").slice(0, 180);
+    for (const candidate of addressLineCandidates(line, lines[index + 1] ?? "")) {
+      const address = candidate.match(
+        /\b(\d{1,6}\s+.{2,80}\b(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|crescent|cres|blvd|boulevard)\b\.?)/i,
+      );
+      if (address) return address[1].trim().replace(/[.,;:]+$/, "").slice(0, 180);
+    }
   }
   return "";
+}
+
+function addressLineCandidates(line: string, nextRawLine: string) {
+  const candidates = [line];
+  const nextLine = nextRawLine.replace(/^\s*>+\s?/, "").trim();
+  if (nextLine && /\b\d{1,6}\s*$/.test(line) && /^\D{2,80}\b(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|crescent|cres|blvd|boulevard)\b\.?/i.test(nextLine)) {
+    candidates.push(`${line} ${nextLine}`);
+  }
+  return candidates;
 }
 
 function extractLikelyAddressFromFilenames(filenames: string[]) {
@@ -653,6 +677,14 @@ function contentBeforeSignatureAndQuotedReply(text: string) {
   return kept.join("\n").trim();
 }
 
+function unquoteEmailThread(text: string) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*>+\s?/, "").trim())
+    .filter((line) => line && !/^on .+\bwrote:$/i.test(line))
+    .join("\n");
+}
+
 function isSignatureBoundary(line: string) {
   if (!line) return false;
   return (
@@ -666,13 +698,18 @@ function isSignatureBoundary(line: string) {
 
 function isLikelySignatureAddressLine(lines: string[], index: number) {
   const window = lines
-    .slice(Math.max(0, index - 4), Math.min(lines.length, index + 5))
+    .slice(Math.max(0, index - 2), Math.min(lines.length, index + 4))
+    .filter((line) => !isQuotedAttributionLine(line))
     .join(" ")
     .toLowerCase();
   const hasContactInfo = /\b(email|e-mail|cell|mobile|phone|tel|fax|website|www\.)\b|@/.test(window);
   const hasBrokerageBrand = /\b(re\/max|royal lepage|sutton|century 21|right at home|homelife|team admiral)\b/i.test(window);
-  const hasBrokerageRole = /\b(office|broker|brokerage|realtor|sales representative|realty)\b/.test(window);
-  return hasContactInfo || hasBrokerageBrand || (hasBrokerageRole && index > 1);
+  return hasContactInfo || hasBrokerageBrand;
+}
+
+function isQuotedAttributionLine(line: string) {
+  const cleaned = line.replace(/^\s*>+\s?/, "").trim();
+  return /^on .+\bwrote:?$/i.test(cleaned) || /^wrote:?$/i.test(cleaned);
 }
 
 function extensionOf(name: string) {

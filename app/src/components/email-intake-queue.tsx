@@ -1796,6 +1796,14 @@ function routingSuggestion(
 ) {
   const routing = email.routing_json;
   if (email.status === "not_deal_suggested") {
+    if (suggestedDeal) {
+      const score = primaryLink?.match_score != null ? `${primaryLink.match_score}%` : routingConfidence(routing, primaryLink);
+      return {
+        title: "Attach communication",
+        primary: `Communication for ${shortDealTitle(suggestedDeal.property_address, suggestedDeal.file_name)}, ${score}`,
+        meta: primaryLink?.match_reason || "Save this email to the deal portal without processing it as a document package.",
+      };
+    }
     const communicationFields = routingEmailBodyFields(email.routing_json);
     if (communicationFields.length > 0) {
       return {

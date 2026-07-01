@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { analyzeInboundPackage, type IntakeAnalysisAttachmentInput } from "@/lib/ai/intake-analyze";
-import { matchDeal } from "@/lib/email-routing-job";
+import { matchDealWithThreadContext } from "@/lib/email-routing-job";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { hasReviewableEmailContent, heuristicRouteEmail, type InboundEmailInput } from "@/lib/email-intake";
@@ -84,10 +84,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const useAi = body?.forceAi === true || shouldUseAiIntakeAnalysis(heuristic, lightweightAttachments.length);
     const attachments = useAi ? await downloadAttachments(admin, attachmentRows ?? []) : lightweightAttachments;
     const inbound = useAi ? emailRowToInboundInput(email as InboundEmailRow, attachments) : lightweightInbound;
-    const analysis = useAi
+    let analysis = useAi
       ? await analyzeInboundPackage(inbound, attachments, { inboundEmailId: id })
       : heuristicAnalysis(heuristic, lightweightAttachments.length);
-    const match = await matchDeal(admin, analysis, inbound.fromEmail);
+    const {
+      match,
+      routing: routingForMatch,
+      usedThreadContext,
+    } = await matchDealWithThreadContext(admin, analysis, inbound);
+    if (usedThreadContext) {
+      analysis = {
+        ...analysis,
+        property_address: analysis.property_address || routingForMatch.property_address,
+        mls_number: analysis.mls_number || routingForMatch.mls_number,
+        transaction_code: analysis.transaction_code || routingForMatch.transaction_code,
+        transaction_type_guess:
+          analysis.transaction_type_guess === "unknown" ? routingForMatch.transaction_type_guess : analysis.transaction_type_guess,
+        routing_confidence: Math.max(analysis.routing_confidence, routingForMatch.routing_confidence),
+        recommended_action: "existing_deal",
+      };
+    }
     const matchedDeal = match.best && match.score >= 50 ? match.best : null;
     const completedAt = new Date().toISOString();
 
@@ -116,9 +132,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       );
     }
 
-    const status = matchedDeal
-      ? "needs_match_review"
-      : !analysis.is_deal_package
+    const communicationOnly = !analysis.is_deal_package && Boolean(matchedDeal);
+    const status = communicationOnly
+      ? "not_deal_suggested"
+      : matchedDeal
+        ? "needs_match_review"
+        : !analysis.is_deal_package
         ? "not_deal_suggested"
         : "new_deal_suggested";
 
@@ -128,7 +147,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         status,
         routing_json: analysis,
         routing_completed_at: completedAt,
-        error_message: status === "not_deal_suggested" ? analysis.not_deal_reason || "AI did not identify a deal package." : null,
+        error_message:
+          status === "not_deal_suggested" && !matchedDeal
+            ? analysis.not_deal_reason || "AI did not identify a deal package."
+            : null,
       })
       .eq("id", id);
 
@@ -142,7 +164,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         match_score: matchedDeal ? match.score : 0,
         match_reason: matchedDeal ? match.reason : null,
         recommended_action: analysis.recommended_action,
-        communication_only: !analysis.is_deal_package && Boolean(matchedDeal),
+        communication_only: communicationOnly,
+        thread_context_match: usedThreadContext,
         ai_used: useAi,
       },
     });
@@ -174,12 +197,17 @@ function heuristicAnalysis(
   attachmentCount: number,
 ) {
   const hasKnownDocument = routing.document_type_guesses.some((guess) => guess.confidence >= 0.55);
-  const isDealPackage = attachmentCount > 0 || hasKnownDocument || Boolean(routing.property_address || routing.email_body_fields?.length);
+  const hasDealContext = Boolean(routing.property_address || routing.email_body_fields?.length);
+  const isDealPackage = attachmentCount > 0 || hasKnownDocument;
   return {
     is_deal_package: isDealPackage,
-    not_deal_reason: isDealPackage ? "" : "No clear deal-document signals found.",
+    not_deal_reason: isDealPackage
+      ? ""
+      : hasDealContext
+        ? "Email appears to be deal communication, but not a new document package."
+        : "No clear deal-document signals found.",
     ...routing,
-    recommended_action: routing.transaction_code || routing.property_address
+    recommended_action: routing.transaction_code || hasDealContext
       ? "existing_deal"
       : isDealPackage
         ? "new_deal"

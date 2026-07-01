@@ -9,7 +9,7 @@ import {
   normalizeInboundEmailPayload,
   shouldStoreAttachment,
 } from "@/lib/email-intake";
-import { matchDeal } from "@/lib/email-routing-job";
+import { matchDealWithThreadContext } from "@/lib/email-routing-job";
 
 export const maxDuration = 60;
 
@@ -175,7 +175,7 @@ async function storeInboundAttachments(
 
     if (storedCount > 0) {
       const routing = heuristicRouteEmail(inbound);
-      const match = await matchDeal(supabase, routing, inbound.fromEmail);
+      const { match, routing: routingForMatch, usedThreadContext } = await matchDealWithThreadContext(supabase, routing, inbound);
       const strongMatch = match.best && match.score >= EXISTING_DEAL_MATCH_THRESHOLD ? match.best : null;
       if (strongMatch) {
         await supabase.from("deal_email_links").upsert(
@@ -194,7 +194,7 @@ async function storeInboundAttachments(
         .from("inbound_emails")
         .update({
           status: strongMatch ? "needs_match_review" : "intake_review",
-          routing_json: routing,
+          routing_json: routingForMatch,
           routing_completed_at: new Date().toISOString(),
           error_message: null,
         })
@@ -210,7 +210,8 @@ async function storeInboundAttachments(
           duplicate_attachments: duplicateCount,
           match_score: strongMatch ? match.score : 0,
           match_reason: strongMatch ? match.reason : null,
-          routing,
+          routing: routingForMatch,
+          thread_context_match: usedThreadContext,
           ai_used: false,
         },
       });
@@ -219,7 +220,7 @@ async function storeInboundAttachments(
 
     if (hasReviewableEmailContent(inbound)) {
       const routing = heuristicRouteEmail(inbound);
-      const match = await matchDeal(supabase, routing, inbound.fromEmail);
+      const { match, routing: routingForMatch, usedThreadContext } = await matchDealWithThreadContext(supabase, routing, inbound);
       const strongMatch = match.best && match.score >= EXISTING_DEAL_MATCH_THRESHOLD ? match.best : null;
       if (strongMatch) {
         await supabase.from("deal_email_links").upsert(
@@ -238,7 +239,7 @@ async function storeInboundAttachments(
         .from("inbound_emails")
         .update({
           status: strongMatch ? "needs_match_review" : "intake_review",
-          routing_json: routing,
+          routing_json: routingForMatch,
           routing_completed_at: new Date().toISOString(),
           error_message: null,
         })
@@ -255,7 +256,8 @@ async function storeInboundAttachments(
           content_only: true,
           match_score: strongMatch ? match.score : 0,
           match_reason: strongMatch ? match.reason : null,
-          routing,
+          routing: routingForMatch,
+          thread_context_match: usedThreadContext,
           ai_used: false,
         },
       });
