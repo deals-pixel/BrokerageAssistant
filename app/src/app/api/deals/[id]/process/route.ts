@@ -22,8 +22,16 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     await processDeal(id);
     return NextResponse.json({ ok: true });
   } catch (err) {
+    const message = err instanceof Error ? err.message : "Processing failed";
+    await supabase.from("deals").update({ status: "awaiting_admin_process" }).eq("id", id);
+    await supabase.from("audit_logs").insert({
+      user_id: user.id,
+      deal_id: id,
+      action: "processing_failed",
+      details: { error: message },
+    });
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Processing failed" },
+      { error: message },
       { status: 500 },
     );
   }
