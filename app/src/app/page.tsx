@@ -53,6 +53,7 @@ type DealRow = {
   deal_pages: { page_number: number; doc_type: string | null }[];
   deal_fields: { field_key: string; value: string | null }[];
   reminder_emails: { status: string; sent_at: string | null; drafted_at: string | null; created_at: string }[];
+  deal_processing_jobs?: ProcessingJobRow[];
 };
 
 type DashboardDeal = DealRow & {
@@ -65,6 +66,21 @@ type DashboardDeal = DealRow & {
   canAuditChecklist: boolean;
   intakeEmails: IntakeEmailRow[];
   renderedAttachmentIds: string[];
+  latestProcessingJob: ProcessingJobRow | null;
+};
+
+type ProcessingJobRow = {
+  id: string;
+  status: string;
+  step: string;
+  current_attempt: number;
+  max_attempts: number;
+  next_run_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  failed_at: string | null;
 };
 
 type DealOperationalStatus =
@@ -91,7 +107,7 @@ export default async function DashboardPage({
   const { data } = await supabase
     .from("deals")
     .select(
-      "id, file_name, status, transaction_type, property_address, transaction_code, source, page_count, scenario_key, scenario_label, submitted_at, attention_reason, attention_at, attention_cleared_at, attention_cleared_by, created_at, deal_pages(page_number, doc_type), deal_fields(field_key, value), reminder_emails(status, sent_at, drafted_at, created_at)",
+      "id, file_name, status, transaction_type, property_address, transaction_code, source, page_count, scenario_key, scenario_label, submitted_at, attention_reason, attention_at, attention_cleared_at, attention_cleared_by, created_at, deal_pages(page_number, doc_type), deal_fields(field_key, value), reminder_emails(status, sent_at, drafted_at, created_at), deal_processing_jobs(id, status, step, current_attempt, max_attempts, next_run_at, last_error, created_at, updated_at, completed_at, failed_at)",
     )
     .order("created_at", { ascending: false })
     .limit(100);
@@ -441,7 +457,7 @@ function TransactionCard({
   dealOptions: IntakeDealOption[];
 }) {
   const isVirtualIntake = isVirtualIntakeDeal(deal);
-  const isProcessing = deal.status === "processing" || hasProcessingRoutedIntake(deal);
+  const isProcessing = deal.status === "processing" || hasProcessingRoutedIntake(deal) || isActiveProcessingJob(deal.latestProcessingJob);
   const hasIntakeWorkflow = shouldShowIntakeWorkflow(deal) && !hasProcessingRoutedIntake(deal);
   const ready = deal.complianceStatus === "Ready";
   const statusBadge = dealOperationalStatus(deal);
@@ -501,7 +517,7 @@ function TransactionCard({
             </Badge>
           )}
         </div>
-        {isProcessing && <ProcessingStepProgress />}
+        {isProcessing && <ProcessingStepProgress job={deal.latestProcessingJob} />}
         {hasIntakeWorkflow ? (
           <DealIntakeWorkflow
             deal={deal}
@@ -527,7 +543,7 @@ function TransactionCard({
 }
 
 function DashboardDealAction({ deal }: { deal: DashboardDeal }) {
-  if (deal.status === "processing" || deal.complianceStatus === "Submitted") {
+  if (deal.status === "processing" || isActiveProcessingJob(deal.latestProcessingJob) || deal.complianceStatus === "Submitted") {
     return null;
   }
 
@@ -577,19 +593,17 @@ function DealOperationalStatusBadge({ status }: { status: DealOperationalStatus 
   );
 }
 
-function ProcessingStepProgress() {
-  const steps = [
-    { label: "Pages ready", state: "done" },
-    { label: "Reading forms", state: "active" },
-    { label: "Extracting fields", state: "pending" },
-    { label: "Checking requirements", state: "pending" },
-  ];
+function ProcessingStepProgress({ job }: { job: ProcessingJobRow | null }) {
+  const activeStep = job?.step ?? "queued";
+  const steps = processingStepList(activeStep);
+  const isRetrying = job?.status === "failed_retryable";
+  const lastError = job?.last_error;
 
   return (
-    <div className="rounded-md border border-blue-200 bg-blue-50/70 p-2 text-[11px] text-blue-950">
+    <div className={`rounded-md border p-2 text-[11px] ${isRetrying ? "border-amber-200 bg-amber-50 text-amber-950" : "border-blue-200 bg-blue-50/70 text-blue-950"}`}>
       <div className="mb-2 flex items-center gap-1.5 font-medium">
         <LoaderCircle className="size-3.5 animate-spin" />
-        Processing package
+        {isRetrying ? "Retry scheduled" : processingStatusLabel(job)}
       </div>
       <div className="space-y-1">
         {steps.map((step) => (
@@ -607,6 +621,7 @@ function ProcessingStepProgress() {
           </div>
         ))}
       </div>
+      {lastError && <div className="mt-2 break-words rounded bg-background/60 px-2 py-1 text-[11px]">{lastError}</div>}
     </div>
   );
 }
@@ -687,7 +702,8 @@ function TimeListDealRow({
   dealOptions: IntakeDealOption[];
   kind: "intake" | "date";
 }) {
-  const isProcessing = deal.status === "processing" || hasProcessingRoutedIntake(deal);
+  const isProcessing =
+    deal.status === "processing" || hasProcessingRoutedIntake(deal) || isActiveProcessingJob(deal.latestProcessingJob);
   const hasIntakeWorkflow = shouldShowIntakeWorkflow(deal) && !hasProcessingRoutedIntake(deal);
   const statusBadge = dealOperationalStatus(deal);
   const updateSummary = dealAttentionSummary(deal);
@@ -732,7 +748,7 @@ function TimeListDealRow({
         ) : (
           <div className="min-w-0 space-y-2 rounded-lg border bg-background/65 p-3">
             {isProcessing ? (
-              <ProcessingStepProgress />
+              <ProcessingStepProgress job={deal.latestProcessingJob} />
             ) : (
               <>
                 <MissingBadges deal={deal} />
@@ -959,6 +975,8 @@ function TransitionFeed({
 }
 
 function toDashboardDeal(deal: DealRow): DashboardDeal {
+  const latestProcessingJob = latestProcessingJobForDeal(deal);
+  const activeProcessingJob = isActiveProcessingJob(latestProcessingJob);
   const checklist = buildChecklistResult(
     deal.transaction_type,
     deal.deal_pages ?? [],
@@ -970,7 +988,7 @@ function toDashboardDeal(deal: DealRow): DashboardDeal {
   const isEmailDraft = deal.status === "draft_from_email" || (deal.source === "email" && pageCount === 0);
   const needsProcessing =
     !isEmailDraft &&
-    (deal.status === "uploaded" || deal.status === "awaiting_admin_process" || deal.status === "processing");
+    (deal.status === "uploaded" || deal.status === "awaiting_admin_process" || deal.status === "processing" || activeProcessingJob);
   const canAuditChecklist = !isEmailDraft && !needsProcessing;
   const complianceStatus: ComplianceStatus = submitted
     ? "Submitted"
@@ -1004,6 +1022,7 @@ function toDashboardDeal(deal: DealRow): DashboardDeal {
     canAuditChecklist,
     intakeEmails: [],
     renderedAttachmentIds: [],
+    latestProcessingJob,
   };
 }
 
@@ -1044,6 +1063,7 @@ function toIntakeDashboardDeal(email: IntakeEmailRow): DashboardDeal {
     canAuditChecklist: false,
     intakeEmails: [email],
     renderedAttachmentIds: [],
+    latestProcessingJob: null,
   };
 }
 
@@ -1167,6 +1187,16 @@ function hasProcessingRoutedIntake(deal: DashboardDeal) {
   return deal.intakeEmails.some((email) => email.status === "processing_from_routing");
 }
 
+function latestProcessingJobForDeal(deal: DealRow) {
+  return [...(deal.deal_processing_jobs ?? [])].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  )[0] ?? null;
+}
+
+function isActiveProcessingJob(job: ProcessingJobRow | null) {
+  return Boolean(job && ["queued", "running", "retrying", "failed_retryable"].includes(job.status));
+}
+
 function applyLinkedIntakeState(deal: DashboardDeal): DashboardDeal {
   if (!hasProcessingRoutedIntake(deal)) return deal;
   return {
@@ -1175,6 +1205,38 @@ function applyLinkedIntakeState(deal: DashboardDeal): DashboardDeal {
     scenarioLabel: "Processing routed intake",
     scenarioShortLabel: "Processing",
   };
+}
+
+function processingStatusLabel(job: ProcessingJobRow | null) {
+  if (!job) return "Processing package";
+  if (job.status === "queued") return "Queued for processing";
+  if (job.status === "failed_retryable") return "Retry scheduled";
+  return processingStepLabel(job.step);
+}
+
+function processingStepList(activeStep: string) {
+  const steps = [
+    { key: "preparing_pages", label: "Pages ready" },
+    { key: "classifying", label: "Reading forms" },
+    { key: "extracting_fields", label: "Extracting fields" },
+    { key: "syncing_tasks", label: "Checking requirements" },
+  ];
+  const activeIndex = Math.max(0, steps.findIndex((step) => step.key === activeStep));
+  return steps.map((step, index) => ({
+    label: step.label,
+    state: index < activeIndex || activeStep === "completed" ? "done" : index === activeIndex ? "active" : "pending",
+  }));
+}
+
+function processingStepLabel(step: string) {
+  if (step === "queued") return "Queued for processing";
+  if (step === "preparing_pages") return "Preparing pages";
+  if (step === "classifying") return "Reading forms";
+  if (step === "extracting_fields") return "Extracting fields";
+  if (step === "syncing_tasks") return "Checking requirements";
+  if (step === "completed") return "Processing complete";
+  if (step === "failed") return "Processing failed";
+  return "Processing package";
 }
 
 function stringRoutingValue(routing: Record<string, unknown>, key: string) {

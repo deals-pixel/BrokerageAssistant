@@ -27,6 +27,7 @@ export async function proxy(request: NextRequest) {
 
   const publicApiPrefixes = [
     "/api/inbound-email",
+    "/api/jobs/deal-processing",
     "/api/jobs/email-routing",
     "/api/cron/cleanup",
     "/api/cron/reminders",

@@ -48,12 +48,16 @@ type ExtractionModeSummary = {
   pages?: number;
   skippedPages?: number[];
 };
+export type ProcessingStep = "classifying" | "extracting_fields" | "syncing_tasks" | "completed";
+type ProcessDealOptions = {
+  onStep?: (step: ProcessingStep) => Promise<void> | void;
+};
 
 /**
  * Full pipeline for one deal: download page images from storage,
  * classify → extract per document → merge → validate → persist.
  */
-export async function processDeal(dealId: string): Promise<void> {
+export async function processDeal(dealId: string, options: ProcessDealOptions = {}): Promise<void> {
   const supabase = createAdminClient();
 
   const { data: deal, error: dealErr } = await supabase
@@ -102,6 +106,7 @@ export async function processDeal(dealId: string): Promise<void> {
       });
     }
 
+    await options.onStep?.("classifying");
     // Step 2: classify
     const storedClassification = classificationFromStoredPages(deal, pages);
     const classification =
@@ -149,6 +154,7 @@ export async function processDeal(dealId: string): Promise<void> {
       }
     }
 
+    await options.onStep?.("extracting_fields");
     // Step 3: extract per document group
     const byDoc = new Map<DocumentType, PageImage[]>();
     const skippedExtractionPages: Array<{
@@ -292,6 +298,7 @@ export async function processDeal(dealId: string): Promise<void> {
       })
       .eq("id", dealId);
 
+    await options.onStep?.("syncing_tasks");
     await syncMissingDocumentTasks(supabase, dealId);
 
     await supabase.from("audit_logs").insert({
@@ -322,6 +329,7 @@ export async function processDeal(dealId: string): Promise<void> {
         missing_required: checklist.missingRequired.map((item) => item.label),
       },
     });
+    await options.onStep?.("completed");
   } catch (err) {
     await supabase
       .from("deals")

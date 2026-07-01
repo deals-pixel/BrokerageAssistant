@@ -106,6 +106,15 @@ x-cron-secret: $EMAIL_ROUTING_JOB_SECRET
 
 `EMAIL_ROUTING_JOB_SECRET` defaults to `CRON_SECRET` when unset. The job reads first-page PDF subsets / image attachments, runs light routing, matches to an existing deal or creates a draft deal, and leaves the transaction awaiting admin processing.
 
+Full deal processing runs from a durable job row after a package is approved. The click path starts the job immediately, and this worker is the retry/backstop for queued, retryable, or stale running jobs:
+
+```text
+GET https://<app-domain>/api/jobs/deal-processing?limit=3
+x-cron-secret: $DEAL_PROCESSING_JOB_SECRET
+```
+
+`DEAL_PROCESSING_JOB_SECRET` defaults to `CRON_SECRET` when unset. The worker records the active step, retry attempts, final error, and related inbound email so the dashboard can show progress instead of leaving a package half processed.
+
 Reminder follow-ups are sent by a separate scheduler. Run it frequently enough to honor the follow-up timeline, for example every 15 minutes:
 
 ```text
@@ -122,3 +131,4 @@ The route sends due reminders through Postmark, advances `next_followup_at`, and
 3. Add a daily cron hitting `/api/cron/cleanup` with the `x-cron-secret` header.
 4. Add a reminder cron hitting `/api/cron/reminders` with the `x-cron-secret` header, for example every 15 minutes.
 5. Optional: add a frequent retry cron, for example every 5 minutes, hitting `/api/jobs/email-routing?limit=5` with the `x-cron-secret` or `x-job-secret` header.
+6. Add a frequent deal-processing retry cron, for example every 2-5 minutes, hitting `/api/jobs/deal-processing?limit=3` with the `x-cron-secret` or `x-deal-processing-secret` header.

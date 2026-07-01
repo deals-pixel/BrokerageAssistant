@@ -197,6 +197,7 @@ export function DealIntakeWorkflow({
     options: { successMessage?: string; undo?: { emailId: string; dealId: string } } = {},
   ) {
     const hasProcessableAttachments = hasProcessableEmailAttachments(dialog.email);
+    let queuedProcessing = false;
     setWorkingId(dialog.email.id);
     setWorkflowProgress(action === "link" ? "Linking email to transaction..." : "Creating draft transaction...");
     try {
@@ -231,14 +232,18 @@ export function DealIntakeWorkflow({
         onProgress: setWorkflowProgress,
       });
 
-      setWorkflowProgress("Running full AI extraction and compliance check...");
-      const processResponse = await fetch(`/api/deals/${approvedDeal.id}/process`, { method: "POST" });
+      setWorkflowProgress("Queueing full AI extraction and compliance check...");
+      const processResponse = await fetch(`/api/deals/${approvedDeal.id}/process`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inboundEmailId: dialog.email.id }),
+      });
       if (!processResponse.ok) {
         const body = await processResponse.json().catch(() => null);
-        throw new Error(body?.error ?? "Full processing failed");
+        throw new Error(body?.error ?? "Could not queue full processing");
       }
+      queuedProcessing = true;
 
-      await updateInboundEmailStatus(dialog.email.id, action === "link" ? "matched" : "draft_transaction_created");
       rememberDashboardScrollTarget(approvedDeal);
       if (options.successMessage) {
         toast.success(options.successMessage, {
@@ -251,15 +256,17 @@ export function DealIntakeWorkflow({
             : undefined,
         });
       } else {
-        toast.success("Email package approved and processed.");
+        toast.success("Email package approved. Full processing is running in the background.");
       }
       setDialog(null);
       router.refresh();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Approval failed";
-      await updateInboundEmailStatus(dialog.email.id, "error", message).catch((statusErr) => {
-        console.error("Could not mark intake approval as failed", statusErr);
-      });
+      if (!queuedProcessing) {
+        await updateInboundEmailStatus(dialog.email.id, "error", message).catch((statusErr) => {
+          console.error("Could not mark intake approval as failed", statusErr);
+        });
+      }
       toast.error(message);
     } finally {
       setWorkingId(null);
