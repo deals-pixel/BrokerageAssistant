@@ -760,6 +760,15 @@ function DealSearchSelect({
     [dealOptions, dialog.dealSearch, selectedDeal],
   );
   const selectId = `${inputId}-select`;
+  function handleSearchChange(value: string) {
+    const nextDeals = rankedDealOptions(dealOptions, value, null);
+    const selectedStillVisible = nextDeals.some((deal) => deal.id === dialog.selectedDealId);
+    onChange({
+      ...dialog,
+      dealSearch: value,
+      selectedDealId: selectedStillVisible ? dialog.selectedDealId : nextDeals[0]?.id ?? "",
+    });
+  }
 
   return (
     <div className="space-y-2">
@@ -769,7 +778,7 @@ function DealSearchSelect({
         <Input
           id={inputId}
           value={dialog.dealSearch}
-          onChange={(event) => onChange({ ...dialog, dealSearch: event.target.value })}
+          onChange={(event) => handleSearchChange(event.target.value)}
           placeholder="Search address, unit, code, type..."
           className="pl-8"
         />
@@ -780,12 +789,16 @@ function DealSearchSelect({
         onChange={(event) => onChange({ ...dialog, selectedDealId: event.target.value })}
         className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
       >
-        {filteredDeals.map((deal) => (
-          <option key={deal.id} value={deal.id}>
-            {deal.label}
-            {deal.transactionCode ? ` | ${deal.transactionCode}` : ""}
-          </option>
-        ))}
+        {filteredDeals.length === 0 ? (
+          <option value="">No matching transactions</option>
+        ) : (
+          filteredDeals.map((deal) => (
+            <option key={deal.id} value={deal.id}>
+              {deal.label}
+              {deal.transactionCode ? ` | ${deal.transactionCode}` : ""}
+            </option>
+          ))
+        )}
       </select>
       <div className="text-[11px] leading-4 text-muted-foreground">
         {filteredDeals.length === 0
@@ -1921,7 +1934,7 @@ function rankedDealOptions(
         .map((item) => item.deal)
     : [...dealOptions].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  if (selectedDeal && !matches.some((deal) => deal.id === selectedDeal.id)) {
+  if (!normalizedQuery && selectedDeal && !matches.some((deal) => deal.id === selectedDeal.id)) {
     return [selectedDeal, ...matches];
   }
   return matches;
