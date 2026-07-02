@@ -103,6 +103,7 @@ type DialogState = {
   mode: DialogMode;
   email: IntakeEmailRow;
   selectedDealId: string;
+  dealSearch: string;
   propertyAddress: string;
   transactionType: string;
   reason: string;
@@ -145,6 +146,7 @@ export function DealIntakeWorkflow({
       mode,
       email,
       selectedDealId: suggestedDeal?.id ?? deal.id ?? dealOptions[0]?.id ?? "",
+      dealSearch: routingAddress(email.routing_json) || "",
       propertyAddress: routingAddress(email.routing_json) || deal.property_address || "",
       transactionType: routingTransactionType(email.routing_json),
       reason: "",
@@ -612,19 +614,13 @@ export function DealIntakeWorkflow({
 
               {dialog.mode === "link" && (
                 <div className="space-y-3">
-                  <Label htmlFor={`intake-deal-search-${dialog.email.id}`}>Transaction</Label>
-                  <select
-                    id={`intake-deal-search-${dialog.email.id}`}
-                    value={dialog.selectedDealId}
-                    onChange={(event) => setDialog({ ...dialog, selectedDealId: event.target.value })}
-                    className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
-                  >
-                    {dealOptions.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
+                  <DealSearchSelect
+                    dialog={dialog}
+                    dealOptions={dealOptions}
+                    selectedDeal={selectedDeal}
+                    inputId={`intake-deal-search-${dialog.email.id}`}
+                    onChange={setDialog}
+                  />
                   {selectedDeal && (
                     <p className="text-xs text-muted-foreground">
                       {selectedDeal.transactionCode ? `${selectedDeal.transactionCode} | ` : ""}
@@ -741,6 +737,60 @@ function CompactIntakeInfo({ label, value }: { label: string; value: string }) {
       <div className="text-[10px] font-semibold uppercase leading-4 text-muted-foreground">{label}</div>
       <div className="min-w-0 truncate text-xs font-medium leading-4 text-foreground" title={value}>
         {value}
+      </div>
+    </div>
+  );
+}
+
+function DealSearchSelect({
+  dialog,
+  dealOptions,
+  selectedDeal,
+  inputId,
+  onChange,
+}: {
+  dialog: DialogState;
+  dealOptions: IntakeDealOption[];
+  selectedDeal: IntakeDealOption | null;
+  inputId: string;
+  onChange: (dialog: DialogState) => void;
+}) {
+  const filteredDeals = useMemo(
+    () => rankedDealOptions(dealOptions, dialog.dealSearch, selectedDeal),
+    [dealOptions, dialog.dealSearch, selectedDeal],
+  );
+  const selectId = `${inputId}-select`;
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={inputId}>Existing transaction</Label>
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          id={inputId}
+          value={dialog.dealSearch}
+          onChange={(event) => onChange({ ...dialog, dealSearch: event.target.value })}
+          placeholder="Search address, unit, code, type..."
+          className="pl-8"
+        />
+      </div>
+      <select
+        id={selectId}
+        value={dialog.selectedDealId}
+        onChange={(event) => onChange({ ...dialog, selectedDealId: event.target.value })}
+        className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
+      >
+        {filteredDeals.map((deal) => (
+          <option key={deal.id} value={deal.id}>
+            {deal.label}
+            {deal.transactionCode ? ` | ${deal.transactionCode}` : ""}
+          </option>
+        ))}
+      </select>
+      <div className="text-[11px] leading-4 text-muted-foreground">
+        {filteredDeals.length === 0
+          ? "No matching transactions."
+          : `${filteredDeals.length} matching transaction${filteredDeals.length === 1 ? "" : "s"}.`}
       </div>
     </div>
   );
@@ -1036,19 +1086,13 @@ function IntakeReviewModal({
               ) : (
                 <>
                   <div className="space-y-2">
-                    <Label htmlFor={`review-existing-${dialog.email.id}`}>Existing transaction</Label>
-                    <select
-                      id={`review-existing-${dialog.email.id}`}
-                      value={dialog.selectedDealId}
-                      onChange={(event) => onChange({ ...dialog, selectedDealId: event.target.value })}
-                      className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
-                    >
-                      {dealOptions.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
+                    <DealSearchSelect
+                      dialog={dialog}
+                      dealOptions={dealOptions}
+                      selectedDeal={selectedDeal}
+                      inputId={`review-existing-${dialog.email.id}`}
+                      onChange={onChange}
+                    />
                     {selectedDeal && (
                       <p className="text-xs text-muted-foreground">
                         {selectedDeal.transactionCode ? `${selectedDeal.transactionCode} | ` : ""}
@@ -1230,6 +1274,7 @@ export function EmailIntakeQueue({
       mode,
       email,
       selectedDealId: suggestedDeal?.id ?? dealOptions[0]?.id ?? "",
+      dealSearch: routingAddress(email.routing_json),
       propertyAddress: routingAddress(email.routing_json),
       transactionType: routingTransactionType(email.routing_json),
       reason: "",
@@ -1460,19 +1505,13 @@ export function EmailIntakeQueue({
 
               {dialog.mode === "link" && (
                 <div className="space-y-3">
-                  <Label htmlFor="intake-deal-search">Transaction</Label>
-                  <select
-                    id="intake-deal-search"
-                    value={dialog.selectedDealId}
-                    onChange={(event) => setDialog({ ...dialog, selectedDealId: event.target.value })}
-                    className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
-                  >
-                    {dealOptions.map((deal) => (
-                      <option key={deal.id} value={deal.id}>
-                        {deal.label}
-                      </option>
-                    ))}
-                  </select>
+                  <DealSearchSelect
+                    dialog={dialog}
+                    dealOptions={dealOptions}
+                    selectedDeal={selectedDeal}
+                    inputId="intake-deal-search"
+                    onChange={setDialog}
+                  />
                   {selectedDeal && (
                     <p className="text-xs text-muted-foreground">
                       {selectedDeal.transactionCode ? `${selectedDeal.transactionCode} | ` : ""}
@@ -1865,6 +1904,92 @@ function routingSuggestion(
 function linkedDealFromRelation(value: IntakeLinkedDeal | IntakeLinkedDeal[] | null | undefined) {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
+}
+
+function rankedDealOptions(
+  dealOptions: IntakeDealOption[],
+  query: string,
+  selectedDeal: IntakeDealOption | null,
+) {
+  const normalizedQuery = normalizeDealSearchText(query);
+  const compactQuery = normalizedQuery.replace(/\s/g, "");
+  const matches = normalizedQuery
+    ? dealOptions
+        .map((deal) => ({ deal, score: dealSearchScore(deal, normalizedQuery, compactQuery) }))
+        .filter((item) => item.score > 0)
+        .sort((a, b) => b.score - a.score || b.deal.createdAt.localeCompare(a.deal.createdAt))
+        .map((item) => item.deal)
+    : [...dealOptions].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  if (selectedDeal && !matches.some((deal) => deal.id === selectedDeal.id)) {
+    return [selectedDeal, ...matches];
+  }
+  return matches;
+}
+
+function dealSearchScore(deal: IntakeDealOption, normalizedQuery: string, compactQuery: string) {
+  const haystack = normalizeDealSearchText(
+    [
+      deal.label,
+      deal.transactionCode,
+      deal.transactionType,
+      deal.status,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+  const compactHaystack = haystack.replace(/\s/g, "");
+  if (!normalizedQuery) return 1;
+  if (haystack === normalizedQuery || compactHaystack === compactQuery) return 100;
+  if (haystack.includes(normalizedQuery) || compactHaystack.includes(compactQuery)) return 80;
+
+  const queryTokens = normalizedQuery.split(" ").filter(Boolean);
+  if (queryTokens.length === 0) return 0;
+  const haystackTokens = haystack.split(" ").filter(Boolean);
+  const tokenMatches = queryTokens.filter((queryToken) =>
+    haystackTokens.some((token) => dealSearchTokenMatches(token, queryToken)),
+  ).length;
+  if (tokenMatches === queryTokens.length) return 60 + tokenMatches;
+  if (tokenMatches > 0 && queryTokens.length > 1) return 25 + tokenMatches;
+  return 0;
+}
+
+function dealSearchTokenMatches(token: string, queryToken: string) {
+  if (token === queryToken || token.includes(queryToken) || queryToken.includes(token)) return true;
+  const minLength = Math.min(token.length, queryToken.length);
+  if (minLength < 5) return false;
+  const distance = dealSearchEditDistance(token, queryToken);
+  if (distance <= 1) return true;
+  return minLength >= 8 && distance <= 2;
+}
+
+function normalizeDealSearchText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function dealSearchEditDistance(left: string, right: string) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const current = Array.from({ length: right.length + 1 }, () => 0);
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    current[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const substitutionCost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      current[rightIndex] = Math.min(
+        previous[rightIndex] + 1,
+        current[rightIndex - 1] + 1,
+        previous[rightIndex - 1] + substitutionCost,
+      );
+    }
+    for (let index = 0; index < previous.length; index += 1) {
+      previous[index] = current[index];
+    }
+  }
+
+  return previous[right.length];
 }
 
 function QueueStat({ label, value }: { label: string; value: number }) {

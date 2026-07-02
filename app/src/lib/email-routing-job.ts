@@ -354,12 +354,16 @@ function scoreDeal(deal: DealCandidate, routing: LightRoutingResult, senderEmail
     const storedAddress = normalizeText(address);
     const routedAddress = normalizeText(routing.property_address);
     const coreMatch = addressCoreMatch(address, routing.property_address);
+    const typoMatch = addressTypoMatch(address, routing.property_address);
     if (storedAddress === routedAddress) {
       score += 50;
       reasons.push("property address exact match");
     } else if (coreMatch) {
       score += 50;
       reasons.push(coreMatch);
+    } else if (typoMatch) {
+      score += 50;
+      reasons.push(typoMatch);
     } else if (
       storedAddress.includes(routedAddress) ||
       routedAddress.includes(storedAddress)
@@ -398,6 +402,16 @@ function addressCoreMatch(storedAddress: string, routedAddress: string) {
   if (stored.unit && routed.unit && stored.unit !== routed.unit) return null;
   if (stored.unit && routed.unit) return "property address unit/core match";
   return "property address civic/street match";
+}
+
+function addressTypoMatch(storedAddress: string, routedAddress: string) {
+  const stored = parseAddressCore(storedAddress);
+  const routed = parseAddressCore(routedAddress);
+  if (!stored || !routed) return null;
+  if (stored.civic !== routed.civic) return null;
+  if (stored.unit && routed.unit && stored.unit !== routed.unit) return null;
+  if (!isLikelyStreetTypo(stored.street, routed.street)) return null;
+  return "property address typo-tolerant match";
 }
 
 function parseAddressCore(value: string) {
@@ -439,6 +453,40 @@ function parseAddressCore(value: string) {
 
   if (street.length === 0) return null;
   return { civic, street: street.join(" "), unit };
+}
+
+function isLikelyStreetTypo(left: string, right: string) {
+  if (left === right) return false;
+  const leftCompact = left.replace(/\s+/g, "");
+  const rightCompact = right.replace(/\s+/g, "");
+  const minLength = Math.min(leftCompact.length, rightCompact.length);
+  if (minLength < 5) return false;
+
+  const distance = editDistance(leftCompact, rightCompact);
+  if (distance <= 1) return true;
+  return minLength >= 8 && distance <= 2;
+}
+
+function editDistance(left: string, right: string) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const current = Array.from({ length: right.length + 1 }, () => 0);
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    current[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const substitutionCost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      current[rightIndex] = Math.min(
+        previous[rightIndex] + 1,
+        current[rightIndex - 1] + 1,
+        previous[rightIndex - 1] + substitutionCost,
+      );
+    }
+    for (let index = 0; index < previous.length; index += 1) {
+      previous[index] = current[index];
+    }
+  }
+
+  return previous[right.length];
 }
 
 function isUnitToken(token: string) {
