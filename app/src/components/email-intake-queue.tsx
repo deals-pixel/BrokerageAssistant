@@ -759,7 +759,7 @@ function DealSearchSelect({
     () => rankedDealOptions(dealOptions, dialog.dealSearch, selectedDeal),
     [dealOptions, dialog.dealSearch, selectedDeal],
   );
-  const selectId = `${inputId}-select`;
+  const visibleDeals = filteredDeals.slice(0, 8);
   function handleSearchChange(value: string) {
     const nextDeals = rankedDealOptions(dealOptions, value, null);
     const selectedStillVisible = nextDeals.some((deal) => deal.id === dialog.selectedDealId);
@@ -767,6 +767,13 @@ function DealSearchSelect({
       ...dialog,
       dealSearch: value,
       selectedDealId: selectedStillVisible ? dialog.selectedDealId : nextDeals[0]?.id ?? "",
+    });
+  }
+  function chooseDeal(deal: IntakeDealOption) {
+    onChange({
+      ...dialog,
+      selectedDealId: deal.id,
+      dealSearch: deal.label,
     });
   }
 
@@ -783,27 +790,38 @@ function DealSearchSelect({
           className="pl-8"
         />
       </div>
-      <select
-        id={selectId}
-        value={dialog.selectedDealId}
-        onChange={(event) => onChange({ ...dialog, selectedDealId: event.target.value })}
-        className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
-      >
-        {filteredDeals.length === 0 ? (
-          <option value="">No matching transactions</option>
+      <div className="max-h-56 overflow-y-auto rounded-lg border bg-background">
+        {visibleDeals.length === 0 ? (
+          <div className="px-3 py-2 text-sm text-muted-foreground">No matching transactions</div>
         ) : (
-          filteredDeals.map((deal) => (
-            <option key={deal.id} value={deal.id}>
-              {deal.label}
-              {deal.transactionCode ? ` | ${deal.transactionCode}` : ""}
-            </option>
-          ))
+          visibleDeals.map((deal) => {
+            const selected = deal.id === dialog.selectedDealId;
+            return (
+              <button
+                key={deal.id}
+                type="button"
+                className={`grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 px-3 py-2 text-left text-sm transition hover:bg-muted/60 ${
+                  selected ? "bg-blue-50 text-blue-950" : ""
+                }`}
+                onClick={() => chooseDeal(deal)}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">{deal.label}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {deal.transactionCode ? `${deal.transactionCode} | ` : ""}
+                    {deal.transactionType} | {deal.status}
+                  </span>
+                </span>
+                {selected && <span className="self-center rounded-full border border-blue-200 px-2 py-0.5 text-[11px]">Selected</span>}
+              </button>
+            );
+          })
         )}
-      </select>
+      </div>
       <div className="text-[11px] leading-4 text-muted-foreground">
         {filteredDeals.length === 0
           ? "No matching transactions."
-          : `${filteredDeals.length} matching transaction${filteredDeals.length === 1 ? "" : "s"}.`}
+          : `Showing ${visibleDeals.length} of ${filteredDeals.length} matching transaction${filteredDeals.length === 1 ? "" : "s"}.`}
       </div>
     </div>
   );
@@ -1963,7 +1981,6 @@ function dealSearchScore(deal: IntakeDealOption, normalizedQuery: string, compac
     haystackTokens.some((token) => dealSearchTokenMatches(token, queryToken)),
   ).length;
   if (tokenMatches === queryTokens.length) return 60 + tokenMatches;
-  if (tokenMatches > 0 && queryTokens.length > 1) return 25 + tokenMatches;
   return 0;
 }
 
