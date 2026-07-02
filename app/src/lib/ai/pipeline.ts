@@ -23,6 +23,14 @@ const CLASSIFICATION_IMAGE_QUALITY = Math.min(
   90,
   Math.max(40, Number(process.env.CLASSIFICATION_IMAGE_QUALITY ?? 58) || 58),
 );
+const EXTRACTION_IMAGE_MAX_DIMENSION = Math.min(
+  8000,
+  Math.max(1200, Number(process.env.EXTRACTION_IMAGE_MAX_DIMENSION ?? 7800) || 7800),
+);
+const EXTRACTION_IMAGE_QUALITY = Math.min(
+  95,
+  Math.max(55, Number(process.env.EXTRACTION_IMAGE_QUALITY ?? 88) || 88),
+);
 type ExistingDealFieldRow = {
   field_key: string;
   value: string | null;
@@ -91,10 +99,11 @@ export async function processDeal(dealId: string, options: ProcessDealOptions = 
       if (p.page_hash !== pageHash) {
         await supabase.from("deal_pages").update({ page_hash: pageHash }).eq("id", p.id);
       }
+      const extractionBuffer = await toExtractionImage(buffer);
       const classificationBuffer = await toClassificationImage(buffer);
       images.push({
         pageNumber: p.page_number,
-        base64: buffer.toString("base64"),
+        base64: extractionBuffer.toString("base64"),
         mediaType: "image/jpeg",
         pageHash,
       });
@@ -359,6 +368,18 @@ async function toClassificationImage(buffer: Buffer) {
   return sharp(buffer)
     .resize({ width: CLASSIFICATION_IMAGE_WIDTH, withoutEnlargement: true })
     .jpeg({ quality: CLASSIFICATION_IMAGE_QUALITY, mozjpeg: true })
+    .toBuffer();
+}
+
+async function toExtractionImage(buffer: Buffer) {
+  return sharp(buffer)
+    .resize({
+      width: EXTRACTION_IMAGE_MAX_DIMENSION,
+      height: EXTRACTION_IMAGE_MAX_DIMENSION,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .jpeg({ quality: EXTRACTION_IMAGE_QUALITY, mozjpeg: true })
     .toBuffer();
 }
 

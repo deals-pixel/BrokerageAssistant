@@ -6,6 +6,10 @@ const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47];
 const RENDER_SCALE = 2.5;
 const JPEG_QUALITY = 92;
+const MAX_RENDERED_IMAGE_DIMENSION = Math.min(
+  8000,
+  Math.max(1200, Number(process.env.MAX_RENDERED_IMAGE_DIMENSION ?? 7800) || 7800),
+);
 const LOW_CONTRAST_MEAN = 248;
 const LOW_CONTRAST_STDDEV = 26;
 
@@ -101,12 +105,13 @@ async function normalizeImagePage(buffer: Buffer) {
 }
 
 async function normalizeRenderedJpeg(buffer: Buffer) {
-  const quality = await measureRenderQuality(buffer);
+  const resized = await resizeToImageLimit(buffer);
+  const quality = await measureRenderQuality(resized);
   if (!isLowContrast(quality)) {
-    return { buffer, quality: { ...quality, repaired: false, warning: null } };
+    return { buffer: resized, quality: { ...quality, repaired: false, warning: null } };
   }
 
-  const repaired = await sharp(buffer)
+  const repaired = await sharp(resized)
     .grayscale()
     .normalize()
     .linear(1.12, -8)
@@ -123,6 +128,28 @@ async function normalizeRenderedJpeg(buffer: Buffer) {
       warning: stillWeak ? "low_contrast_after_repair" : "low_contrast_repaired",
     },
   };
+}
+
+async function resizeToImageLimit(buffer: Buffer) {
+  const metadata = await sharp(buffer).metadata();
+  if (
+    metadata.width &&
+    metadata.height &&
+    metadata.width <= MAX_RENDERED_IMAGE_DIMENSION &&
+    metadata.height <= MAX_RENDERED_IMAGE_DIMENSION
+  ) {
+    return buffer;
+  }
+
+  return sharp(buffer)
+    .resize({
+      width: MAX_RENDERED_IMAGE_DIMENSION,
+      height: MAX_RENDERED_IMAGE_DIMENSION,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
+    .toBuffer();
 }
 
 async function measureRenderQuality(buffer: Buffer) {
