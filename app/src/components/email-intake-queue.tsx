@@ -429,7 +429,15 @@ export function DealIntakeWorkflow({
               <div className="flex min-w-0 items-start justify-between gap-3 rounded-md border bg-muted/25 p-2">
                 <div className="min-w-0">
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {email.status === "new_deal_suggested" ? "No match found" : "Inline confirmation"}
+                    {email.status === "not_deal_suggested"
+                      ? suggestedDeal
+                        ? "Communication match found"
+                        : "Communication - no match"
+                      : email.status === "new_deal_suggested"
+                        ? "No match found"
+                        : suggestedDeal
+                          ? "Possible match"
+                          : "Needs destination"}
                   </div>
                   <div className="break-words text-[12px] font-semibold leading-4" title={suggestion.title}>
                     {suggestion.primary}
@@ -475,7 +483,9 @@ export function DealIntakeWorkflow({
                       {email.status === "new_deal_suggested"
                         ? "Create Deal"
                         : email.status === "not_deal_suggested"
-                          ? "Attach"
+                          ? suggestedDeal
+                            ? "Attach"
+                            : "Choose Deal"
                           : "Confirm"}
                     </Button>
                     <Button
@@ -783,7 +793,7 @@ function IntakeReviewModal({
     ? suggestedDeal
       ? "Communication for existing transaction"
       : hasDealContext
-        ? "Deal communication details found"
+        ? "Communication found - no match"
         : "Not a deal package"
     : newDealSuggested
       ? "Create a new transaction"
@@ -805,7 +815,7 @@ function IntakeReviewModal({
     ? suggestedDeal
       ? primaryLink?.match_reason || "Save this email to the deal portal without processing it as a document package."
       : hasDealContext
-        ? "This is not a document package, but it appears to belong on a deal portal. Choose the destination transaction to attach it."
+        ? "No existing transaction matched. Choose an existing transaction, create a draft, or ignore this email."
         : dialog.email.error_message || "No confident deal-document signal was found."
     : newDealSuggested
       ? "No existing deal match reached the routing threshold."
@@ -936,7 +946,7 @@ function IntakeReviewModal({
 
             <div className="mt-4 grid grid-cols-2 gap-2">
               <Button onClick={proceedWithSuggestion} disabled={working}>
-                {working ? "Working..." : notDealSuggested ? "Attach communication" : "Proceed"}
+                {working ? "Working..." : notDealSuggested ? (suggestedDeal ? "Attach communication" : "Choose transaction") : "Proceed"}
               </Button>
               <Button variant="outline" onClick={() => setOverrideOpen((current) => !current)} disabled={working}>
                 Override

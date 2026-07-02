@@ -1143,6 +1143,11 @@ function shouldShowDealAttention(deal: DashboardDeal) {
 
 function dealAttentionSummary(deal: DashboardDeal) {
   if (!shouldShowDealAttention(deal)) return "";
+  const primaryIntakeStatus = deal.intakeEmails[0]?.status;
+  if (isVirtualIntakeDeal(deal) && primaryIntakeStatus === "not_deal_suggested") {
+    const when = deal.attention_at ? ` ${formatRelativeDashboardTime(deal.attention_at)}` : "";
+    return `Communication needs action${when}.`;
+  }
   const label =
     deal.attention_reason === "updated_from_intake"
       ? "Updated from intake"
@@ -1173,6 +1178,7 @@ function hasSentReminder(deal: DashboardDeal) {
 }
 
 function intakeAttentionReason(status: string) {
+  if (status === "not_deal_suggested") return "updated_from_intake";
   if (status === "new_deal_suggested") return "new_deal_suggested";
   if (status === "draft_transaction_created") return "created_from_intake";
   return null;
