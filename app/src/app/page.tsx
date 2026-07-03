@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Archive, BarChart3, Bell, CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, KeyRound, LoaderCircle, Search, Settings2, Table2, Users } from "lucide-react";
+import { Archive, BarChart3, Bell, CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LoaderCircle, Search, Settings2, Table2, UserRound, Users } from "lucide-react";
 import { buildChecklistResult, type ChecklistItem } from "@/lib/checklist";
 import { DashboardAutoRefresh } from "@/components/dashboard-auto-refresh";
 import { createClient } from "@/lib/supabase/server";
@@ -13,7 +13,6 @@ import {
   type IntakeEmailRow,
 } from "@/components/email-intake-queue";
 import { ProcessDealButton } from "@/components/process-deal-button";
-import { SignOutButton } from "@/components/sign-out-button";
 import { SubmitArchiveButton } from "@/components/submit-archive-button";
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { Badge } from "@/components/ui/badge";
@@ -103,6 +102,10 @@ export default async function DashboardPage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const { data: profile } = user
+    ? await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle()
+    : { data: null };
+  const isDeveloperSuperadmin = profile?.role === "developer_superadmin";
 
   const { data } = await supabase
     .from("deals")
@@ -213,19 +216,20 @@ export default async function DashboardPage({
             <Settings2 className="size-3.5" />
             Templates
           </Button>
-          <Button variant="outline" nativeButton={false} render={<Link href="/admin/ai-usage" />}>
-            <BarChart3 className="size-3.5" />
-            AI usage
-          </Button>
+          {isDeveloperSuperadmin && (
+            <Button variant="outline" nativeButton={false} render={<Link href="/admin/ai-usage" />}>
+              <BarChart3 className="size-3.5" />
+              AI usage
+            </Button>
+          )}
           <Button variant="outline" nativeButton={false} render={<Link href="/agents" />}>
             <Users className="size-3.5" />
             Agents
           </Button>
-          <Button variant="outline" nativeButton={false} render={<Link href="/account/password" />}>
-            <KeyRound className="size-3.5" />
-            Password
+          <Button variant="outline" nativeButton={false} render={<Link href="/account" />}>
+            <UserRound className="size-3.5" />
+            Account
           </Button>
-          <SignOutButton />
         </div>
       </header>
 

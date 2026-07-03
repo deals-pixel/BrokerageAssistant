@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +40,17 @@ type CacheSummary = {
 
 export default async function AiUsagePage() {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: profile } = user
+    ? await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle()
+    : { data: null };
+
+  if (profile?.role !== "developer_superadmin") {
+    redirect("/");
+  }
+
   const [{ data: usageData }, extractionCache, classificationCache] = await Promise.all([
     supabase
       .from("ai_usage_events")

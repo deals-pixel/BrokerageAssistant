@@ -20,7 +20,7 @@ export default function ResetPasswordPage() {
     setError(null);
 
     const redirectTo = new URL("/auth/callback", window.location.origin);
-    redirectTo.searchParams.set("next", "/account/password?recovery=1");
+    redirectTo.searchParams.set("next", "/account?recovery=1");
 
     const { error } = await createClient().auth.resetPasswordForEmail(email, {
       redirectTo: redirectTo.toString(),
