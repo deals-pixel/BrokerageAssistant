@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Archive, BarChart3, Bell, CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LoaderCircle, Search, Settings2, Table2, Users } from "lucide-react";
+import { Archive, BarChart3, Bell, CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, KeyRound, LoaderCircle, Search, Settings2, Table2, Users } from "lucide-react";
 import { buildChecklistResult, type ChecklistItem } from "@/lib/checklist";
 import { DashboardAutoRefresh } from "@/components/dashboard-auto-refresh";
 import { createClient } from "@/lib/supabase/server";
@@ -220,6 +220,10 @@ export default async function DashboardPage({
           <Button variant="outline" nativeButton={false} render={<Link href="/agents" />}>
             <Users className="size-3.5" />
             Agents
+          </Button>
+          <Button variant="outline" nativeButton={false} render={<Link href="/account/password" />}>
+            <KeyRound className="size-3.5" />
+            Password
           </Button>
           <SignOutButton />
         </div>

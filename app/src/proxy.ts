@@ -26,6 +26,7 @@ export async function proxy(request: NextRequest) {
   );
 
   const publicApiPrefixes = [
+    "/auth/callback",
     "/api/inbound-email",
     "/api/jobs/deal-processing",
     "/api/jobs/email-routing",
@@ -54,6 +55,7 @@ export async function proxy(request: NextRequest) {
   const role = profile?.role ?? null;
   const isTemplateEditor = role === "template_editor";
   const isTemplateDraftApi = request.nextUrl.pathname.startsWith("/api/template-drafts");
+  const isAccountPassword = request.nextUrl.pathname.startsWith("/account/password");
 
   if (user && isLogin) {
     const url = request.nextUrl.clone();
@@ -61,7 +63,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (isTemplateEditor && !request.nextUrl.pathname.startsWith("/admin/templates") && !isTemplateDraftApi) {
+  if (isTemplateEditor && !request.nextUrl.pathname.startsWith("/admin/templates") && !isTemplateDraftApi && !isAccountPassword) {
     if (request.nextUrl.pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
