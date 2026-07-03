@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, KeyRound, ShieldCheck, UserRound } from "lucide-react";
 import { PasswordForm } from "@/components/account/password-form";
+import { ProfileNameForm } from "@/components/account/profile-name-form";
 import { SignOutButton } from "@/components/sign-out-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -64,11 +65,10 @@ export default async function AccountPage() {
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <Detail label="Email" value={accountProfile?.email ?? user.email ?? "Unknown"} />
-            <Detail label="Name" value={accountProfile?.full_name || "Not set"} />
+            <ProfileNameForm initialName={accountProfile?.full_name ?? ""} />
             <Detail label="Role" value={roleLabel(role)} />
             <Detail label="Account created" value={formatDate(accountProfile?.created_at ?? user.created_at)} />
             <Detail label="Last sign-in" value={formatDate(user.last_sign_in_at)} />
-            <Detail label="User ID" value={user.id} />
           </CardContent>
         </Card>
 
