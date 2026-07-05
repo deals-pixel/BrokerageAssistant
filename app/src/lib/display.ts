@@ -1,5 +1,6 @@
 const DOC_LABEL_OVERRIDES: Record<string, string> = {
   "Deal Information Sheet": "Deal Info",
+  "Trade Record Sheet": "Trade Record",
   "Proof of Deposit": "Deposit Proof",
   "Deposit Proof (draft / cheque / wire)": "Deposit Proof",
   "Copy of Deposit Receipt from Other Brokerage": "Deposit Receipt",
@@ -35,6 +36,7 @@ const DOC_LABEL_OVERRIDES: Record<string, string> = {
 
 const DOC_TYPE_OVERRIDES: Record<string, string> = {
   deal_information_sheet: "Deal Info",
+  trade_record_sheet: "Trade Record",
   agreement_of_purchase_and_sale: "APS",
   first_page_aps: "APS First Page",
   agreement_to_lease: "Lease Agmt",

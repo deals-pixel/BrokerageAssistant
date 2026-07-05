@@ -1,5 +1,6 @@
 export const DOCUMENT_TYPES = {
   deal_information_sheet: "Deal Information Sheet",
+  trade_record_sheet: "Trade Record Sheet",
   agreement_of_purchase_and_sale: "Agreement of Purchase and Sale (Form 100)",
   first_page_aps: "First Page of the Agreement of Purchase and Sale",
   agreement_to_lease: "Agreement to Lease",

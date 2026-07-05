@@ -60,6 +60,7 @@ Rules:
 
 export const EXTRACTABLE_DOCS: DocumentType[] = [
   "deal_information_sheet",
+  "trade_record_sheet",
   "agreement_of_purchase_and_sale",
   "first_page_aps",
   "agreement_to_lease",
@@ -83,6 +84,8 @@ export const EXTRACTABLE_DOCS: DocumentType[] = [
 const DOC_HINTS: Partial<Record<DocumentType, string>> = {
   deal_information_sheet:
     "This is the brokerage's filled Deal Information Sheet. Extract the visible summary fields exactly as written. It is the preferred source for deal-summary, client, lawyer, deposit, and commission summary fields when present.",
+  trade_record_sheet:
+    "The Trade Record Sheet is a Lone Wolf back-office summary. It can show property address, transaction type, offer/firm/close dates, seller/buyer or landlord/tenant names, deposit amount/method/holder, selling price or rent, listing and selling commission rates, outside brokerage and agent, Sutton Group-Admiral agent, and trade number.",
   agreement_of_purchase_and_sale:
     "The APS shows purchase price, deposit, irrevocable date, completion/closing date, buyer/seller names and addresses, and conditions in Schedule A.",
   first_page_aps:

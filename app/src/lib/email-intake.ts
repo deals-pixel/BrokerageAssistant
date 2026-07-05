@@ -52,6 +52,7 @@ export type EmailBodyFieldGuess = {
 export const EXISTING_DEAL_MATCH_THRESHOLD = 50;
 
 const DOC_TYPE_FILENAME_HINTS: Partial<Record<DocumentType, string[]>> = {
+  trade_record_sheet: ["trade record", "trade record sheet", "traderecord", "traderecordsheet"],
   agreement_of_purchase_and_sale: ["aps", "agreement of purchase", "purchase and sale"],
   agreement_to_lease: ["agreement to lease", "lease agreement", "atl"],
   deposit_proof: ["deposit", "bank draft", "wire", "cheque", "receipt"],

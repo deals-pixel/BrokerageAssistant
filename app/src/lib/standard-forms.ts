@@ -346,6 +346,14 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
     ],
   },
   {
+    key: "trade_record_sheet",
+    documentType: "trade_record_sheet",
+    title: "Trade Record Sheet",
+    aliases: ["Trade Record Sheet", "Trade Record", "Trade #", "Lone Wolf Trade Record"],
+    signatures: ["Trade #", "Prepared by", "Lone Wolf Technologies", "Back Office"],
+    scenarioNumbers: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  },
+  {
     key: "form_100_aps",
     documentType: "agreement_of_purchase_and_sale",
     title: "Agreement of Purchase and Sale",
