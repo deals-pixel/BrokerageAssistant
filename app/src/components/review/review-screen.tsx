@@ -159,6 +159,7 @@ type RequirementStatusRow = {
   lonewolf_uploaded_at: string | null;
   lonewolf_uploaded_by: string | null;
 };
+type LoneWolfRequirementStatus = RequirementStatusRow["lonewolf_status"];
 
 type LoneWolfWorkflowStatus = "not_started" | "open" | "complete" | "blocked";
 type LoneWolfStepStatus = "not_started" | "in_progress" | "completed" | "blocked" | "skipped";
@@ -237,6 +238,8 @@ type PackageDocumentRow = {
   label: string;
   documentLabel: string;
   docTypes: DocumentType[];
+  loneWolfStatus: LoneWolfRequirementStatus;
+  loneWolfUploadedAt: string | null;
   requirementLevel: ChecklistItem["level"];
   condition?: string;
   loneWolfLabel: string;
@@ -818,7 +821,7 @@ export function ReviewScreen({
     }
   }
 
-  async function markLoneWolfUploaded(requirementId: string) {
+  async function updateLoneWolfRequirementStatus(requirementId: string, status: LoneWolfRequirementStatus) {
     setWorkingRequirementId(requirementId);
     try {
       const res = await fetch(
@@ -826,15 +829,15 @@ export function ReviewScreen({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "uploaded" }),
+          body: JSON.stringify({ status }),
         },
       );
       const body = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(body?.error ?? "Could not mark uploaded");
-      toast.success("Marked uploaded to Lone Wolf.");
+      if (!res.ok) throw new Error(body?.error ?? "Could not update Lone Wolf status");
+      toast.success(loneWolfRequirementStatusToast(status));
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not mark uploaded");
+      toast.error(err instanceof Error ? err.message : "Could not update Lone Wolf status");
     } finally {
       setWorkingRequirementId(null);
     }
@@ -842,7 +845,7 @@ export function ReviewScreen({
 
   async function markAllLoneWolfUploaded(rows: PackageDocumentRow[]) {
     for (const row of rows.filter((candidate) => candidate.canMarkLoneWolfUploaded)) {
-      await markLoneWolfUploaded(row.requirementId);
+      await updateLoneWolfRequirementStatus(row.requirementId, "uploaded");
     }
   }
 
@@ -999,7 +1002,7 @@ export function ReviewScreen({
         rows={packageRows}
         activeFilter={packageFilter}
         onFilterChange={setPackageFilter}
-        onMarkLoneWolfUploaded={markLoneWolfUploaded}
+        onUpdateLoneWolfStatus={updateLoneWolfRequirementStatus}
         onMarkAllLoneWolfUploaded={markAllLoneWolfUploaded}
         onGenerateReminder={openReminderDialog}
         onReviewMatch={openClassificationReview}
@@ -1406,7 +1409,7 @@ function PackageDocumentsPanel({
   rows,
   activeFilter,
   onFilterChange,
-  onMarkLoneWolfUploaded,
+  onUpdateLoneWolfStatus,
   onMarkAllLoneWolfUploaded,
   onGenerateReminder,
   onReviewMatch,
@@ -1416,7 +1419,7 @@ function PackageDocumentsPanel({
   rows: PackageDocumentRow[];
   activeFilter: PackageFilter;
   onFilterChange: (filter: PackageFilter) => void;
-  onMarkLoneWolfUploaded: (requirementId: string) => void | Promise<void>;
+  onUpdateLoneWolfStatus: (requirementId: string, status: LoneWolfRequirementStatus) => void | Promise<void>;
   onMarkAllLoneWolfUploaded: (rows: PackageDocumentRow[]) => void | Promise<void>;
   onGenerateReminder: (row?: PackageDocumentRow | PackageDocumentRow[]) => void;
   onReviewMatch: (row: PackageDocumentRow) => void;
@@ -1427,6 +1430,8 @@ function PackageDocumentsPanel({
   const filteredRows = filterPackageRows(rows, activeFilter);
   const groups = buildPackageGroups(filteredRows);
   const counts = packageFilterCounts(rows);
+  const uploadedToLoneWolfCount = rows.filter((row) => row.found && row.loneWolfStatus === "uploaded").length;
+  const loneWolfReadyCount = rows.filter((row) => row.found).length;
   const filters: { id: PackageFilter; label: string; count: number }[] = [
     { id: "all", label: "All", count: counts.all },
     { id: "uploaded_matched", label: "Processed", count: counts.uploadedMatched },
@@ -1441,7 +1446,25 @@ function PackageDocumentsPanel({
   return (
     <Card>
       <CardHeader className="border-b px-4 py-3">
-        <div>
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">Lone Wolf Document Queue</CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Track which extracted package documents still need to be uploaded through the Lone Wolf Docs window.
+              </p>
+            </div>
+            <div className="grid min-w-[220px] grid-cols-2 gap-2 text-xs">
+              <div className="rounded-md border bg-muted/20 p-2">
+                <div className="font-semibold">{uploadedToLoneWolfCount}</div>
+                <div className="text-muted-foreground">Uploaded</div>
+              </div>
+              <div className="rounded-md border bg-muted/20 p-2">
+                <div className="font-semibold">{loneWolfReadyCount - uploadedToLoneWolfCount}</div>
+                <div className="text-muted-foreground">Remaining</div>
+              </div>
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3 xl:grid-cols-6">
             {filters.map((filter) => {
               const active = activeFilter === filter.id;
@@ -1495,7 +1518,7 @@ function PackageDocumentsPanel({
                           row={row}
                           workingRequirementId={workingRequirementId}
                           draftingReminder={draftingReminder}
-                          onMarkLoneWolfUploaded={onMarkLoneWolfUploaded}
+                          onUpdateLoneWolfStatus={onUpdateLoneWolfStatus}
                           onGenerateReminder={onGenerateReminder}
                           onReviewMatch={onReviewMatch}
                         />
@@ -1917,21 +1940,22 @@ function PackageDocumentListRow({
   row,
   workingRequirementId,
   draftingReminder,
-  onMarkLoneWolfUploaded,
+  onUpdateLoneWolfStatus,
   onGenerateReminder,
   onReviewMatch,
 }: {
   row: PackageDocumentRow;
   workingRequirementId: string | null;
   draftingReminder: boolean;
-  onMarkLoneWolfUploaded: (requirementId: string) => void | Promise<void>;
+  onUpdateLoneWolfStatus: (requirementId: string, status: LoneWolfRequirementStatus) => void | Promise<void>;
   onGenerateReminder: (row?: PackageDocumentRow | PackageDocumentRow[]) => void;
   onReviewMatch: (row: PackageDocumentRow) => void;
 }) {
   const primaryAction = packagePrimaryAction(row);
+  const working = workingRequirementId === row.requirementId;
 
   return (
-    <div className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(260px,1fr)_220px_170px] md:items-center">
+    <div className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(260px,1fr)_220px_210px] md:items-center">
       <div className="min-w-0">
         <div className="font-medium leading-tight">{row.label}</div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
@@ -1947,10 +1971,28 @@ function PackageDocumentListRow({
             <span className="truncate">{row.documentLabel}</span>
           )}
           {row.condition && <span>{row.condition}</span>}
+          {row.loneWolfUploadedAt && <span>Uploaded {formatShortDateTime(row.loneWolfUploadedAt)}</span>}
         </div>
       </div>
 
-      <PackageStatusLabel row={row} />
+      <div className="space-y-1">
+        <PackageStatusLabel row={row} />
+        {row.found && (
+          <select
+            className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+            value={row.loneWolfStatus}
+            disabled={working}
+            onChange={(event) =>
+              onUpdateLoneWolfStatus(row.requirementId, event.target.value as LoneWolfRequirementStatus)
+            }
+          >
+            <option value="pending_upload">Pending upload</option>
+            <option value="uploaded">Uploaded to Lone Wolf</option>
+            <option value="unknown">Needs review</option>
+            <option value="not_required">Not required</option>
+          </select>
+        )}
+      </div>
 
       <div className="flex items-center justify-start gap-2 md:justify-end">
         {primaryAction === "review" && (
@@ -1961,10 +2003,10 @@ function PackageDocumentListRow({
         {primaryAction === "mark_uploaded" && (
           <Button
             variant="outline"
-            onClick={() => onMarkLoneWolfUploaded(row.requirementId)}
-            disabled={workingRequirementId === row.requirementId}
+            onClick={() => onUpdateLoneWolfStatus(row.requirementId, "uploaded")}
+            disabled={working}
           >
-            Mark uploaded
+            {working ? "Saving..." : "Mark uploaded"}
           </Button>
         )}
         {primaryAction === "remind" && (
@@ -1983,6 +2025,8 @@ function PackageDocumentListRow({
         <PackageOverflowActions
           row={row}
           draftingReminder={draftingReminder}
+          working={working}
+          onUpdateLoneWolfStatus={onUpdateLoneWolfStatus}
           onGenerateReminder={onGenerateReminder}
         />
       </div>
@@ -2006,10 +2050,14 @@ function PackageStatusLabel({ row }: { row: PackageDocumentRow }) {
 function PackageOverflowActions({
   row,
   draftingReminder,
+  working,
+  onUpdateLoneWolfStatus,
   onGenerateReminder,
 }: {
   row: PackageDocumentRow;
   draftingReminder: boolean;
+  working: boolean;
+  onUpdateLoneWolfStatus: (requirementId: string, status: LoneWolfRequirementStatus) => void | Promise<void>;
   onGenerateReminder: (row?: PackageDocumentRow | PackageDocumentRow[]) => void;
 }) {
   const bucket = packageBucket(row);
@@ -2040,14 +2088,34 @@ function PackageOverflowActions({
             Draft reminder
           </button>
         )}
-        <button
-          type="button"
-          className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground"
-          disabled
-          title="Manual not-required workflow is coming next."
-        >
-          Mark not required
-        </button>
+        {row.found && (
+          <>
+            <button
+              type="button"
+              className="block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted disabled:opacity-50"
+              disabled={working}
+              onClick={() => onUpdateLoneWolfStatus(row.requirementId, "pending_upload")}
+            >
+              Reset to pending
+            </button>
+            <button
+              type="button"
+              className="block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted disabled:opacity-50"
+              disabled={working}
+              onClick={() => onUpdateLoneWolfStatus(row.requirementId, "unknown")}
+            >
+              Needs review
+            </button>
+            <button
+              type="button"
+              className="block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted disabled:opacity-50"
+              disabled={working}
+              onClick={() => onUpdateLoneWolfStatus(row.requirementId, "not_required")}
+            >
+              Mark not required
+            </button>
+          </>
+        )}
       </div>
     </details>
   );
@@ -2062,6 +2130,27 @@ function packagePrimaryAction(row: PackageDocumentRow): "review" | "mark_uploade
 }
 
 function packagePlainStatus(row: PackageDocumentRow) {
+  if (row.loneWolfStatus === "uploaded") {
+    return {
+      label: "Uploaded to Lone Wolf",
+      className: "text-green-700",
+      dotClass: "bg-green-600",
+    };
+  }
+  if (row.loneWolfStatus === "not_required") {
+    return {
+      label: "Not required",
+      className: "text-muted-foreground",
+      dotClass: "bg-muted-foreground",
+    };
+  }
+  if (row.loneWolfStatus === "unknown") {
+    return {
+      label: "Needs review",
+      className: "text-amber-700",
+      dotClass: "bg-amber-500",
+    };
+  }
   if (packageBucket(row) === "awaiting_sync") {
     return {
       label: "Pending Lone Wolf",
@@ -2315,6 +2404,46 @@ function LoneWolfWorkspacePanel({
           </div>
         </div>
 
+        <div className="rounded-md border bg-muted/10 p-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold">Trade Record Sheet Lifecycle</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Use this for the Lone Wolf-generated sheet that goes out for agent signature and comes back by email.
+              </p>
+            </div>
+            <Badge variant="outline" className={draft.signedTradeRecordSheetStatus === "completed" ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}>
+              {draft.signedTradeRecordSheetStatus === "completed" ? "Signed sheet uploaded" : "Signature loop open"}
+            </Badge>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <LoneWolfLifecycleStep
+              label="Initial PDFs uploaded"
+              detail="Package documents are in Lone Wolf Docs."
+              status={draft.initialDocumentsStatus}
+              saving={saving}
+              onComplete={() => onStepStatusChange("initialDocumentsStatus", "completed")}
+              onReview={() => onStepStatusChange("initialDocumentsStatus", "blocked")}
+            />
+            <LoneWolfLifecycleStep
+              label="Sheet generated & sent"
+              detail="Trade Record Sheet printed/exported from Lone Wolf and sent to agent."
+              status={draft.tradeRecordSheetStatus}
+              saving={saving}
+              onComplete={() => onStepStatusChange("tradeRecordSheetStatus", "completed")}
+              onReview={() => onStepStatusChange("tradeRecordSheetStatus", "blocked")}
+            />
+            <LoneWolfLifecycleStep
+              label="Signed sheet uploaded"
+              detail="Signed version received by email and uploaded back to Lone Wolf."
+              status={draft.signedTradeRecordSheetStatus}
+              saving={saving}
+              onComplete={() => onStepStatusChange("signedTradeRecordSheetStatus", "completed")}
+              onReview={() => onStepStatusChange("signedTradeRecordSheetStatus", "blocked")}
+            />
+          </div>
+        </div>
+
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {LONE_WOLF_STEP_FIELDS.map((step) => (
             <div key={step.key} className="rounded-md border bg-background p-3">
@@ -2399,6 +2528,57 @@ function LoneWolfWorkspacePanel({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function LoneWolfLifecycleStep({
+  label,
+  detail,
+  status,
+  saving,
+  onComplete,
+  onReview,
+}: {
+  label: string;
+  detail: string;
+  status: LoneWolfStepStatus;
+  saving: boolean;
+  onComplete: () => void | Promise<void>;
+  onReview: () => void | Promise<void>;
+}) {
+  return (
+    <div className="rounded-md border bg-background p-3">
+      <div className="flex items-start gap-2">
+        <span className={`mt-1 size-2 rounded-full ${loneWolfStepDotClass(status)}`} />
+        <div className="min-w-0">
+          <p className="text-sm font-medium leading-tight">{label}</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{detail}</p>
+          <p className="mt-2 text-xs font-medium text-muted-foreground">{formatLoneWolfStepStatus(status)}</p>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 px-2 text-[11px]"
+          disabled={saving || status === "completed"}
+          onClick={onComplete}
+        >
+          Mark done
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 px-2 text-[11px]"
+          disabled={saving || status === "blocked"}
+          onClick={onReview}
+        >
+          Review
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -3153,13 +3333,15 @@ function buildPackageDocumentRows({
       label: item.label,
       documentLabel: documentTypesLabel(item.docTypes),
       docTypes: item.docTypes,
+      loneWolfStatus,
+      loneWolfUploadedAt: requirementStatus?.lonewolf_uploaded_at ?? null,
       requirementLevel: item.level,
       condition: item.condition,
       loneWolfLabel: found ? formatLoneWolfStatus(loneWolfStatus) : "-",
       pages: item.pages,
       found,
       missing,
-      needsReview,
+      needsReview: needsReview || loneWolfStatus === "unknown",
       pendingLoneWolf: found && loneWolfStatus === "pending_upload",
       unprocessed,
       reminderNeeded,
@@ -3182,7 +3364,14 @@ function formatLoneWolfStatus(status: RequirementStatusRow["lonewolf_status"]) {
   if (status === "pending_upload") return "Pending Upload";
   if (status === "not_required") return "Not Required";
   if (status === "uploaded") return "Uploaded";
-  return "Unknown";
+  return "Needs Review";
+}
+
+function loneWolfRequirementStatusToast(status: LoneWolfRequirementStatus) {
+  if (status === "uploaded") return "Marked uploaded to Lone Wolf.";
+  if (status === "pending_upload") return "Reset to pending Lone Wolf upload.";
+  if (status === "not_required") return "Marked not required for Lone Wolf.";
+  return "Marked for Lone Wolf review.";
 }
 
 function emailAttachmentTypeLabel(docType: string | null) {
@@ -3206,7 +3395,8 @@ function emailAttachmentStatusVariant(
 }
 
 function packageBucket(row: PackageDocumentRow): PackageBucket {
-  if (row.found && row.needsReview) return "needs_review";
+  if (row.loneWolfStatus === "not_required") return "not_required";
+  if (row.found && (row.needsReview || row.loneWolfStatus === "unknown")) return "needs_review";
   if (row.pendingLoneWolf) return "awaiting_sync";
   if (row.found) return "uploaded_matched";
   if (row.requirementLevel === "required") return "outstanding";
@@ -3436,6 +3626,14 @@ function formatLoneWolfWorkflowStatus(status: LoneWolfWorkflowStatus) {
   if (status === "open") return "Open in Lone Wolf";
   if (status === "complete") return "Complete";
   if (status === "blocked") return "Blocked";
+  return "Not started";
+}
+
+function formatLoneWolfStepStatus(status: LoneWolfStepStatus) {
+  if (status === "completed") return "Entered in Lone Wolf";
+  if (status === "in_progress") return "Ready for entry";
+  if (status === "blocked") return "Needs admin review";
+  if (status === "skipped") return "Skipped";
   return "Not started";
 }
 
