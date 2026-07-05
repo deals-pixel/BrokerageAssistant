@@ -230,6 +230,47 @@ type TradeRecordSheetAttachment = {
   confidence: number | null;
 };
 
+type LoneWolfAutomationPacket = {
+  version: "lonewolf-entry-v0";
+  generatedAt: string;
+  safeMode: {
+    reviewedFieldsOnly: boolean;
+    stopOnUnexpectedScreen: boolean;
+    requireOperatorConfirmation: boolean;
+  };
+  deal: {
+    id: string;
+    address: string;
+    transactionType: string;
+    scenario: string | null;
+  };
+  loneWolf: {
+    tradeNumber: string;
+    subTrade: string;
+    status: LoneWolfWorkflowStatus;
+  };
+  readiness: {
+    ready: boolean;
+    blockers: string[];
+    warnings: string[];
+    nextAction: string;
+  };
+  entrySections: Array<{
+    title: string;
+    fields: Array<{ key: string; label: string; value: string }>;
+  }>;
+  documents: {
+    pendingUpload: Array<{ requirementId: string; label: string; documentLabel: string; pages: number[] }>;
+    uploaded: Array<{ requirementId: string; label: string; uploadedAt: string | null }>;
+    needsReview: Array<{ requirementId: string; label: string; reason: string }>;
+  };
+  tradeRecordSheet: {
+    generatedAndSentStatus: LoneWolfStepStatus;
+    signedUploadStatus: LoneWolfStepStatus;
+    candidateAttachments: TradeRecordSheetAttachment[];
+  };
+};
+
 type PackageFilter =
   | "all"
   | "uploaded_matched"
@@ -575,6 +616,14 @@ export function ReviewScreen({
   });
   const fieldReviewPct =
     fieldReviewStats.all === 0 ? 100 : Math.round((fieldReviewStats.confirmed / fieldReviewStats.all) * 100);
+  const loneWolfAutomationPacket = buildLoneWolfAutomationPacket({
+    deal,
+    draft: loneWolfDraft,
+    fieldReviewStats,
+    packageRows,
+    tradeRecordSheetAttachments,
+    currentValue,
+  });
 
   function setCheckboxFieldEdit(fieldKey: string, checked: boolean) {
     setEdited((prev) => {
@@ -704,6 +753,14 @@ export function ReviewScreen({
   async function copyText(value: string, successMessage: string) {
     await navigator.clipboard.writeText(value);
     toast.success(successMessage);
+  }
+
+  async function copyLoneWolfAutomationPacket() {
+    await copyText(JSON.stringify(loneWolfAutomationPacket, null, 2), "Lone Wolf automation packet copied.");
+  }
+
+  async function copyLoneWolfNextAction() {
+    await copyText(loneWolfAutomationPacket.readiness.nextAction, "Lone Wolf next action copied.");
   }
 
   async function copyFieldSection(section: FieldSection, visibleFields: FieldDef[]) {
@@ -1014,6 +1071,12 @@ export function ReviewScreen({
           detail={`${reminderTasks.length} open document${reminderTasks.length === 1 ? "" : "s"} available`}
         />
       </div>
+
+      <LoneWolfAutomationHandoffPanel
+        packet={loneWolfAutomationPacket}
+        onCopyPacket={copyLoneWolfAutomationPacket}
+        onCopyNextAction={copyLoneWolfNextAction}
+      />
 
       <DepositVerificationCard
         verification={depositVerification}
@@ -1572,6 +1635,97 @@ function PackageDocumentsPanel({
             No documents match this filter.
           </p>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LoneWolfAutomationHandoffPanel({
+  packet,
+  onCopyPacket,
+  onCopyNextAction,
+}: {
+  packet: LoneWolfAutomationPacket;
+  onCopyPacket: () => void | Promise<void>;
+  onCopyNextAction: () => void | Promise<void>;
+}) {
+  const checks = [
+    {
+      label: "Trade record exists",
+      detail: packet.loneWolf.tradeNumber
+        ? `Trade # ${packet.loneWolf.tradeNumber}`
+        : "Create or enter the Lone Wolf Trade Number first.",
+      ok: Boolean(packet.loneWolf.tradeNumber),
+    },
+    {
+      label: "Reviewed fields ready",
+      detail: packet.readiness.blockers.some((blocker) => blocker.includes("field"))
+        ? "Resolve field review blockers before automation."
+        : "No field-review blockers in the packet.",
+      ok: !packet.readiness.blockers.some((blocker) => blocker.includes("field")),
+    },
+    {
+      label: "Document queue known",
+      detail: `${packet.documents.pendingUpload.length} pending upload, ${packet.documents.uploaded.length} uploaded.`,
+      ok: packet.documents.needsReview.length === 0,
+    },
+    {
+      label: "Safe mode",
+      detail: "Reviewed fields only, stop on unexpected screens, operator confirms before save.",
+      ok: true,
+    },
+  ];
+
+  return (
+    <Card className="overflow-hidden py-0">
+      <CardHeader className="border-b px-4 py-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">Start Lone Wolf Entry</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Copy a structured packet for attended RDP automation. The assistant should stop if Lone Wolf shows an unexpected screen.
+            </p>
+          </div>
+          <Badge
+            variant="outline"
+            className={packet.readiness.ready ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}
+          >
+            {packet.readiness.ready ? "Ready for assisted entry" : "Prep required"}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3 p-4">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+          {checks.map((check) => (
+            <div key={check.label} className="rounded-md border bg-background p-3">
+              <div className="flex items-center gap-2">
+                <span className={`size-2 rounded-full ${check.ok ? "bg-green-600" : "bg-amber-500"}`} />
+                <p className="text-sm font-medium">{check.label}</p>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{check.detail}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div className="rounded-md border bg-muted/15 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Next action</p>
+            <p className="mt-1 text-sm">{packet.readiness.nextAction}</p>
+            {packet.readiness.warnings.length > 0 && (
+              <p className="mt-2 text-xs text-amber-700">{packet.readiness.warnings[0]}</p>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2 lg:justify-end">
+            <Button type="button" variant="outline" onClick={onCopyNextAction}>
+              <CopyIcon className="size-4" />
+              Copy next action
+            </Button>
+            <Button type="button" onClick={onCopyPacket}>
+              <CopyIcon className="size-4" />
+              Copy automation packet
+            </Button>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
@@ -3500,6 +3654,126 @@ function loneWolfRequirementStatusToast(status: LoneWolfRequirementStatus) {
   if (status === "pending_upload") return "Reset to pending Lone Wolf upload.";
   if (status === "not_required") return "Marked not required for Lone Wolf.";
   return "Marked for Lone Wolf review.";
+}
+
+function buildLoneWolfAutomationPacket({
+  deal,
+  draft,
+  fieldReviewStats,
+  packageRows,
+  tradeRecordSheetAttachments,
+  currentValue,
+}: {
+  deal: DealRow;
+  draft: LoneWolfWorkspaceDraft;
+  fieldReviewStats: ReturnType<typeof buildFieldReviewStats>;
+  packageRows: PackageDocumentRow[];
+  tradeRecordSheetAttachments: TradeRecordSheetAttachment[];
+  currentValue: FieldValueGetter;
+}): LoneWolfAutomationPacket {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  const tradeNumber = draft.tradeNumber.trim();
+  const subTrade = draft.subTrade.trim() || (tradeNumber ? `${tradeNumber}-A` : "");
+  const pendingUpload = packageRows.filter((row) => row.found && row.loneWolfStatus === "pending_upload");
+  const uploaded = packageRows.filter((row) => row.found && row.loneWolfStatus === "uploaded");
+  const needsReviewDocuments = packageRows.filter((row) => row.found && (row.needsReview || row.loneWolfStatus === "unknown"));
+
+  if (!tradeNumber) blockers.push("Trade Number is missing. Create or open the Lone Wolf trade record first.");
+  if (fieldReviewStats.needsReview > 0) blockers.push(`${fieldReviewStats.needsReview} field${fieldReviewStats.needsReview === 1 ? "" : "s"} still need review.`);
+  if (fieldReviewStats.unverified > 0) warnings.push(`${fieldReviewStats.unverified} field${fieldReviewStats.unverified === 1 ? "" : "s"} are unverified; automation should skip blank or uncertain values.`);
+  if (needsReviewDocuments.length > 0) warnings.push(`${needsReviewDocuments.length} document${needsReviewDocuments.length === 1 ? "" : "s"} need review before upload.`);
+  if (pendingUpload.length > 0) warnings.push(`${pendingUpload.length} document${pendingUpload.length === 1 ? "" : "s"} still need Lone Wolf upload.`);
+
+  const readiness = {
+    ready: blockers.length === 0,
+    blockers,
+    warnings,
+    nextAction: nextLoneWolfAutomationAction({
+      tradeNumber,
+      blockers,
+      pendingUploadCount: pendingUpload.length,
+      signedSheetCandidateCount: tradeRecordSheetAttachments.length,
+      signedSheetStatus: draft.signedTradeRecordSheetStatus,
+    }),
+  };
+
+  return {
+    version: "lonewolf-entry-v0",
+    generatedAt: new Date().toISOString(),
+    safeMode: {
+      reviewedFieldsOnly: true,
+      stopOnUnexpectedScreen: true,
+      requireOperatorConfirmation: true,
+    },
+    deal: {
+      id: deal.id,
+      address: shortDealAddress(deal),
+      transactionType: deal.transaction_type,
+      scenario: deal.scenario_label,
+    },
+    loneWolf: {
+      tradeNumber,
+      subTrade,
+      status: draft.status,
+    },
+    readiness,
+    entrySections: FIELD_SECTIONS.map((section) => ({
+      title: friendlyFieldSectionTitle(section.title),
+      fields: section.fields
+        .filter((field) => !isConditionalFieldHidden(field.key, currentValue))
+        .map((field) => ({
+          key: field.key,
+          label: field.label,
+          value: currentValue(field.key),
+        })),
+    })).filter((section) => section.fields.some((field) => field.value.trim())),
+    documents: {
+      pendingUpload: pendingUpload.map((row) => ({
+        requirementId: row.requirementId,
+        label: row.label,
+        documentLabel: row.documentLabel,
+        pages: row.pages,
+      })),
+      uploaded: uploaded.map((row) => ({
+        requirementId: row.requirementId,
+        label: row.label,
+        uploadedAt: row.loneWolfUploadedAt,
+      })),
+      needsReview: needsReviewDocuments.map((row) => ({
+        requirementId: row.requirementId,
+        label: row.label,
+        reason: row.loneWolfStatus === "unknown" ? "Lone Wolf status needs review" : "Document match needs review",
+      })),
+    },
+    tradeRecordSheet: {
+      generatedAndSentStatus: draft.tradeRecordSheetStatus,
+      signedUploadStatus: draft.signedTradeRecordSheetStatus,
+      candidateAttachments: tradeRecordSheetAttachments,
+    },
+  };
+}
+
+function nextLoneWolfAutomationAction({
+  tradeNumber,
+  blockers,
+  pendingUploadCount,
+  signedSheetCandidateCount,
+  signedSheetStatus,
+}: {
+  tradeNumber: string;
+  blockers: string[];
+  pendingUploadCount: number;
+  signedSheetCandidateCount: number;
+  signedSheetStatus: LoneWolfStepStatus;
+}) {
+  if (!tradeNumber) return "Create or open the trade in Lone Wolf, then enter the generated Trade Number in BrokerageAssistant.";
+  if (blockers.length > 0) return blockers[0];
+  if (pendingUploadCount > 0) return `Upload ${pendingUploadCount} pending document${pendingUploadCount === 1 ? "" : "s"} in the Lone Wolf Docs window.`;
+  if (signedSheetCandidateCount > 0 && signedSheetStatus !== "completed") {
+    return "Download the signed Trade Record Sheet candidate, upload it to Lone Wolf, then mark signed sheet uploaded.";
+  }
+  return "Start attended Lone Wolf entry using the copied automation packet. Stop before saving if the screen does not match the packet section.";
 }
 
 function buildTradeRecordSheetAttachments(
