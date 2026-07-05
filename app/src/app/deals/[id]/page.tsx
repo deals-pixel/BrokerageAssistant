@@ -79,6 +79,14 @@ export default async function DealPage({
     .select("requirement_id, lonewolf_status, lonewolf_uploaded_at, lonewolf_uploaded_by")
     .eq("deal_id", id);
 
+  const { data: loneWolfWorkspace } = await supabase
+    .from("deal_lonewolf_workspaces")
+    .select(
+      "deal_id, trade_number, sub_trade, status, key_info_status, people_status, outside_brokers_status, commissions_status, initial_documents_status, trade_record_sheet_status, signed_trade_record_sheet_status, notes, updated_at",
+    )
+    .eq("deal_id", id)
+    .maybeSingle();
+
   const { data: depositVerification } = await supabase
     .from("deal_deposit_verifications")
     .select("id, status, proof_amount, confirmed_amount, note, source_inbound_email_id, source_email, source_name, source_received_at, confirmed_by, confirmed_at, profiles(email, full_name)")
@@ -127,6 +135,7 @@ export default async function DealPage({
       }
       agents={agents ?? []}
       requirementStatuses={requirementStatuses ?? []}
+      loneWolfWorkspace={loneWolfWorkspace ?? null}
       depositVerification={depositVerification ?? null}
       emailAttachments={emailAttachments ?? []}
       auditLogs={auditLogs ?? []}

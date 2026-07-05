@@ -5,7 +5,7 @@ type FieldRow = { field_key: string; value: string | null };
 // One-row CSV in section order — ready for Lone Wolf entry.
 export function dealToCsv(fields: FieldRow[]): string {
   const byKey = new Map(fields.map((f) => [f.field_key, f.value ?? ""]));
-  const keys = FIELD_SECTIONS.flatMap((s) => s.fields.map((f) => f.key));
+  const keys = [...new Set(FIELD_SECTIONS.flatMap((s) => s.fields.map((f) => f.key)))];
   const header = keys.map((k) => escapeCsv(FIELD_LABELS[k] ?? k)).join(",");
   const row = keys.map((k) => escapeCsv(byKey.get(k) ?? "")).join(",");
   return `${header}\r\n${row}\r\n`;

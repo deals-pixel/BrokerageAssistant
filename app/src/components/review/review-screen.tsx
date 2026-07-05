@@ -158,6 +158,39 @@ type RequirementStatusRow = {
   lonewolf_uploaded_by: string | null;
 };
 
+type LoneWolfWorkflowStatus = "not_started" | "open" | "complete" | "blocked";
+type LoneWolfStepStatus = "not_started" | "in_progress" | "completed" | "blocked" | "skipped";
+
+type LoneWolfWorkspaceRow = {
+  deal_id: string;
+  trade_number: string | null;
+  sub_trade: string | null;
+  status: LoneWolfWorkflowStatus;
+  key_info_status: LoneWolfStepStatus;
+  people_status: LoneWolfStepStatus;
+  outside_brokers_status: LoneWolfStepStatus;
+  commissions_status: LoneWolfStepStatus;
+  initial_documents_status: LoneWolfStepStatus;
+  trade_record_sheet_status: LoneWolfStepStatus;
+  signed_trade_record_sheet_status: LoneWolfStepStatus;
+  notes: string | null;
+  updated_at: string;
+};
+
+type LoneWolfWorkspaceDraft = {
+  tradeNumber: string;
+  subTrade: string;
+  status: LoneWolfWorkflowStatus;
+  keyInfoStatus: LoneWolfStepStatus;
+  peopleStatus: LoneWolfStepStatus;
+  outsideBrokersStatus: LoneWolfStepStatus;
+  commissionsStatus: LoneWolfStepStatus;
+  initialDocumentsStatus: LoneWolfStepStatus;
+  tradeRecordSheetStatus: LoneWolfStepStatus;
+  signedTradeRecordSheetStatus: LoneWolfStepStatus;
+  notes: string;
+};
+
 type DepositVerificationRow = {
   id: string;
   status: "confirmed";
@@ -230,7 +263,19 @@ type FieldStatus = {
   className: string;
 };
 
-const CHECKBOX_FIELD_KEYS = new Set(["additional_payees", "marketing_fee", "rebate_to_clients", "referral"]);
+const CHECKBOX_FIELD_KEYS = new Set([
+  "additional_payees",
+  "marketing_fee",
+  "rebate_to_clients",
+  "referral",
+  "condition_completed",
+  "seller_landlord_main_contact",
+  "seller_landlord_moving_out",
+  "buyer_tenant_main_contact",
+  "outside_brokerage_pay_broker",
+  "outside_brokerage_hst_exempt",
+  "outside_brokerage_charged_hst",
+]);
 const CONDITIONAL_FIELD_GATES: Record<string, string> = {
   additional_payee_1_name: "additional_payees",
   additional_payee_1_commission_pct: "additional_payees",
@@ -251,6 +296,7 @@ export function ReviewScreen({
   inboundEmailContacts = [],
   agents,
   requirementStatuses,
+  loneWolfWorkspace,
   depositVerification,
   emailAttachments,
   auditLogs,
@@ -265,6 +311,7 @@ export function ReviewScreen({
   inboundEmailContacts?: InboundEmailContact[];
   agents: AgentRow[];
   requirementStatuses: RequirementStatusRow[];
+  loneWolfWorkspace: LoneWolfWorkspaceRow | null;
   depositVerification: DepositVerificationRow | null;
   emailAttachments: EmailAttachmentRow[];
   auditLogs: AuditLogRow[];
@@ -298,6 +345,10 @@ export function ReviewScreen({
   const [selectedPage, setSelectedPage] = useState<number | null>(
     pages.length > 0 ? pages[0].page_number : null,
   );
+  const [loneWolfDraft, setLoneWolfDraft] = useState<LoneWolfWorkspaceDraft>(() =>
+    loneWolfWorkspaceDraftFromRow(loneWolfWorkspace),
+  );
+  const [savingLoneWolfWorkspace, setSavingLoneWolfWorkspace] = useState(false);
 
   const fieldMap = useMemo(() => new Map(fields.map((f) => [f.field_key, f])), [fields]);
   const requirementStatusMap = useMemo(
@@ -672,6 +723,31 @@ export function ReviewScreen({
     }
   }
 
+  async function saveLoneWolfWorkspace(nextDraft = loneWolfDraft) {
+    setSavingLoneWolfWorkspace(true);
+    try {
+      const res = await fetch(`/api/deals/${deal.id}/lonewolf`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nextDraft),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? "Could not update Lone Wolf workspace");
+      toast.success("Lone Wolf workspace updated.");
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update Lone Wolf workspace");
+    } finally {
+      setSavingLoneWolfWorkspace(false);
+    }
+  }
+
+  async function updateLoneWolfStep(key: keyof LoneWolfWorkspaceDraft, status: LoneWolfStepStatus) {
+    const nextDraft = { ...loneWolfDraft, [key]: status };
+    setLoneWolfDraft(nextDraft);
+    await saveLoneWolfWorkspace(nextDraft);
+  }
+
   async function confirmDeposit() {
     setConfirmingDeposit(true);
     try {
@@ -786,6 +862,16 @@ export function ReviewScreen({
         onConfirm={confirmDeposit}
       />
 
+      <LoneWolfWorkspacePanel
+        workspace={loneWolfWorkspace}
+        draft={loneWolfDraft}
+        saving={savingLoneWolfWorkspace}
+        pendingDocumentCount={packageCounts.pendingLoneWolf}
+        onDraftChange={setLoneWolfDraft}
+        onSave={() => saveLoneWolfWorkspace()}
+        onStepStatusChange={updateLoneWolfStep}
+      />
+
       <PackageDocumentsPanel
         rows={packageRows}
         activeFilter={packageFilter}
@@ -875,7 +961,7 @@ export function ReviewScreen({
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-[220px] flex-1">
                   <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                    <span>Review progress</span>
+                    <span>Lone Wolf entry packet</span>
                     <span>{fieldReviewStats.confirmed} of {fieldReviewStats.all} confirmed</span>
                   </div>
                   <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
@@ -1539,8 +1625,6 @@ function fieldMatchesReviewFilter(status: FieldStatus, filter: FieldReviewFilter
 }
 
 function friendlyFieldSectionTitle(title: string) {
-  if (title === "Deal Summary") return "Transaction Details";
-  if (title === "Seller / Landlord" || title === "Buyer / Tenant") return "Parties";
   return title;
 }
 
@@ -1920,6 +2004,228 @@ function DealStatCard({
           <p className="mt-1 truncate text-xs text-muted-foreground">{detail}</p>
         </div>
       </div>
+    </div>
+  );
+}
+
+const LONE_WOLF_STEP_FIELDS: Array<{
+  key: keyof Pick<
+    LoneWolfWorkspaceDraft,
+    | "keyInfoStatus"
+    | "peopleStatus"
+    | "outsideBrokersStatus"
+    | "commissionsStatus"
+    | "initialDocumentsStatus"
+    | "tradeRecordSheetStatus"
+    | "signedTradeRecordSheetStatus"
+  >;
+  label: string;
+  detail: string;
+}> = [
+  {
+    key: "keyInfoStatus",
+    label: "Key Info",
+    detail: "Trade basics, address, dates, price, MLS, type, and classification.",
+  },
+  {
+    key: "peopleStatus",
+    label: "People",
+    detail: "Buyers, sellers, solicitors, contacts, and FINTRAC-ready party details.",
+  },
+  {
+    key: "outsideBrokersStatus",
+    label: "Outside Brokers",
+    detail: "Co-operating brokerage, referral broker, HST, pay broker, and end.",
+  },
+  {
+    key: "commissionsStatus",
+    label: "Commissions",
+    detail: "Sub-trade, commission income, expenses, rebates, and agent info.",
+  },
+  {
+    key: "initialDocumentsStatus",
+    label: "Initial PDFs",
+    detail: "Transaction package PDFs uploaded through the Lone Wolf Docs window.",
+  },
+  {
+    key: "tradeRecordSheetStatus",
+    label: "Trade Record Sheet",
+    detail: "Generated from Lone Wolf and sent to the agent for signature.",
+  },
+  {
+    key: "signedTradeRecordSheetStatus",
+    label: "Signed Sheet Upload",
+    detail: "Signed Trade Record Sheet received by email and uploaded back to Lone Wolf.",
+  },
+];
+
+const LONE_WOLF_STEP_STATUS_OPTIONS: Array<{ value: LoneWolfStepStatus; label: string }> = [
+  { value: "not_started", label: "Not started" },
+  { value: "in_progress", label: "In progress" },
+  { value: "completed", label: "Completed" },
+  { value: "blocked", label: "Blocked" },
+  { value: "skipped", label: "Skipped" },
+];
+
+function LoneWolfWorkspacePanel({
+  workspace,
+  draft,
+  saving,
+  pendingDocumentCount,
+  onDraftChange,
+  onSave,
+  onStepStatusChange,
+}: {
+  workspace: LoneWolfWorkspaceRow | null;
+  draft: LoneWolfWorkspaceDraft;
+  saving: boolean;
+  pendingDocumentCount: number;
+  onDraftChange: (draft: LoneWolfWorkspaceDraft) => void;
+  onSave: () => void | Promise<void>;
+  onStepStatusChange: (key: keyof LoneWolfWorkspaceDraft, status: LoneWolfStepStatus) => void | Promise<void>;
+}) {
+  const completedCount = LONE_WOLF_STEP_FIELDS.filter((step) => draft[step.key] === "completed").length;
+  const blockedCount = LONE_WOLF_STEP_FIELDS.filter((step) => draft[step.key] === "blocked").length;
+  const progressPct = Math.round((completedCount / LONE_WOLF_STEP_FIELDS.length) * 100);
+
+  return (
+    <Card className="overflow-hidden py-0">
+      <CardHeader className="border-b px-4 py-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">Lone Wolf Workspace</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Track the remote-desktop handoff, document uploads, and signed Trade Record Sheet loop.
+            </p>
+          </div>
+          <Badge className={loneWolfOverallBadgeClass(draft.status)} variant="outline">
+            {formatLoneWolfWorkflowStatus(draft.status)}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4 p-4">
+        <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr]">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1">
+              <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Trade Number
+              </label>
+              <Input
+                className="h-9"
+                value={draft.tradeNumber}
+                placeholder="999999"
+                onChange={(event) => onDraftChange({ ...draft, tradeNumber: event.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Sub-trade
+              </label>
+              <Input
+                className="h-9"
+                value={draft.subTrade}
+                placeholder={draft.tradeNumber ? `${draft.tradeNumber}-A` : "999999-A"}
+                onChange={(event) => onDraftChange({ ...draft, subTrade: event.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Status
+              </label>
+              <select
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={draft.status}
+                onChange={(event) =>
+                  onDraftChange({ ...draft, status: event.target.value as LoneWolfWorkflowStatus })
+                }
+              >
+                <option value="not_started">Not started</option>
+                <option value="open">Open in Lone Wolf</option>
+                <option value="complete">Complete</option>
+                <option value="blocked">Blocked</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid gap-2 rounded-md border bg-muted/15 p-3 text-sm sm:grid-cols-3">
+            <LoneWolfMetric label="Progress" value={`${progressPct}%`} detail={`${completedCount} of ${LONE_WOLF_STEP_FIELDS.length}`} />
+            <LoneWolfMetric label="Blocked" value={String(blockedCount)} detail="needs attention" tone={blockedCount > 0 ? "red" : "neutral"} />
+            <LoneWolfMetric label="Docs pending" value={String(pendingDocumentCount)} detail="Lone Wolf upload" tone={pendingDocumentCount > 0 ? "amber" : "neutral"} />
+          </div>
+        </div>
+
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {LONE_WOLF_STEP_FIELDS.map((step) => (
+            <div key={step.key} className="rounded-md border bg-background p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`size-2 rounded-full ${loneWolfStepDotClass(draft[step.key])}`} />
+                    <p className="font-medium leading-tight">{step.label}</p>
+                  </div>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{step.detail}</p>
+                </div>
+                <select
+                  className="h-8 shrink-0 rounded-md border border-input bg-background px-2 text-xs"
+                  value={draft[step.key]}
+                  disabled={saving}
+                  onChange={(event) => onStepStatusChange(step.key, event.target.value as LoneWolfStepStatus)}
+                >
+                  {LONE_WOLF_STEP_STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              RDP / Lone Wolf Notes
+            </label>
+            <Textarea
+              className="min-h-20"
+              value={draft.notes}
+              placeholder="File picker path, automation blocker, or admin handoff note"
+              onChange={(event) => onDraftChange({ ...draft, notes: event.target.value })}
+            />
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 lg:flex-col lg:items-end">
+            <p className="text-xs text-muted-foreground">
+              {workspace?.updated_at ? `Updated ${formatShortDateTime(workspace.updated_at)}` : "No Lone Wolf checkpoint saved yet"}
+            </p>
+            <Button onClick={onSave} disabled={saving}>
+              <CheckCircle2Icon className="size-4" />
+              Save workspace
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LoneWolfMetric({
+  label,
+  value,
+  detail,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "neutral" | "red" | "amber";
+}) {
+  const valueClass = tone === "red" ? "text-red-700" : tone === "amber" ? "text-amber-700" : "text-foreground";
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={`mt-0.5 text-lg font-semibold leading-none ${valueClass}`}>{value}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
     </div>
   );
 }
@@ -2915,6 +3221,44 @@ function sortAuditLogs(logs: AuditLogRow[]) {
     const aTime = new Date(a.created_at).getTime();
     return bTime - aTime;
   });
+}
+
+function loneWolfWorkspaceDraftFromRow(row: LoneWolfWorkspaceRow | null): LoneWolfWorkspaceDraft {
+  return {
+    tradeNumber: row?.trade_number ?? "",
+    subTrade: row?.sub_trade ?? "",
+    status: row?.status ?? "not_started",
+    keyInfoStatus: row?.key_info_status ?? "not_started",
+    peopleStatus: row?.people_status ?? "not_started",
+    outsideBrokersStatus: row?.outside_brokers_status ?? "not_started",
+    commissionsStatus: row?.commissions_status ?? "not_started",
+    initialDocumentsStatus: row?.initial_documents_status ?? "not_started",
+    tradeRecordSheetStatus: row?.trade_record_sheet_status ?? "not_started",
+    signedTradeRecordSheetStatus: row?.signed_trade_record_sheet_status ?? "not_started",
+    notes: row?.notes ?? "",
+  };
+}
+
+function formatLoneWolfWorkflowStatus(status: LoneWolfWorkflowStatus) {
+  if (status === "open") return "Open in Lone Wolf";
+  if (status === "complete") return "Complete";
+  if (status === "blocked") return "Blocked";
+  return "Not started";
+}
+
+function loneWolfOverallBadgeClass(status: LoneWolfWorkflowStatus) {
+  if (status === "complete") return "border-green-200 bg-green-50 text-green-700";
+  if (status === "blocked") return "border-red-200 bg-red-50 text-red-700";
+  if (status === "open") return "border-blue-200 bg-blue-50 text-blue-700";
+  return "border-border bg-background text-muted-foreground";
+}
+
+function loneWolfStepDotClass(status: LoneWolfStepStatus) {
+  if (status === "completed") return "bg-green-600";
+  if (status === "blocked") return "bg-red-600";
+  if (status === "in_progress") return "bg-blue-600";
+  if (status === "skipped") return "bg-muted-foreground";
+  return "bg-amber-500";
 }
 
 function formatTimestamp(value: string) {
