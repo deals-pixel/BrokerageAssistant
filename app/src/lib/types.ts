@@ -120,6 +120,7 @@ export const FIELD_SECTIONS: FieldSection[] = [
       { key: "tax_roll_number", label: "Tax Roll Number" },
       { key: "tax_rate", label: "Tax Rate" },
       { key: "firm_or_conditional", label: "Firm or Conditional" },
+      { key: "condition_type", label: "Condition" },
       { key: "conditions_summary", label: "Condition(s)", wide: true, multiline: true },
       { key: "condition_expiry_date", label: "Condition Due Date" },
       { key: "condition_met_date", label: "Condition Met Date" },

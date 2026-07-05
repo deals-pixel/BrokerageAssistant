@@ -286,6 +286,46 @@ const CONDITIONAL_FIELD_GATES: Record<string, string> = {
   referral_to: "referral",
 };
 
+const LONE_WOLF_SELECT_OPTIONS: Record<string, string[]> = {
+  lonewolf_property_type: [
+    "COMMERCIAL",
+    "CONDO",
+    "FARM",
+    "FREEHOLD",
+    "LAND",
+    "MULTI FAMILY",
+    "OFFICE",
+    "RETAIL",
+  ],
+  we_manage: ["Yes", "No"],
+  lonewolf_classification: [
+    "DOUBLE ENDER - LEASE",
+    "MORTGAGE REFERRAL",
+    "NEW BUILD",
+    "LISTING SIDE",
+    "BUYER SIDE",
+    "DOUBLE ENDER - SALE",
+    "OFFICE DOUBLE ENDER",
+    "REFERRALS",
+    "LEASE",
+    "APPRAISAL OR VALUATION FEE",
+  ],
+  condition_type: [
+    "Financing",
+    "Inspection",
+    "Status Certificate",
+    "Lawyer Approval - Seller",
+    "Lawyer Approval - Buyer",
+    "Sale Of Purchaser's Property",
+    "Due Diligence",
+    "Builder Approval of Assignment",
+  ],
+  outside_broker_type: ["Outside Broker", "Referral"],
+  outside_brokerage_pay_broker: ["Yes", "No"],
+  outside_brokerage_end: ["Listing", "Selling"],
+  outside_brokerage_charged_hst: ["Yes", "No"],
+};
+
 export function ReviewScreen({
   deal,
   pages,
@@ -1023,6 +1063,7 @@ export function ReviewScreen({
                         const fieldDirty = edited[f.key] !== undefined;
                         const fieldSaving = savingFieldKey === f.key;
                         const isCheckboxField = CHECKBOX_FIELD_KEYS.has(f.key);
+                        const selectOptions = LONE_WOLF_SELECT_OPTIONS[f.key];
                         const sourceLabel = fieldSourceLabel(row, pageLabelByNumber);
                         const inputClassName = reviewInputClass(fieldStatus.tone, fieldDirty);
                         const wideClass = f.wide || f.multiline || conflictSources.length > 1 ? "md:col-span-2" : "";
@@ -1045,6 +1086,21 @@ export function ReviewScreen({
                                   />
                                   <span>{isCheckedValue(value) ? "Yes" : "No"}</span>
                                 </div>
+                              ) : selectOptions ? (
+                                <select
+                                  id={inputId}
+                                  className={`h-8 flex-1 rounded-md border px-3 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${inputClassName}`}
+                                  value={value}
+                                  onFocus={() => jumpToFieldSource(row, f.key)}
+                                  onChange={(e) => setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                                >
+                                  <option value="">Select...</option>
+                                  {selectOptions.map((option) => (
+                                    <option key={option} value={option}>
+                                      {option}
+                                    </option>
+                                  ))}
+                                </select>
                               ) : f.multiline ? (
                                 <Textarea
                                   id={inputId}
