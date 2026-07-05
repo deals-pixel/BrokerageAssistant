@@ -144,9 +144,11 @@ type RecipientOption = {
 
 type AuditLogRow = {
   id: number;
+  user_id: string | null;
   action: string;
   details: Record<string, unknown> | null;
   created_at: string;
+  profiles?: { email: string | null; full_name: string | null } | { email: string | null; full_name: string | null }[] | null;
 };
 
 type RequirementStatusRow = {
@@ -1131,7 +1133,10 @@ export function ReviewScreen({
                     {formatTimestamp(log.created_at)}
                   </time>
                   <div className="min-w-0">
-                    <p className="font-medium">{formatAction(log.action)}</p>
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <p className="font-medium">{formatAction(log.action)}</p>
+                      <p className="text-xs text-muted-foreground">By {formatAuditActor(log)}</p>
+                    </div>
                     {log.details && (
                       <p className="mt-1 break-words text-xs text-muted-foreground">
                         {summarizeDetails(log.details)}
@@ -2931,6 +2936,21 @@ function formatAction(action: string) {
     .split("_")
     .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatAuditActor(log: AuditLogRow) {
+  const profile = profileFromRelation(log.profiles);
+  if (profile?.full_name?.trim()) return profile.full_name.trim();
+  if (profile?.email?.trim()) return profile.email.trim();
+  if (log.user_id) return "Unknown user";
+  return "System";
+}
+
+function profileFromRelation(
+  profile: AuditLogRow["profiles"],
+): { email: string | null; full_name: string | null } | null {
+  if (Array.isArray(profile)) return profile[0] ?? null;
+  return profile ?? null;
 }
 
 function summarizeDetails(details: Record<string, unknown>) {

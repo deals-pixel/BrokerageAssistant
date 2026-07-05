@@ -97,7 +97,7 @@ export default async function DealPage({
 
   const { data: auditLogs } = await supabase
     .from("audit_logs")
-    .select("id, action, details, created_at")
+    .select("id, user_id, action, details, created_at, profiles(email, full_name)")
     .eq("deal_id", id)
     .order("created_at", { ascending: false })
     .limit(20);

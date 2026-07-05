@@ -199,6 +199,7 @@ async function runClaimedJob(supabase: SupabaseClient, job: DealProcessingJob) {
     });
 
     await processDeal(job.deal_id, {
+      auditUserId: job.requested_by,
       onStep: (step) => setJobStep(supabase, job.id, stepToJobStep(step)),
     });
 

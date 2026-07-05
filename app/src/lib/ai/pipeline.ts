@@ -58,6 +58,7 @@ type ExtractionModeSummary = {
 };
 export type ProcessingStep = "classifying" | "extracting_fields" | "syncing_tasks" | "completed";
 type ProcessDealOptions = {
+  auditUserId?: string | null;
   onStep?: (step: ProcessingStep) => Promise<void> | void;
 };
 
@@ -308,9 +309,10 @@ export async function processDeal(dealId: string, options: ProcessDealOptions = 
       .eq("id", dealId);
 
     await options.onStep?.("syncing_tasks");
-    await syncMissingDocumentTasks(supabase, dealId);
+    await syncMissingDocumentTasks(supabase, dealId, options.auditUserId);
 
     await supabase.from("audit_logs").insert({
+      user_id: options.auditUserId ?? null,
       deal_id: dealId,
       action: "pipeline_completed",
       details: {
@@ -345,6 +347,7 @@ export async function processDeal(dealId: string, options: ProcessDealOptions = 
       .update({ status: "error", error_message: err instanceof Error ? err.message : String(err) })
       .eq("id", dealId);
     await supabase.from("audit_logs").insert({
+      user_id: options.auditUserId ?? null,
       deal_id: dealId,
       action: "pipeline_failed",
       details: { error: err instanceof Error ? err.message : String(err) },
