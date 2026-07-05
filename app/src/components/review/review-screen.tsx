@@ -378,6 +378,58 @@ const LONE_WOLF_SELECT_OPTIONS: Record<string, string[]> = {
   outside_brokerage_charged_hst: ["Yes", "No"],
 };
 
+const LONE_WOLF_ENTRY_TABS: { id: string; label: string; loneWolfHint: string; sectionTitles: string[] }[] = [
+  {
+    id: "key_info",
+    label: "Key Info",
+    loneWolfHint: "Trade Records → Key Info tab",
+    sectionTitles: ["Key Info - Trade Record", "Key Info - Dates", "Key Info - Trade Details"],
+  },
+  {
+    id: "people",
+    label: "People",
+    loneWolfHint: "Trade Records → People tab",
+    sectionTitles: ["People - Seller / Landlord", "People - Buyer / Tenant", "People - Solicitors"],
+  },
+  {
+    id: "outside_brokers",
+    label: "Outside Brokers",
+    loneWolfHint: "Trade Records → Outside Brokers tab",
+    sectionTitles: ["Outside Brokers"],
+  },
+  {
+    id: "commissions",
+    label: "Commissions",
+    loneWolfHint: "Trade Records → Commissions tab",
+    sectionTitles: [
+      "Commissions - Sale Closing",
+      "Commissions - Income",
+      "Commissions - Outside Brokers & Expenses",
+    ],
+  },
+  {
+    id: "agent_info",
+    label: "Agent Info",
+    loneWolfHint: "Trade Records → Agent Info tab",
+    sectionTitles: ["Agent Info"],
+  },
+  {
+    id: "sides_deposit",
+    label: "Sides & Deposit",
+    loneWolfHint: "Reference only — not entered as a Lone Wolf tab",
+    sectionTitles: ["Brokerage Sides", "Deposit Reference - Not Trust Entry"],
+  },
+];
+
+const SECTION_PANEL_PREFIXES = ["Key Info - ", "People - ", "Commissions - "];
+
+function sectionPanelTitle(title: string) {
+  for (const prefix of SECTION_PANEL_PREFIXES) {
+    if (title.startsWith(prefix)) return title.slice(prefix.length);
+  }
+  return title;
+}
+
 type FieldValueGetter = (key: string) => string;
 
 function loneWolfFieldSuggestion(fieldKey: string, currentValue: FieldValueGetter) {
@@ -500,6 +552,7 @@ export function ReviewScreen({
   const [selectedFieldKey, setSelectedFieldKey] = useState<string | null>(null);
   const [selectedSourceIndex, setSelectedSourceIndex] = useState<number | null>(null);
   const [fieldReviewFilter, setFieldReviewFilter] = useState<FieldReviewFilter>("all");
+  const [activeEntryTab, setActiveEntryTab] = useState(LONE_WOLF_ENTRY_TABS[0].id);
   const [packageFilter, setPackageFilter] = useState<PackageFilter>("all");
   const [workingRequirementId, setWorkingRequirementId] = useState<string | null>(null);
   const [confirmingDeposit, setConfirmingDeposit] = useState(false);
@@ -616,6 +669,28 @@ export function ReviewScreen({
   });
   const fieldReviewPct =
     fieldReviewStats.all === 0 ? 100 : Math.round((fieldReviewStats.confirmed / fieldReviewStats.all) * 100);
+  const entryTabs = useMemo(
+    () =>
+      LONE_WOLF_ENTRY_TABS.map((tab) => ({
+        ...tab,
+        sections: FIELD_SECTIONS.filter((section) => tab.sectionTitles.includes(section.title)),
+      })),
+    [],
+  );
+  const entryTabStats = entryTabs.map((tab) => ({
+    id: tab.id,
+    stats: buildFieldReviewStats({
+      fieldMap,
+      currentValue,
+      isHidden: (fieldKey) => isConditionalFieldHidden(fieldKey, currentValue),
+      sections: tab.sections,
+    }),
+  }));
+  const activeTab = entryTabs.find((tab) => tab.id === activeEntryTab) ?? entryTabs[0];
+  const activeTabStats =
+    entryTabStats.find((entry) => entry.id === activeTab.id)?.stats ?? { all: 0, needsReview: 0, confirmed: 0, unverified: 0 };
+  const activeTabConfirmedPct =
+    activeTabStats.all === 0 ? 100 : Math.round((activeTabStats.confirmed / activeTabStats.all) * 100);
   const loneWolfAutomationPacket = buildLoneWolfAutomationPacket({
     deal,
     draft: loneWolfDraft,
@@ -770,6 +845,19 @@ export function ReviewScreen({
     ];
     await navigator.clipboard.writeText(lines.join("\n"));
     toast.success(`${friendlyFieldSectionTitle(section.title)} copied.`);
+  }
+
+  async function copyEntryTab(tab: (typeof entryTabs)[number]) {
+    const lines: string[] = [tab.label];
+    for (const section of tab.sections) {
+      const visibleFields = section.fields.filter((field) => !isConditionalFieldHidden(field.key, currentValue));
+      lines.push("", `${sectionPanelTitle(section.title)}:`);
+      for (const field of visibleFields) {
+        lines.push(`${field.label}: ${currentValue(field.key) || ""}`);
+      }
+    }
+    await navigator.clipboard.writeText(lines.join("\n"));
+    toast.success(`${tab.label} screen copied.`);
   }
 
   async function generateReminderDraft(options: { followupEnabled?: boolean } = {}) {
@@ -1185,72 +1273,139 @@ export function ReviewScreen({
         <div className="space-y-4">
           <Card className="overflow-hidden py-0">
             <CardHeader className="border-b px-4 py-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-[220px] flex-1">
-                  <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                    <span>Lone Wolf entry packet</span>
-                    <span>{fieldReviewStats.confirmed} of {fieldReviewStats.all} confirmed</span>
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-[220px] flex-1">
+                    <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <span>Lone Wolf entry packet</span>
+                      <span>{fieldReviewStats.confirmed} of {fieldReviewStats.all} confirmed</span>
+                    </div>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-green-600" style={{ width: `${fieldReviewPct}%` }} />
+                    </div>
                   </div>
-                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full rounded-full bg-green-600" style={{ width: `${fieldReviewPct}%` }} />
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { id: "all" as const, label: "All", count: fieldReviewStats.all },
+                      { id: "needs_review" as const, label: "Needs review", count: fieldReviewStats.needsReview },
+                      { id: "confirmed" as const, label: "Confirmed", count: fieldReviewStats.confirmed },
+                      { id: "unverified" as const, label: "Unverified", count: fieldReviewStats.unverified },
+                    ].map((filter) => (
+                      <button
+                        key={filter.id}
+                        type="button"
+                        className={`h-8 rounded-md border px-2.5 text-sm transition ${
+                          fieldReviewFilter === filter.id
+                            ? "border-foreground bg-background shadow-sm"
+                            : "border-border bg-muted/20 hover:bg-muted"
+                        }`}
+                        onClick={() => setFieldReviewFilter(filter.id)}
+                      >
+                        {filter.label} <span className="font-semibold">{filter.count}</span>
+                      </button>
+                    ))}
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    { id: "all" as const, label: "All", count: fieldReviewStats.all },
-                    { id: "needs_review" as const, label: "Needs review", count: fieldReviewStats.needsReview },
-                    { id: "confirmed" as const, label: "Confirmed", count: fieldReviewStats.confirmed },
-                    { id: "unverified" as const, label: "Unverified", count: fieldReviewStats.unverified },
-                  ].map((filter) => (
-                    <button
-                      key={filter.id}
-                      type="button"
-                      className={`h-8 rounded-md border px-2.5 text-sm transition ${
-                        fieldReviewFilter === filter.id
-                          ? "border-foreground bg-background shadow-sm"
-                          : "border-border bg-muted/20 hover:bg-muted"
-                      }`}
-                      onClick={() => setFieldReviewFilter(filter.id)}
-                    >
-                      {filter.label} <span className="font-semibold">{filter.count}</span>
-                    </button>
-                  ))}
+
+                <div className="-mb-px flex flex-wrap items-end gap-1 border-b">
+                  {entryTabs.map((tab) => {
+                    const stats = entryTabStats.find((entry) => entry.id === tab.id)?.stats;
+                    const active = tab.id === activeTab.id;
+                    const needsReview = stats?.needsReview ?? 0;
+                    const complete = (stats?.all ?? 0) > 0 && stats?.confirmed === stats?.all;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActiveEntryTab(tab.id)}
+                        className={`flex items-center gap-1.5 rounded-t-md border border-b-0 px-3 py-1.5 text-sm transition ${
+                          active
+                            ? "border-border bg-background font-semibold text-foreground shadow-[0_1px_0_0_var(--background)]"
+                            : "border-transparent bg-transparent text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                        }`}
+                      >
+                        {tab.label}
+                        {needsReview > 0 ? (
+                          <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-amber-100 px-1 text-[10px] font-semibold text-amber-800">
+                            {needsReview}
+                          </span>
+                        ) : complete ? (
+                          <CheckCircle2Icon className="size-3.5 text-green-600" />
+                        ) : null}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </CardHeader>
 
-            <CardContent className="space-y-4 p-4">
-              {FIELD_SECTIONS.map((section) => {
-                const visibleFields = section.fields.filter((f) => {
-                  if (isConditionalFieldHidden(f.key, currentValue)) return false;
-                  const row = fieldMap.get(f.key);
-                  const value = currentValue(f.key);
-                  const conflictSources = validConflictSources(row?.conflict_sources);
-                  const fieldStatus = getFieldStatus(f.key, row, conflictSources.length, fieldMap, value);
-                  return fieldMatchesReviewFilter(fieldStatus, fieldReviewFilter);
-                });
-                if (visibleFields.length === 0) return null;
+            <CardContent className="space-y-5 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <h2 className="text-sm font-semibold leading-tight">{activeTab.label}</h2>
+                  <p className="text-xs text-muted-foreground">{activeTab.loneWolfHint}</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="hidden items-center gap-2 sm:flex">
+                    <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-green-600" style={{ width: `${activeTabConfirmedPct}%` }} />
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {activeTabStats.confirmed}/{activeTabStats.all}
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    onClick={() => copyEntryTab(activeTab)}
+                  >
+                    <CopyIcon className="size-3.5" />
+                    Copy screen
+                  </Button>
+                </div>
+              </div>
 
-                return (
+              {(() => {
+                const renderedSections = activeTab.sections
+                  .map((section) => {
+                    const visibleFields = section.fields.filter((f) => {
+                      if (isConditionalFieldHidden(f.key, currentValue)) return false;
+                      const row = fieldMap.get(f.key);
+                      const value = currentValue(f.key);
+                      const conflictSources = validConflictSources(row?.conflict_sources);
+                      const fieldStatus = getFieldStatus(f.key, row, conflictSources.length, fieldMap, value);
+                      return fieldMatchesReviewFilter(fieldStatus, fieldReviewFilter);
+                    });
+                    return { section, visibleFields };
+                  })
+                  .filter((entry) => entry.visibleFields.length > 0);
+
+                if (renderedSections.length === 0) {
+                  return (
+                    <p className="rounded-md border border-dashed bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
+                      No fields in this screen match the current filter.
+                    </p>
+                  );
+                }
+
+                return renderedSections.map(({ section, visibleFields }) => (
                   <section key={section.title} className="space-y-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="h-px flex-1 bg-border" />
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          {friendlyFieldSectionTitle(section.title)}
-                        </h2>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-[11px]"
-                          onClick={() => copyFieldSection(section, visibleFields)}
-                        >
-                          <CopyIcon className="size-3" />
-                          Copy section
-                        </Button>
-                      </div>
-                      <div className="h-px flex-1 bg-border" />
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {sectionPanelTitle(section.title)}
+                      </h3>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-[11px]"
+                        onClick={() => copyFieldSection(section, visibleFields)}
+                      >
+                        <CopyIcon className="size-3" />
+                        Copy section
+                      </Button>
                     </div>
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                       {visibleFields.map((f) => {
@@ -1407,8 +1562,8 @@ export function ReviewScreen({
                       })}
                     </div>
                   </section>
-                );
-              })}
+                ));
+              })()}
             </CardContent>
           </Card>
         </div>
@@ -1649,6 +1804,8 @@ function LoneWolfAutomationHandoffPanel({
   onCopyPacket: () => void | Promise<void>;
   onCopyNextAction: () => void | Promise<void>;
 }) {
+  const packetJson = JSON.stringify(packet, null, 2);
+  const packetDownloadUrl = `data:application/json;charset=utf-8,${encodeURIComponent(packetJson)}`;
   const checks = [
     {
       label: "Trade record exists",
@@ -1720,12 +1877,25 @@ function LoneWolfAutomationHandoffPanel({
               <CopyIcon className="size-4" />
               Copy next action
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              nativeButton={false}
+              render={<a href={packetDownloadUrl} download={`lonewolf-${packet.deal.id}.json`} />}
+            >
+              <DownloadIcon className="size-4" />
+              Download packet
+            </Button>
             <Button type="button" onClick={onCopyPacket}>
               <CopyIcon className="size-4" />
               Copy automation packet
             </Button>
           </div>
         </div>
+        <details className="rounded-md border bg-background">
+          <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Packet preview</summary>
+          <Textarea className="min-h-48 rounded-none border-x-0 border-b-0 font-mono text-xs" readOnly value={packetJson} />
+        </details>
       </CardContent>
     </Card>
   );
@@ -1969,14 +2139,16 @@ function buildFieldReviewStats({
   fieldMap,
   currentValue,
   isHidden,
+  sections = FIELD_SECTIONS,
 }: {
   fieldMap: Map<string, FieldRow>;
   currentValue: (key: string) => string;
   isHidden: (key: string) => boolean;
+  sections?: FieldSection[];
 }) {
   const stats = { all: 0, needsReview: 0, confirmed: 0, unverified: 0 };
 
-  for (const section of FIELD_SECTIONS) {
+  for (const section of sections) {
     for (const field of section.fields) {
       if (isHidden(field.key)) continue;
       const row = fieldMap.get(field.key);
@@ -2466,16 +2638,10 @@ function DealStatCard({
   );
 }
 
-const LONE_WOLF_STEP_FIELDS: Array<{
+const LONE_WOLF_ENTRY_STEP_FIELDS: Array<{
   key: keyof Pick<
     LoneWolfWorkspaceDraft,
-    | "keyInfoStatus"
-    | "peopleStatus"
-    | "outsideBrokersStatus"
-    | "commissionsStatus"
-    | "initialDocumentsStatus"
-    | "tradeRecordSheetStatus"
-    | "signedTradeRecordSheetStatus"
+    "keyInfoStatus" | "peopleStatus" | "outsideBrokersStatus" | "commissionsStatus"
   >;
   label: string;
   detail: string;
@@ -2500,6 +2666,18 @@ const LONE_WOLF_STEP_FIELDS: Array<{
     label: "Commissions",
     detail: "Sub-trade, commission income, expenses, rebates, and agent info.",
   },
+];
+
+// Rendered exclusively inside the Trade Record Sheet Lifecycle box below —
+// kept out of LONE_WOLF_ENTRY_STEP_FIELDS so those 3 statuses aren't shown twice.
+const LONE_WOLF_DOCUMENT_STEP_FIELDS: Array<{
+  key: keyof Pick<
+    LoneWolfWorkspaceDraft,
+    "initialDocumentsStatus" | "tradeRecordSheetStatus" | "signedTradeRecordSheetStatus"
+  >;
+  label: string;
+  detail: string;
+}> = [
   {
     key: "initialDocumentsStatus",
     label: "Initial PDFs",
@@ -2516,6 +2694,8 @@ const LONE_WOLF_STEP_FIELDS: Array<{
     detail: "Signed Trade Record Sheet received by email and uploaded back to Lone Wolf.",
   },
 ];
+
+const LONE_WOLF_ALL_STEP_FIELDS = [...LONE_WOLF_ENTRY_STEP_FIELDS, ...LONE_WOLF_DOCUMENT_STEP_FIELDS];
 
 const LONE_WOLF_STEP_STATUS_OPTIONS: Array<{ value: LoneWolfStepStatus; label: string }> = [
   { value: "not_started", label: "Not started" },
@@ -2544,9 +2724,9 @@ function LoneWolfWorkspacePanel({
   onSave: () => void | Promise<void>;
   onStepStatusChange: (key: keyof LoneWolfWorkspaceDraft, status: LoneWolfStepStatus) => void | Promise<void>;
 }) {
-  const completedCount = LONE_WOLF_STEP_FIELDS.filter((step) => draft[step.key] === "completed").length;
-  const blockedCount = LONE_WOLF_STEP_FIELDS.filter((step) => draft[step.key] === "blocked").length;
-  const progressPct = Math.round((completedCount / LONE_WOLF_STEP_FIELDS.length) * 100);
+  const completedCount = LONE_WOLF_ALL_STEP_FIELDS.filter((step) => draft[step.key] === "completed").length;
+  const blockedCount = LONE_WOLF_ALL_STEP_FIELDS.filter((step) => draft[step.key] === "blocked").length;
+  const progressPct = Math.round((completedCount / LONE_WOLF_ALL_STEP_FIELDS.length) * 100);
   const tradeNumberMissing = !draft.tradeNumber.trim();
 
   return (
@@ -2612,9 +2792,39 @@ function LoneWolfWorkspacePanel({
           </div>
 
           <div className="grid gap-2 rounded-md border bg-muted/15 p-3 text-sm sm:grid-cols-3">
-            <LoneWolfMetric label="Progress" value={`${progressPct}%`} detail={`${completedCount} of ${LONE_WOLF_STEP_FIELDS.length}`} />
+            <LoneWolfMetric label="Progress" value={`${progressPct}%`} detail={`${completedCount} of ${LONE_WOLF_ALL_STEP_FIELDS.length}`} />
             <LoneWolfMetric label="Blocked" value={String(blockedCount)} detail="needs attention" tone={blockedCount > 0 ? "red" : "neutral"} />
             <LoneWolfMetric label="Docs pending" value={String(pendingDocumentCount)} detail="Lone Wolf upload" tone={pendingDocumentCount > 0 ? "amber" : "neutral"} />
+          </div>
+        </div>
+
+        <div>
+          <h3 className="text-sm font-semibold">Entry tab progress</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Mirrors the Key Info / People / Outside Brokers / Commissions tabs in the entry packet above.
+          </p>
+          <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            {LONE_WOLF_ENTRY_STEP_FIELDS.map((step) => (
+              <div key={step.key} className="rounded-md border bg-background p-3">
+                <div className="flex items-center gap-2">
+                  <span className={`size-2 rounded-full ${loneWolfStepDotClass(draft[step.key])}`} />
+                  <p className="font-medium leading-tight">{step.label}</p>
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{step.detail}</p>
+                <select
+                  className="mt-2 h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  value={draft[step.key]}
+                  disabled={saving}
+                  onChange={(event) => onStepStatusChange(step.key, event.target.value as LoneWolfStepStatus)}
+                >
+                  {LONE_WOLF_STEP_STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -2662,66 +2872,6 @@ function LoneWolfWorkspacePanel({
             signedSheetUploaded={draft.signedTradeRecordSheetStatus === "completed"}
             onMarkSignedUploaded={() => onStepStatusChange("signedTradeRecordSheetStatus", "completed")}
           />
-        </div>
-
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {LONE_WOLF_STEP_FIELDS.map((step) => (
-            <div key={step.key} className="rounded-md border bg-background p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className={`size-2 rounded-full ${loneWolfStepDotClass(draft[step.key])}`} />
-                    <p className="font-medium leading-tight">{step.label}</p>
-                  </div>
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{step.detail}</p>
-                </div>
-                <select
-                  className="h-8 shrink-0 rounded-md border border-input bg-background px-2 text-xs"
-                  value={draft[step.key]}
-                  disabled={saving}
-                  onChange={(event) => onStepStatusChange(step.key, event.target.value as LoneWolfStepStatus)}
-                >
-                  {LONE_WOLF_STEP_STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-[11px]"
-                  disabled={saving || draft[step.key] === "in_progress"}
-                  onClick={() => onStepStatusChange(step.key, "in_progress")}
-                >
-                  Ready
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-[11px]"
-                  disabled={saving || draft[step.key] === "completed"}
-                  onClick={() => onStepStatusChange(step.key, "completed")}
-                >
-                  Entered
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-[11px]"
-                  disabled={saving || draft[step.key] === "blocked"}
-                  onClick={() => onStepStatusChange(step.key, "blocked")}
-                >
-                  Review
-                </Button>
-              </div>
-            </div>
-          ))}
         </div>
 
         <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
