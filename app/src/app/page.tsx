@@ -1,8 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Archive, BarChart3, Bell, CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LoaderCircle, Search, Settings2, Table2, UserRound, Users } from "lucide-react";
+import { Archive, BarChart3, Bell, CalendarClock, CheckCircle2, CircleAlert, Columns3, FileText, LoaderCircle, Settings2, Table2, UserRound, Users } from "lucide-react";
 import { buildChecklistResult, type ChecklistItem } from "@/lib/checklist";
 import { DashboardAutoRefresh } from "@/components/dashboard-auto-refresh";
+import { DashboardSearchAutocomplete, type DashboardSearchOption } from "@/components/dashboard-search-autocomplete";
 import { createClient } from "@/lib/supabase/server";
 import { shortDealTitle, shortDocumentLabel } from "@/lib/display";
 import { IntakeDealLink } from "@/components/intake-deal-link";
@@ -89,6 +90,29 @@ type DealOperationalStatus =
   | { label: "Ready"; tone: "ready" }
   | { label: "Review"; tone: "review" };
 
+const INTAKE_EMAIL_SELECT =
+  "id, from_email, from_name, subject, body_text, body_html, status, received_at, routing_json, error_message, email_attachments(id, status, original_filename, mime_type, file_size, ignore_reason, light_classification_type, light_classification_confidence, received_at), deal_email_links(deal_id, match_score, match_reason, match_status, deals(id, property_address, file_name, status, page_count))";
+
+const ACTIVE_INTAKE_EMAIL_STATUSES = [
+  "routing_queued",
+  "attachments_queued",
+  "routing",
+  "routing_error",
+  "intake_review",
+  "needs_match_review",
+  "new_deal_suggested",
+  "not_deal_suggested",
+  "processing_from_routing",
+  "error",
+];
+
+const ACTIVITY_INTAKE_EMAIL_STATUSES = [
+  ...ACTIVE_INTAKE_EMAIL_STATUSES,
+  "matched",
+  "draft_transaction_created",
+  "ignored",
+];
+
 export default async function DashboardPage({
   searchParams,
 }: {
@@ -115,33 +139,19 @@ export default async function DashboardPage({
     .order("created_at", { ascending: false })
     .limit(100);
 
-  const { data: intakeData } = await supabase
+  const activeIntakeEmails = await fetchActiveIntakeEmails(supabase);
+
+  const { data: recentIntakeActivityData } = await supabase
     .from("inbound_emails")
-    .select(
-      "id, from_email, from_name, subject, body_text, body_html, status, received_at, routing_json, error_message, email_attachments(id, status, original_filename, mime_type, file_size, ignore_reason, light_classification_type, light_classification_confidence, received_at), deal_email_links(deal_id, match_score, match_reason, match_status, deals(id, property_address, file_name, status, page_count))",
-    )
-    .in("status", [
-      "routing_queued",
-      "attachments_queued",
-      "routing",
-      "routing_error",
-      "intake_review",
-      "needs_match_review",
-      "new_deal_suggested",
-      "not_deal_suggested",
-      "processing_from_routing",
-      "matched",
-      "draft_transaction_created",
-      "ignored",
-      "error",
-    ])
+    .select(INTAKE_EMAIL_SELECT)
+    .in("status", ACTIVITY_INTAKE_EMAIL_STATUSES)
     .order("received_at", { ascending: false })
-    .limit(50);
+    .limit(20);
 
   const baseDeals = ((data ?? []) as DealRow[]).map(toDashboardDeal);
-  const intakeEmails = (intakeData ?? []) as IntakeEmailRow[];
-  const unconfirmedIntakeEmails = intakeEmails.filter((email) => !isConfirmedIntakeEmail(email) && email.status !== "ignored");
-  const recentIntakeActivity = intakeEmails.slice(0, 8);
+  const recentIntakeActivity = ((recentIntakeActivityData ?? []) as IntakeEmailRow[]).slice(0, 8);
+  const intakeEmails = mergeIntakeEmails(activeIntakeEmails, recentIntakeActivity);
+  const unconfirmedIntakeEmails = activeIntakeEmails.filter((email) => !isConfirmedIntakeEmail(email));
   const linkedDealIds = Array.from(
     new Set(
       intakeEmails
@@ -194,9 +204,9 @@ export default async function DashboardPage({
   const workspaceDeals = deals.filter((deal) => deal.complianceStatus !== "Submitted");
   const archivedDeals = deals.filter((deal) => deal.complianceStatus === "Submitted");
   const viewDeals = activeView === "archive" ? archivedDeals : workspaceDeals;
-  const filteredDeals = viewDeals
-    .filter((deal) => matchesFilter(deal, activeView === "archive" ? "all" : activeFilter))
-    .filter((deal) => matchesDealSearch(deal, activeSearch));
+  const searchScopeDeals = viewDeals.filter((deal) => matchesFilter(deal, activeView === "archive" ? "all" : activeFilter));
+  const filteredDeals = searchScopeDeals.filter((deal) => matchesDealSearch(deal, activeSearch));
+  const searchOptions = searchScopeDeals.map(toDashboardSearchOption);
   const metrics = buildMetrics(deals);
   const closingSoonDeals = upcomingClosingDeals(workspaceDeals, 3);
 
@@ -332,30 +342,12 @@ export default async function DashboardPage({
               href={dashboardHref({ view: activeView, filter: "closing_week", q: activeSearch })}
               label={`Closing This Week ${metrics.closingThisWeek}`}
             />
-            <form action="/" className="ml-auto flex min-w-[240px] max-w-sm flex-1 items-center gap-2 sm:flex-none">
-              <input type="hidden" name="view" value={activeView} />
-              <input type="hidden" name="filter" value={activeFilter} />
-              <label className="relative min-w-0 flex-1">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  name="q"
-                  defaultValue={activeSearch}
-                  placeholder="Search address"
-                  className="h-8 w-full rounded-md border bg-background pl-8 pr-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                />
-              </label>
-              <Button type="submit" size="sm" variant="outline">Search</Button>
-              {activeSearch && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  nativeButton={false}
-                  render={<Link href={dashboardHref({ view: activeView, filter: activeFilter })} />}
-                >
-                  Clear
-                </Button>
-              )}
-            </form>
+            <DashboardSearchAutocomplete
+              view={activeView}
+              filter={activeFilter}
+              initialQuery={activeSearch}
+              options={searchOptions}
+            />
           </div>
         )}
 
@@ -1073,6 +1065,68 @@ function toIntakeDashboardDeal(email: IntakeEmailRow): DashboardDeal {
     renderedAttachmentIds: [],
     latestProcessingJob: null,
   };
+}
+
+function toDashboardSearchOption(deal: DashboardDeal): DashboardSearchOption {
+  const label = shortDealTitle(deal.property_address, deal.file_name);
+  const meta = [
+    deal.transaction_code,
+    deal.transaction_type,
+    deal.scenarioShortLabel,
+  ].filter(Boolean).join(" | ");
+
+  return {
+    id: deal.id,
+    label,
+    meta,
+    status: deal.complianceStatus,
+    createdAt: deal.created_at,
+    searchText: [
+      label,
+      deal.property_address,
+      deal.file_name,
+      deal.transaction_code,
+      deal.transaction_type,
+      deal.status,
+      deal.scenarioLabel,
+      deal.scenarioShortLabel,
+      deal.complianceStatus,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  };
+}
+
+async function fetchActiveIntakeEmails(supabase: Awaited<ReturnType<typeof createClient>>) {
+  const pageSize = 1000;
+  const emails: IntakeEmailRow[] = [];
+
+  for (let start = 0; ; start += pageSize) {
+    const { data, error } = await supabase
+      .from("inbound_emails")
+      .select(INTAKE_EMAIL_SELECT)
+      .in("status", ACTIVE_INTAKE_EMAIL_STATUSES)
+      .order("received_at", { ascending: false })
+      .range(start, start + pageSize - 1);
+
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as IntakeEmailRow[];
+    emails.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  return emails;
+}
+
+function mergeIntakeEmails(
+  activeIntakeData: IntakeEmailRow[],
+  recentIntakeActivityData: IntakeEmailRow[],
+) {
+  const byId = new Map<string, IntakeEmailRow>();
+  for (const email of [...activeIntakeData, ...recentIntakeActivityData]) {
+    byId.set(email.id, email);
+  }
+  return Array.from(byId.values());
 }
 
 function buildMetrics(deals: DashboardDeal[]) {
