@@ -222,6 +222,14 @@ type EmailAttachmentRow = {
   created_at: string;
 };
 
+type TradeRecordSheetAttachment = {
+  id: string;
+  name: string;
+  receivedAt: string | null;
+  status: string;
+  confidence: number | null;
+};
+
 type PackageFilter =
   | "all"
   | "uploaded_matched"
@@ -552,6 +560,10 @@ export function ReviewScreen({
   const depositAmount = currentValue("deposit_amount");
   const depositHolder = currentValue("deposit_holder");
   const depositMethod = currentValue("deposit_method");
+  const tradeRecordSheetAttachments = useMemo(
+    () => buildTradeRecordSheetAttachments(emailAttachments, pages),
+    [emailAttachments, pages],
+  );
   const depositProofRows = packageRows.filter((row) =>
     row.docTypes.some((docType) => docType === "deposit_proof" || docType === "copy_deposit_receipt_other_brokerage"),
   );
@@ -687,6 +699,11 @@ export function ReviewScreen({
     }
     await navigator.clipboard.writeText(await res.text());
     toast.success("Summary copied to clipboard.");
+  }
+
+  async function copyText(value: string, successMessage: string) {
+    await navigator.clipboard.writeText(value);
+    toast.success(successMessage);
   }
 
   async function copyFieldSection(section: FieldSection, visibleFields: FieldDef[]) {
@@ -947,6 +964,26 @@ export function ReviewScreen({
             value={latestReminder ? relativeTime(latestReminder.sent_at ?? latestReminder.drafted_at ?? latestReminder.created_at) : "None sent"}
           />
         </div>
+        <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <DealMetaItem
+            icon={FileTextIcon}
+            label="Lone Wolf Trade #"
+            value={loneWolfDraft.tradeNumber || "Not entered"}
+            actionLabel={loneWolfDraft.tradeNumber ? "Copy" : undefined}
+            onAction={loneWolfDraft.tradeNumber ? () => copyText(loneWolfDraft.tradeNumber, "Trade number copied.") : undefined}
+          />
+          <DealMetaItem
+            icon={FileTextIcon}
+            label="Sub-trade"
+            value={loneWolfDraft.subTrade || (loneWolfDraft.tradeNumber ? `${loneWolfDraft.tradeNumber}-A` : "Not entered")}
+            actionLabel={loneWolfDraft.subTrade || loneWolfDraft.tradeNumber ? "Copy" : undefined}
+            onAction={
+              loneWolfDraft.subTrade || loneWolfDraft.tradeNumber
+                ? () => copyText(loneWolfDraft.subTrade || `${loneWolfDraft.tradeNumber}-A`, "Sub-trade copied.")
+                : undefined
+            }
+          />
+        </div>
       </header>
 
       <div className="grid overflow-hidden rounded-lg border bg-card sm:grid-cols-2 xl:grid-cols-4 xl:divide-x">
@@ -993,6 +1030,7 @@ export function ReviewScreen({
         draft={loneWolfDraft}
         saving={savingLoneWolfWorkspace}
         pendingDocumentCount={packageCounts.pendingLoneWolf}
+        tradeRecordSheetAttachments={tradeRecordSheetAttachments}
         onDraftChange={setLoneWolfDraft}
         onSave={() => saveLoneWolfWorkspace()}
         onStepStatusChange={updateLoneWolfStep}
@@ -2204,17 +2242,33 @@ function DealMetaItem({
   icon: Icon,
   label,
   value,
+  actionLabel,
+  onAction,
 }: {
   icon: ComponentType<{ className?: string }>;
   label: string;
   value: string;
+  actionLabel?: string;
+  onAction?: () => void | Promise<void>;
 }) {
   return (
     <div className="flex items-start gap-2 border-border/70 text-foreground lg:border-l lg:pl-4 first:lg:border-l-0 first:lg:pl-0">
       <Icon className="mt-0.5 size-4 text-muted-foreground" />
       <div className="min-w-0">
         <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="truncate font-medium leading-tight">{value}</p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate font-medium leading-tight">{value}</p>
+          {onAction && (
+            <button
+              type="button"
+              className="inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
+              onClick={onAction}
+            >
+              <CopyIcon className="size-3" />
+              {actionLabel ?? "Copy"}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -2322,6 +2376,7 @@ function LoneWolfWorkspacePanel({
   draft,
   saving,
   pendingDocumentCount,
+  tradeRecordSheetAttachments,
   onDraftChange,
   onSave,
   onStepStatusChange,
@@ -2330,6 +2385,7 @@ function LoneWolfWorkspacePanel({
   draft: LoneWolfWorkspaceDraft;
   saving: boolean;
   pendingDocumentCount: number;
+  tradeRecordSheetAttachments: TradeRecordSheetAttachment[];
   onDraftChange: (draft: LoneWolfWorkspaceDraft) => void;
   onSave: () => void | Promise<void>;
   onStepStatusChange: (key: keyof LoneWolfWorkspaceDraft, status: LoneWolfStepStatus) => void | Promise<void>;
@@ -2337,6 +2393,7 @@ function LoneWolfWorkspacePanel({
   const completedCount = LONE_WOLF_STEP_FIELDS.filter((step) => draft[step.key] === "completed").length;
   const blockedCount = LONE_WOLF_STEP_FIELDS.filter((step) => draft[step.key] === "blocked").length;
   const progressPct = Math.round((completedCount / LONE_WOLF_STEP_FIELDS.length) * 100);
+  const tradeNumberMissing = !draft.tradeNumber.trim();
 
   return (
     <Card className="overflow-hidden py-0">
@@ -2391,9 +2448,12 @@ function LoneWolfWorkspacePanel({
               >
                 <option value="not_started">Not started</option>
                 <option value="open">Open in Lone Wolf</option>
-                <option value="complete">Complete</option>
+                <option value="complete" disabled={tradeNumberMissing}>Complete</option>
                 <option value="blocked">Blocked</option>
               </select>
+              {tradeNumberMissing && (
+                <p className="text-xs text-amber-700">Trade Number is required before marking complete.</p>
+              )}
             </div>
           </div>
 
@@ -2442,6 +2502,12 @@ function LoneWolfWorkspacePanel({
               onReview={() => onStepStatusChange("signedTradeRecordSheetStatus", "blocked")}
             />
           </div>
+          <TradeRecordSheetAttachmentList
+            attachments={tradeRecordSheetAttachments}
+            saving={saving}
+            signedSheetUploaded={draft.signedTradeRecordSheetStatus === "completed"}
+            onMarkSignedUploaded={() => onStepStatusChange("signedTradeRecordSheetStatus", "completed")}
+          />
         </div>
 
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -2578,6 +2644,68 @@ function LoneWolfLifecycleStep({
           Review
         </Button>
       </div>
+    </div>
+  );
+}
+
+function TradeRecordSheetAttachmentList({
+  attachments,
+  saving,
+  signedSheetUploaded,
+  onMarkSignedUploaded,
+}: {
+  attachments: TradeRecordSheetAttachment[];
+  saving: boolean;
+  signedSheetUploaded: boolean;
+  onMarkSignedUploaded: () => void | Promise<void>;
+}) {
+  return (
+    <div className="mt-3 rounded-md border bg-background p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium">Received Trade Record Sheet candidates</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            These are email attachments that look like the signed sheet returning from the agent.
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={saving || signedSheetUploaded || attachments.length === 0}
+          onClick={onMarkSignedUploaded}
+        >
+          {signedSheetUploaded ? "Uploaded" : "Mark signed uploaded"}
+        </Button>
+      </div>
+      {attachments.length > 0 ? (
+        <div className="mt-3 divide-y rounded-md border">
+          {attachments.map((attachment) => (
+            <div key={attachment.id} className="flex flex-wrap items-center justify-between gap-2 p-2 text-sm">
+              <div className="min-w-0">
+                <p className="truncate font-medium">{attachment.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {attachment.receivedAt ? `Received ${formatShortDateTime(attachment.receivedAt)}` : "Received date unknown"}
+                  {attachment.confidence != null ? ` | ${Math.round(attachment.confidence * 100)}% match` : ""}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                nativeButton={false}
+                render={<a href={`/api/email-attachments/${attachment.id}/download`} />}
+              >
+                <DownloadIcon className="size-3.5" />
+                Download
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-3 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+          No Trade Record Sheet attachment has been detected from email yet.
+        </p>
+      )}
     </div>
   );
 }
@@ -3372,6 +3500,36 @@ function loneWolfRequirementStatusToast(status: LoneWolfRequirementStatus) {
   if (status === "pending_upload") return "Reset to pending Lone Wolf upload.";
   if (status === "not_required") return "Marked not required for Lone Wolf.";
   return "Marked for Lone Wolf review.";
+}
+
+function buildTradeRecordSheetAttachments(
+  attachments: EmailAttachmentRow[],
+  pages: PageRow[],
+): TradeRecordSheetAttachment[] {
+  const renderedTradeRecordAttachmentIds = new Set(
+    pages
+      .filter((page) => page.doc_type === "trade_record_sheet" && page.email_attachment_id)
+      .map((page) => page.email_attachment_id as string),
+  );
+
+  return attachments
+    .filter((attachment) => {
+      const filename = attachment.original_filename?.toLowerCase() ?? "";
+      return (
+        attachment.light_classification_type === "trade_record_sheet" ||
+        renderedTradeRecordAttachmentIds.has(attachment.id) ||
+        (filename.includes("trade") && filename.includes("record"))
+      );
+    })
+    .map((attachment) => ({
+      id: attachment.id,
+      name: attachment.original_filename ?? "Trade Record Sheet",
+      receivedAt: attachment.received_at ?? attachment.created_at,
+      status: attachment.status,
+      confidence: attachment.light_classification_type === "trade_record_sheet"
+        ? attachment.light_classification_confidence
+        : null,
+    }));
 }
 
 function emailAttachmentTypeLabel(docType: string | null) {
