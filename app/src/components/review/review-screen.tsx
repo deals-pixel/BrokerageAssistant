@@ -4,7 +4,7 @@ import { useMemo, useState, type ComponentType } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangleIcon, ArrowUpRightIcon, BellIcon, CalendarIcon, CheckCircle2Icon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, Clock3Icon, DownloadIcon, FileTextIcon, MailIcon, MapPinIcon, PauseIcon, PencilIcon, RefreshCwIcon, SendIcon, ShieldCheckIcon, UsersIcon } from "lucide-react";
+import { AlertTriangleIcon, ArrowUpRightIcon, BellIcon, CalendarIcon, CheckCircle2Icon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, Clock3Icon, CopyIcon, DownloadIcon, FileTextIcon, MailIcon, MapPinIcon, PauseIcon, PencilIcon, RefreshCwIcon, SendIcon, ShieldCheckIcon, UsersIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,8 @@ import {
   DOCUMENT_TYPES,
   type Confidence,
   type DocumentType,
+  type FieldDef,
+  type FieldSection,
   type FieldSourceCandidate,
   type SourceBox,
 } from "@/lib/types";
@@ -272,9 +274,7 @@ const CHECKBOX_FIELD_KEYS = new Set([
   "seller_landlord_main_contact",
   "seller_landlord_moving_out",
   "buyer_tenant_main_contact",
-  "outside_brokerage_pay_broker",
   "outside_brokerage_hst_exempt",
-  "outside_brokerage_charged_hst",
 ]);
 const CONDITIONAL_FIELD_GATES: Record<string, string> = {
   additional_payee_1_name: "additional_payees",
@@ -325,6 +325,80 @@ const LONE_WOLF_SELECT_OPTIONS: Record<string, string[]> = {
   outside_brokerage_end: ["Listing", "Selling"],
   outside_brokerage_charged_hst: ["Yes", "No"],
 };
+
+type FieldValueGetter = (key: string) => string;
+
+function loneWolfFieldSuggestion(fieldKey: string, currentValue: FieldValueGetter) {
+  if (currentValue(fieldKey).trim()) return "";
+
+  const parsedAddress = parseLoneWolfPropertyAddress(currentValue("property_address"));
+  if (fieldKey === "street_number") return parsedAddress.streetNumber;
+  if (fieldKey === "street_name") return parsedAddress.streetName;
+  if (fieldKey === "city") return parsedAddress.city;
+  if (fieldKey === "province") return parsedAddress.province;
+  if (fieldKey === "postal_code") return parsedAddress.postalCode;
+  if (fieldKey === "we_manage") return "No";
+  if (fieldKey === "lonewolf_classification") return inferLoneWolfClassification(currentValue);
+  if (fieldKey === "condition_type") return inferLoneWolfConditionType(currentValue("conditions_summary"));
+  if (fieldKey === "outside_broker_type") {
+    if (currentValue("referral_to").trim()) return "Referral";
+    if (currentValue("outside_brokerage_name").trim() || currentValue("outside_broker_agent").trim()) return "Outside Broker";
+  }
+  if (fieldKey === "outside_brokerage_pay_broker" && currentValue("outside_brokerage_name").trim()) return "Yes";
+  if (fieldKey === "outside_brokerage_charged_hst" && currentValue("outside_brokerage_name").trim()) return "Yes";
+  return "";
+}
+
+function parseLoneWolfPropertyAddress(value: string) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  const parts = normalized.split(",").map((part) => part.trim()).filter(Boolean);
+  const streetPart = parts[0] ?? "";
+  const streetMatch = streetPart.match(/^(\d+[A-Za-z]?)\s+(.+)$/);
+  const postalMatch = normalized.match(/[A-Z]\d[A-Z][ -]?\d[A-Z]\d/i);
+  const provincePart = parts.find((part) => /^(ON|Ontario)$/i.test(part)) ?? "";
+  const city = parts.find((part, index) => index > 0 && !/^(ON|Ontario)$/i.test(part) && !/[A-Z]\d[A-Z][ -]?\d[A-Z]\d/i.test(part)) ?? "";
+
+  return {
+    streetNumber: streetMatch?.[1] ?? "",
+    streetName: streetMatch?.[2] ?? "",
+    city,
+    province: provincePart ? "Ontario" : "",
+    postalCode: postalMatch ? formatLoneWolfPostalCode(postalMatch[0]) : "",
+  };
+}
+
+function formatLoneWolfPostalCode(value: string) {
+  const compact = value.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  if (compact.length !== 6) return value.toUpperCase();
+  return `${compact.slice(0, 3)}-${compact.slice(3)}`;
+}
+
+function inferLoneWolfClassification(currentValue: FieldValueGetter) {
+  const transactionType = currentValue("transaction_type").toLowerCase();
+  const representationSide = currentValue("representation_side").toLowerCase();
+  const brokerageSide = currentValue("brokerage_side").toLowerCase();
+  const referralTo = currentValue("referral_to").toLowerCase();
+  const combinedSide = `${representationSide} ${brokerageSide}`;
+
+  if (referralTo.includes("referral")) return "REFERRALS";
+  if (transactionType.includes("lease")) return "LEASE";
+  if (combinedSide.includes("buyer") || combinedSide.includes("selling") || combinedSide.includes("cooperat")) return "BUYER SIDE";
+  if (combinedSide.includes("seller") || combinedSide.includes("listing")) return "LISTING SIDE";
+  return "";
+}
+
+function inferLoneWolfConditionType(value: string) {
+  const normalized = value.toLowerCase();
+  if (normalized.includes("status certificate")) return "Status Certificate";
+  if (normalized.includes("inspection")) return "Inspection";
+  if (normalized.includes("financ")) return "Financing";
+  if (normalized.includes("lawyer") && normalized.includes("seller")) return "Lawyer Approval - Seller";
+  if (normalized.includes("lawyer") && normalized.includes("buyer")) return "Lawyer Approval - Buyer";
+  if (normalized.includes("due diligence")) return "Due Diligence";
+  if (normalized.includes("assignment")) return "Builder Approval of Assignment";
+  if (normalized.includes("purchaser")) return "Sale Of Purchaser's Property";
+  return "";
+}
 
 export function ReviewScreen({
   deal,
@@ -610,6 +684,15 @@ export function ReviewScreen({
     }
     await navigator.clipboard.writeText(await res.text());
     toast.success("Summary copied to clipboard.");
+  }
+
+  async function copyFieldSection(section: FieldSection, visibleFields: FieldDef[]) {
+    const lines = [
+      `${friendlyFieldSectionTitle(section.title)}:`,
+      ...visibleFields.map((field) => `${field.label}: ${currentValue(field.key) || ""}`),
+    ];
+    await navigator.clipboard.writeText(lines.join("\n"));
+    toast.success(`${friendlyFieldSectionTitle(section.title)} copied.`);
   }
 
   async function generateReminderDraft(options: { followupEnabled?: boolean } = {}) {
@@ -1046,11 +1129,23 @@ export function ReviewScreen({
 
                 return (
                   <section key={section.title} className="space-y-3">
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
                       <div className="h-px flex-1 bg-border" />
-                      <h2 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {friendlyFieldSectionTitle(section.title)}
-                      </h2>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          {friendlyFieldSectionTitle(section.title)}
+                        </h2>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-[11px]"
+                          onClick={() => copyFieldSection(section, visibleFields)}
+                        >
+                          <CopyIcon className="size-3" />
+                          Copy section
+                        </Button>
+                      </div>
                       <div className="h-px flex-1 bg-border" />
                     </div>
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -1067,6 +1162,7 @@ export function ReviewScreen({
                         const sourceLabel = fieldSourceLabel(row, pageLabelByNumber);
                         const inputClassName = reviewInputClass(fieldStatus.tone, fieldDirty);
                         const wideClass = f.wide || f.multiline || conflictSources.length > 1 ? "md:col-span-2" : "";
+                        const suggestion = loneWolfFieldSuggestion(f.key, currentValue);
 
                         return (
                           <div key={f.key} className={`rounded-md border p-2.5 ${reviewFieldShellClass(fieldStatus.tone)} ${wideClass}`}>
@@ -1150,6 +1246,15 @@ export function ReviewScreen({
                                   <AlertTriangleIcon className="size-3" />
                                   Template fallback
                                 </span>
+                              )}
+                              {suggestion && (
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 hover:bg-blue-100"
+                                  onClick={() => setEdited((prev) => ({ ...prev, [f.key]: suggestion }))}
+                                >
+                                  Use suggestion: {suggestion}
+                                </button>
                               )}
                             </div>
 
@@ -2117,9 +2222,9 @@ const LONE_WOLF_STEP_FIELDS: Array<{
 
 const LONE_WOLF_STEP_STATUS_OPTIONS: Array<{ value: LoneWolfStepStatus; label: string }> = [
   { value: "not_started", label: "Not started" },
-  { value: "in_progress", label: "In progress" },
-  { value: "completed", label: "Completed" },
-  { value: "blocked", label: "Blocked" },
+  { value: "in_progress", label: "Ready for entry" },
+  { value: "completed", label: "Entered in Lone Wolf" },
+  { value: "blocked", label: "Needs admin review" },
   { value: "skipped", label: "Skipped" },
 ];
 
@@ -2233,6 +2338,38 @@ function LoneWolfWorkspacePanel({
                     </option>
                   ))}
                 </select>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-[11px]"
+                  disabled={saving || draft[step.key] === "in_progress"}
+                  onClick={() => onStepStatusChange(step.key, "in_progress")}
+                >
+                  Ready
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-[11px]"
+                  disabled={saving || draft[step.key] === "completed"}
+                  onClick={() => onStepStatusChange(step.key, "completed")}
+                >
+                  Entered
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-[11px]"
+                  disabled={saving || draft[step.key] === "blocked"}
+                  onClick={() => onStepStatusChange(step.key, "blocked")}
+                >
+                  Review
+                </Button>
               </div>
             </div>
           ))}
