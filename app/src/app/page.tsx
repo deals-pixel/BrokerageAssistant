@@ -1331,7 +1331,7 @@ function intakeScenarioLabel(status: string) {
   if (status === "processing_from_routing") return "Processing routed intake";
   if (status === "needs_match_review") return "Likely existing deal";
   if (status === "new_deal_suggested") return "New deal suggested";
-  if (status === "not_deal_suggested") return "Not a deal?";
+  if (status === "not_deal_suggested") return "Communication";
   if (status === "error" || status === "routing_error") return "Needs attention";
   return "Intake review";
 }

@@ -646,10 +646,12 @@ function extractLikelyAddressFromFilenames(filenames: string[]) {
 function normalizeFilenameForAddress(filename: string) {
   return filename
     .replace(/\.[A-Za-z0-9]{1,8}$/i, "")
+    .replace(/^(?:signed\s+)?z?TRADEPRINT\d+[A-Za-z]?[-_\s]*/i, "")
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/(\d)([A-Za-z])/g, "$1 $2")
     .replace(/([A-Za-z])(\d)/g, "$1 $2")
     .replace(/[_-]+/g, " ")
+    .replace(/^\d+\s*P\s+(?=\d{1,6}\s+)/i, "")
     .replace(/\s+/g, " ")
     .trim();
 }

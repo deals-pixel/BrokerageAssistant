@@ -3,7 +3,7 @@ import { analyzeInboundPackage, type IntakeAnalysisAttachmentInput } from "@/lib
 import { matchDealWithThreadContext } from "@/lib/email-routing-job";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { hasReviewableEmailContent, heuristicRouteEmail, type InboundEmailInput } from "@/lib/email-intake";
+import { heuristicRouteEmail, type InboundEmailInput } from "@/lib/email-intake";
 import { markDealNeedsAttention } from "@/lib/deal-attention";
 
 type InboundEmailRow = {
@@ -69,18 +69,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       buffer: Buffer.alloc(0),
     }));
     const lightweightInbound = emailRowToInboundInput(email as InboundEmailRow, lightweightAttachments);
-    if (lightweightAttachments.length === 0 && !hasReviewableEmailContent(lightweightInbound)) {
-      await admin
-        .from("inbound_emails")
-        .update({
-          status: "not_deal_suggested",
-          error_message: "No valid stored attachments available for analysis.",
-          routing_completed_at: new Date().toISOString(),
-        })
-        .eq("id", id);
-      return NextResponse.json({ ok: true, status: "not_deal_suggested", analysis: null });
-    }
-
     const heuristic = heuristicRouteEmail(lightweightInbound);
     const useAi = body?.forceAi === true || shouldUseAiIntakeAnalysis(heuristic, lightweightAttachments.length);
     const attachments = useAi ? await downloadAttachments(admin, attachmentRows ?? []) : lightweightAttachments;

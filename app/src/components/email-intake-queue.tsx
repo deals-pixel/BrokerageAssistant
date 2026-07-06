@@ -313,7 +313,7 @@ export function DealIntakeWorkflow({
       } else if (status === "new_deal_suggested") {
         toast.success("No existing match found. Create a new deal from the intake card.");
       } else if (status === "not_deal_suggested") {
-        toast.success("Analysis complete. AI suggests this is not a deal package.");
+        toast.success("Communication ready to attach to a transaction.");
       } else {
         toast.success("Analysis complete.");
       }
@@ -434,7 +434,7 @@ export function DealIntakeWorkflow({
                     {email.status === "not_deal_suggested"
                       ? suggestedDeal
                         ? "Communication match found"
-                        : "Communication - no match"
+                        : "Choose destination transaction"
                       : email.status === "new_deal_suggested"
                         ? "No match found"
                         : suggestedDeal
@@ -499,10 +499,7 @@ export function DealIntakeWorkflow({
                         if (email.status === "new_deal_suggested") {
                           openDialog("review", email);
                         } else if (email.status === "not_deal_suggested") {
-                          submitDialogWithMode({
-                            ...dialogStateForEmail("ignore", email),
-                            reason: "AI suggested this intake is not a deal package.",
-                          });
+                          openDialog("review", email);
                         } else {
                           rejectRoutingSuggestion(email);
                         }
@@ -512,7 +509,7 @@ export function DealIntakeWorkflow({
                       {email.status === "new_deal_suggested"
                         ? "Review"
                         : email.status === "not_deal_suggested"
-                          ? "Ignore"
+                          ? "Review"
                           : "Reject"}
                     </Button>
                   </>
@@ -861,7 +858,6 @@ function IntakeReviewModal({
   const documentGuesses = routingDocumentGuesses(routing);
   const emailBodyFields = routingEmailBodyFields(routing);
   const hasCommunicationFields = emailBodyFields.length > 0;
-  const hasDealContext = Boolean(routingAddress(routing)) || hasCommunicationFields;
   const hasProcessableAttachments = hasProcessableEmailAttachments(dialog.email);
   const primaryLink = bestLink(dialog.email);
   const suggestedDeal = linkedDealFromRelation(primaryLink?.deals);
@@ -873,9 +869,7 @@ function IntakeReviewModal({
   const suggestionTitle = notDealSuggested
     ? suggestedDeal
       ? "Communication for existing transaction"
-      : hasDealContext
-        ? "Communication found - no match"
-        : "Not a deal package"
+      : "Choose destination transaction"
     : newDealSuggested
       ? "Create a new transaction"
       : suggestedDeal
@@ -884,9 +878,7 @@ function IntakeReviewModal({
   const suggestionPrimary = notDealSuggested
     ? suggestedDeal
       ? shortDealTitle(suggestedDeal.property_address, suggestedDeal.file_name)
-      : hasDealContext
-        ? routingAddress(routing) || "Attach these email details to the right transaction."
-        : "AI suggests this intake should be ignored."
+      : routingAddress(routing) || "Attach this communication to the right transaction."
     : newDealSuggested
       ? routingAddress(routing) || "AI did not find a confident existing transaction."
       : suggestedDeal
@@ -895,9 +887,7 @@ function IntakeReviewModal({
   const suggestionMeta = notDealSuggested
     ? suggestedDeal
       ? primaryLink?.match_reason || "Save this email to the deal portal without processing it as a document package."
-      : hasDealContext
-        ? "No existing transaction matched. Choose an existing transaction, create a draft, or ignore this email."
-        : dialog.email.error_message || "No confident deal-document signal was found."
+      : "This is not a document package, but it appears to belong on a deal portal. Choose the destination transaction to attach it."
     : newDealSuggested
       ? "No existing deal match reached the routing threshold."
       : primaryLink?.match_reason || routingSummary(routing) || "Review the suggested destination.";
@@ -1103,16 +1093,18 @@ function IntakeReviewModal({
                   <Button className="w-full" onClick={onProcessRouting} disabled={working}>
                     {working ? "Processing..." : "Process intake"}
                   </Button>
-                  <div className="border-t pt-3">
-                    <Textarea
-                      value={dialog.reason}
-                      onChange={(event) => onChange({ ...dialog, reason: event.target.value })}
-                      placeholder="Reason if ignored"
-                    />
-                    <Button variant="outline" className="mt-2 w-full" onClick={onIgnore} disabled={working}>
-                      Ignore intake
-                    </Button>
-                  </div>
+                  {!notDealSuggested && (
+                    <div className="border-t pt-3">
+                      <Textarea
+                        value={dialog.reason}
+                        onChange={(event) => onChange({ ...dialog, reason: event.target.value })}
+                        placeholder="Reason if ignored"
+                      />
+                      <Button variant="outline" className="mt-2 w-full" onClick={onIgnore} disabled={working}>
+                        Ignore intake
+                      </Button>
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
@@ -1269,7 +1261,7 @@ function activityResult(email: IntakeEmailRow) {
   if (email.status === "intake_review") return "Visible in Intake Review";
   if (email.status === "needs_match_review") return "Needs inline match confirmation";
   if (email.status === "new_deal_suggested") return "Suggested as a new deal";
-  if (email.status === "not_deal_suggested") return "Suggested as not a deal package";
+  if (email.status === "not_deal_suggested") return "Communication";
   return "Stored by the platform";
 }
 
@@ -1893,20 +1885,13 @@ function routingSuggestion(
       };
     }
     const communicationFields = routingEmailBodyFields(email.routing_json);
-    if (routingAddress(routing) || communicationFields.length > 0) {
-      return {
-        title: "Attach communication",
-        primary: routingAddress(routing) || "Deal communication details found.",
-        meta:
-          communicationFields.length > 0
-            ? `${communicationFields.length} email field${communicationFields.length === 1 ? "" : "s"} found. Attach to the deal to update fields with Email body as the source.`
-            : "This is not a document package, but it appears to belong on a deal portal. Choose the destination transaction to attach it.",
-      };
-    }
     return {
-      title: "Not a deal package",
-      primary: "AI suggests this intake should be ignored.",
-      meta: email.error_message || "No confident deal-document signal was found.",
+      title: "Attach communication",
+      primary: routingAddress(routing) || "Attach this communication to the right transaction.",
+      meta:
+        communicationFields.length > 0
+          ? `${communicationFields.length} email field${communicationFields.length === 1 ? "" : "s"} found. This is not a document package, but it appears to belong on a deal portal. Choose the destination transaction to attach it.`
+          : "This is not a document package, but it appears to belong on a deal portal. Choose the destination transaction to attach it.",
     };
   }
   if (email.status === "new_deal_suggested") {
@@ -2105,7 +2090,7 @@ function formatIntakeStatus(status: string) {
   if (status === "processing_from_routing") return "Processing";
   if (status === "needs_match_review") return "Needs match review";
   if (status === "new_deal_suggested") return "New deal suggested";
-  if (status === "not_deal_suggested") return "Not a deal?";
+  if (status === "not_deal_suggested") return "Communication";
   if (status === "draft_transaction_created") return "Draft created";
   if (status === "attachments_queued") return "Storing attachments";
   if (status === "routing_queued") return "Needs review";
