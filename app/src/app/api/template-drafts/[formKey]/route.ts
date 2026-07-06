@@ -17,6 +17,7 @@ const LEGACY_FIELD_KEY_ALIASES: Record<string, string> = {
   buyer_is_corporation: "buyer_tenant_is_corporation",
   buyer_address: "buyer_tenant_address",
   deposit_held_by: "deposit_holder",
+  lonewolf_property_type: "property_type",
 };
 
 const sourceBoxSchema = z.object({
