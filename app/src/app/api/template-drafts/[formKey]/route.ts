@@ -19,6 +19,12 @@ const LEGACY_FIELD_KEY_ALIASES: Record<string, string> = {
   deposit_held_by: "deposit_holder",
   lonewolf_property_type: "property_type",
 };
+const REMOVED_LEGACY_FIELD_KEYS = new Set([
+  "lonewolf_classification",
+  "outside_broker_type",
+  "lonewolf_sub_trade",
+  "lonewolf_trade_status",
+]);
 
 const sourceBoxSchema = z.object({
   x: z.number().min(0).max(1),
@@ -32,7 +38,7 @@ const regionSchema = z.object({
   fieldKey: z
     .string()
     .transform((value) => LEGACY_FIELD_KEY_ALIASES[value] ?? value)
-    .refine((value) => FIELD_KEYS.has(value), "Unknown field key"),
+    .refine((value) => FIELD_KEYS.has(value) || REMOVED_LEGACY_FIELD_KEYS.has(value), "Unknown field key"),
   label: z.string().min(1).max(160),
   page: z.number().int().min(1),
   box: sourceBoxSchema,
@@ -82,7 +88,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ formKey:
         form_key: formKey,
         form_title: body.data.formTitle,
         file_name: body.data.fileName ?? null,
-        regions: body.data.regions,
+        regions: body.data.regions.filter((region) => FIELD_KEYS.has(region.fieldKey)),
         updated_by: user.id,
         updated_at: new Date().toISOString(),
       },

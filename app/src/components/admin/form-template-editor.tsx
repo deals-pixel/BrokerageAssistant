@@ -147,6 +147,7 @@ const FIELD_SELECTOR_TABS = [
 ];
 
 const FIELD_OPTIONS = uniqueFieldOptions(FIELD_REGISTRY_SECTIONS);
+const FIELD_OPTION_KEYS = new Set(FIELD_OPTIONS.map((field) => field.key));
 
 const LEGACY_FIELD_KEY_ALIASES: Record<string, string> = {
   sale_price: "price_or_rent",
@@ -163,6 +164,12 @@ const LEGACY_FIELD_KEY_ALIASES: Record<string, string> = {
   deposit_held_by: "deposit_holder",
   lonewolf_property_type: "property_type",
 };
+const REMOVED_LEGACY_FIELD_KEYS = new Set([
+  "lonewolf_classification",
+  "outside_broker_type",
+  "lonewolf_sub_trade",
+  "lonewolf_trade_status",
+]);
 
 function uniqueFieldOptions(sections: typeof FIELD_REGISTRY_SECTIONS): FieldOption[] {
   const options = new Map<string, FieldOption>();
@@ -455,7 +462,7 @@ export function FormTemplateEditor() {
       formKey: selectedForm.key,
       formTitle: selectedForm.title,
       fileName,
-      regions,
+      regions: regions.map(normalizeTemplateRegion).filter((region): region is EditableRegion => Boolean(region)),
     };
     localStorage.setItem(draftKey(selectedForm.key), JSON.stringify(draft));
 
@@ -1287,13 +1294,20 @@ function normalizeSharedDraft(value: SharedTemplateDraft | null | undefined): Sh
     ...value,
     regions: value.regions
       .filter((region) => region && region.fieldKey && region.label && region.box)
-      .map((region) => ({
-        ...region,
-        id: region.id || crypto.randomUUID(),
-        fieldKey: LEGACY_FIELD_KEY_ALIASES[region.fieldKey] ?? region.fieldKey,
-        page: Number.isFinite(region.page) && region.page > 0 ? region.page : 1,
-        box: normalizeSize(region.box),
-      })),
+      .map(normalizeTemplateRegion)
+      .filter((region): region is EditableRegion => Boolean(region)),
+  };
+}
+
+function normalizeTemplateRegion(region: EditableRegion): EditableRegion | null {
+  const fieldKey = LEGACY_FIELD_KEY_ALIASES[region.fieldKey] ?? region.fieldKey;
+  if (REMOVED_LEGACY_FIELD_KEYS.has(fieldKey) || !FIELD_OPTION_KEYS.has(fieldKey)) return null;
+  return {
+    ...region,
+    id: region.id || crypto.randomUUID(),
+    fieldKey,
+    page: Number.isFinite(region.page) && region.page > 0 ? region.page : 1,
+    box: normalizeSize(region.box),
   };
 }
 
