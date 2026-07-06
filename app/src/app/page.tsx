@@ -1223,6 +1223,9 @@ function dealAttentionSummary(deal: DashboardDeal) {
 }
 
 function dealOperationalStatus(deal: DashboardDeal): DealOperationalStatus {
+  if (deal.intakeEmails.some((email) => email.status === "needs_match_review")) {
+    return { label: "Update", tone: "updated" };
+  }
   if (shouldShowDealAttention(deal)) {
     return deal.attention_reason === "updated_from_intake" ||
       deal.attention_reason === "created_from_intake" ||
