@@ -116,7 +116,6 @@ export async function confirmInboundEmailMatch({
   );
 
   await linkAttachmentsToDeal(supabase, inboundEmailId, dealId);
-  const emailBodyFieldsApplied = await applyEmailBodyFieldsToDeal(supabase, inboundEmailId, dealId);
   const depositConfirmedByEmail = await confirmDepositFromInboundEmail({
     supabase,
     inboundEmailId,
@@ -135,7 +134,7 @@ export async function confirmInboundEmailMatch({
     details: {
       inbound_email_id: inboundEmailId,
       match_score: matchScore ?? 100,
-      email_body_fields_applied: emailBodyFieldsApplied,
+      email_body_fields_require_approval: true,
       deposit_confirmed_by_email: depositConfirmedByEmail,
     },
   });
@@ -212,7 +211,6 @@ export async function createDraftDealFromInboundEmail({
   });
 
   await linkAttachmentsToDeal(supabase, inboundEmailId, deal.id);
-  const emailBodyFieldsApplied = await applyEmailBodyFieldsToDeal(supabase, inboundEmailId, deal.id);
   await table(supabase, "inbound_emails")
     .update({ status: "draft_transaction_created", error_message: null })
     .eq("id", inboundEmailId);
@@ -220,7 +218,7 @@ export async function createDraftDealFromInboundEmail({
     user_id: userId,
     deal_id: deal.id,
     action: "draft_deal_created_from_email",
-    details: { inbound_email_id: inboundEmailId, routing, email_body_fields_applied: emailBodyFieldsApplied },
+    details: { inbound_email_id: inboundEmailId, routing, email_body_fields_require_approval: true },
   });
 
   return { deal };
@@ -411,10 +409,18 @@ async function fetchInboundEmailEvidence(supabase: SupabaseClient, inboundEmailI
   return data as InboundEmailEvidence;
 }
 
-async function applyEmailBodyFieldsToDeal(supabase: SupabaseClient, inboundEmailId: string, dealId: string) {
+export async function applyEmailBodyFieldsToDeal(
+  supabase: SupabaseClient,
+  inboundEmailId: string,
+  dealId: string,
+  options: { fieldKeys?: string[]; userId?: string } = {},
+) {
   const inbound = await fetchInboundRouting(supabase, inboundEmailId);
   const evidence = await fetchInboundEmailEvidence(supabase, inboundEmailId);
-  const fields = emailBodyFieldsFromRouting(inbound.routing_json);
+  const allowedKeys = options.fieldKeys ? new Set(options.fieldKeys) : null;
+  const fields = emailBodyFieldsFromRouting(inbound.routing_json).filter((field) =>
+    allowedKeys ? allowedKeys.has(field.field_key) : true,
+  );
   if (fields.length === 0) return 0;
 
   const keys = fields.map((field) => field.field_key);
@@ -427,8 +433,6 @@ async function applyEmailBodyFieldsToDeal(supabase: SupabaseClient, inboundEmail
 
   for (const field of fields) {
     const existing = existingByKey.get(field.field_key);
-    if (existing?.edited_at) continue;
-    if (existing?.value?.trim() && existing.source_doc_type !== "email_body") continue;
 
     const row = {
       deal_id: dealId,
@@ -439,7 +443,9 @@ async function applyEmailBodyFieldsToDeal(supabase: SupabaseClient, inboundEmail
       source_page: null,
       source_box: null,
       conflict_sources: null,
-      needs_review: true,
+      needs_review: false,
+      edited_by: options.userId,
+      edited_at: new Date().toISOString(),
       notes: emailBodyFieldSourceNote(evidence),
     };
 
@@ -461,7 +467,7 @@ async function applyEmailBodyFieldsToDeal(supabase: SupabaseClient, inboundEmail
 
 function emailBodyFieldSourceNote(email: InboundEmailEvidence) {
   const parts = [
-    "Extracted from email body - admin review needed",
+    "Approved from linked email body",
     email.subject ? `Subject: ${email.subject}` : null,
     email.from_email ? `Sender: ${email.from_email}` : null,
     email.received_at ? `Received: ${email.received_at}` : null,

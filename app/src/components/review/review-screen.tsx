@@ -131,6 +131,29 @@ type InboundEmailContact = {
   name: string | null;
 };
 
+type LinkedInboundEmailRow = {
+  id: string;
+  subject: string | null;
+  from_email: string | null;
+  from_name: string | null;
+  received_at: string | null;
+  routing_json: Record<string, unknown> | null;
+};
+
+type EmailBodySuggestion = {
+  inboundEmailId: string;
+  emailLabel: string;
+  emailMeta: string;
+  fieldKey: string;
+  label: string;
+  value: string;
+  confidence: number | null;
+  currentValue: string;
+  sourceIsEmailBody: boolean;
+  hasConflict: boolean;
+  isManual: boolean;
+};
+
 type ReminderTaskOption = {
   id: string;
   title: string;
@@ -544,6 +567,7 @@ export function ReviewScreen({
   tasks,
   reminders,
   inboundEmailContacts = [],
+  linkedInboundEmails = [],
   agents,
   requirementStatuses,
   conditions,
@@ -560,6 +584,7 @@ export function ReviewScreen({
   tasks: TaskRow[];
   reminders: ReminderRow[];
   inboundEmailContacts?: InboundEmailContact[];
+  linkedInboundEmails?: LinkedInboundEmailRow[];
   agents: AgentRow[];
   requirementStatuses: RequirementStatusRow[];
   conditions: ConditionRow[];
@@ -602,8 +627,14 @@ export function ReviewScreen({
     loneWolfWorkspaceDraftFromRow(loneWolfWorkspace),
   );
   const [savingLoneWolfWorkspace, setSavingLoneWolfWorkspace] = useState(false);
+  const [emailBodySuggestionSelections, setEmailBodySuggestionSelections] = useState<Record<string, boolean>>({});
+  const [applyingEmailBodyFields, setApplyingEmailBodyFields] = useState(false);
 
   const fieldMap = useMemo(() => new Map(fields.map((f) => [f.field_key, f])), [fields]);
+  const emailBodySuggestions = useMemo(
+    () => buildEmailBodySuggestions(linkedInboundEmails, fieldMap),
+    [linkedInboundEmails, fieldMap],
+  );
   const requirementStatusMap = useMemo(
     () => new Map(requirementStatuses.map((status) => [status.requirement_id, status])),
     [requirementStatuses],
@@ -826,6 +857,56 @@ export function ReviewScreen({
       toast.error(err instanceof Error ? err.message : "Save failed");
     } finally {
       setSaving(false);
+    }
+  }
+
+  function emailBodySuggestionSelected(suggestion: EmailBodySuggestion) {
+    const key = emailBodySuggestionId(suggestion);
+    return emailBodySuggestionSelections[key] ?? (!suggestion.hasConflict && !suggestion.isManual);
+  }
+
+  function toggleEmailBodySuggestion(suggestion: EmailBodySuggestion, checked: boolean) {
+    setEmailBodySuggestionSelections((prev) => ({
+      ...prev,
+      [emailBodySuggestionId(suggestion)]: checked,
+    }));
+  }
+
+  async function applySelectedEmailBodySuggestions() {
+    const selected = emailBodySuggestions.filter(emailBodySuggestionSelected);
+    if (selected.length === 0) {
+      toast.error("Choose at least one email field to apply.");
+      return;
+    }
+
+    const byEmail = new Map<string, string[]>();
+    for (const suggestion of selected) {
+      byEmail.set(suggestion.inboundEmailId, [
+        ...(byEmail.get(suggestion.inboundEmailId) ?? []),
+        suggestion.fieldKey,
+      ]);
+    }
+
+    setApplyingEmailBodyFields(true);
+    try {
+      let applied = 0;
+      for (const [inboundEmailId, fieldKeys] of byEmail) {
+        const res = await fetch(`/api/deals/${deal.id}/email-body-fields`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inboundEmailId, fieldKeys }),
+        });
+        const body = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(body?.error ?? "Could not apply email body fields");
+        applied += typeof body?.applied === "number" ? body.applied : 0;
+      }
+      toast.success(`${applied} email field${applied === 1 ? "" : "s"} applied.`);
+      setEmailBodySuggestionSelections({});
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not apply email body fields");
+    } finally {
+      setApplyingEmailBodyFields(false);
     }
   }
 
@@ -1352,6 +1433,14 @@ export function ReviewScreen({
           detail={`${reminderTasks.length} open document${reminderTasks.length === 1 ? "" : "s"} available`}
         />
       </div>
+
+      <EmailBodySuggestionsPanel
+        suggestions={emailBodySuggestions}
+        selected={emailBodySuggestionSelected}
+        onToggle={toggleEmailBodySuggestion}
+        onApply={applySelectedEmailBodySuggestions}
+        applying={applyingEmailBodyFields}
+      />
 
       <DepositVerificationCard
         verification={depositVerification}
@@ -1943,6 +2032,100 @@ function ConditionRowEditor({
         <Trash2Icon className="size-3.5" />
       </Button>
     </div>
+  );
+}
+
+function EmailBodySuggestionsPanel({
+  suggestions,
+  selected,
+  onToggle,
+  onApply,
+  applying,
+}: {
+  suggestions: EmailBodySuggestion[];
+  selected: (suggestion: EmailBodySuggestion) => boolean;
+  onToggle: (suggestion: EmailBodySuggestion, checked: boolean) => void;
+  onApply: () => void | Promise<void>;
+  applying: boolean;
+}) {
+  if (suggestions.length === 0) return null;
+  const selectedCount = suggestions.filter(selected).length;
+
+  return (
+    <Card className="overflow-hidden border-amber-200 bg-amber-50/20 py-0">
+      <CardHeader className="border-b px-4 py-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <MailIcon className="size-4 text-amber-700" />
+              Email Body Field Suggestions
+            </CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Linked emails include field details that can update this transaction. Review and approve before anything is written.
+            </p>
+          </div>
+          <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+            {suggestions.length} pending
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3 p-4">
+        <div className="grid gap-2">
+          {suggestions.map((suggestion) => {
+            const checked = selected(suggestion);
+            return (
+              <label
+                key={emailBodySuggestionId(suggestion)}
+                className="grid cursor-pointer gap-3 rounded-md border bg-background p-3 text-sm md:grid-cols-[auto_minmax(10rem,0.8fr)_minmax(0,1fr)_minmax(0,1fr)]"
+              >
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4"
+                  checked={checked}
+                  onChange={(event) => onToggle(suggestion, event.target.checked)}
+                />
+                <div className="min-w-0">
+                  <div className="font-medium">{suggestion.label}</div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground" title={suggestion.emailLabel}>
+                    {suggestion.emailLabel}
+                  </div>
+                  <div className="truncate text-[11px] text-muted-foreground" title={suggestion.emailMeta}>
+                    {suggestion.emailMeta}
+                  </div>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Current</div>
+                  <div className="mt-1 break-words text-xs">{suggestion.currentValue || "Blank"}</div>
+                  {(suggestion.hasConflict || suggestion.isManual) && (
+                    <Badge variant="outline" className="mt-2 border-amber-200 bg-amber-50 text-[10px] text-amber-800">
+                      {suggestion.isManual ? "Manual value" : "Existing value"}
+                    </Badge>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">From email</div>
+                  <div className="mt-1 break-words text-xs font-medium">{suggestion.value}</div>
+                  {suggestion.confidence != null && (
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      {Math.round(suggestion.confidence * 100)}% signal
+                    </div>
+                  )}
+                </div>
+              </label>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            Conflicting values are left unchecked until you explicitly choose them.
+          </p>
+          <Button onClick={onApply} disabled={applying || selectedCount === 0}>
+            <CheckCircle2Icon className="size-4" />
+            {applying ? "Applying..." : `Apply ${selectedCount} selected`}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -4147,6 +4330,75 @@ function buildTradeRecordSheetAttachments(
         ? attachment.light_classification_confidence
         : null,
     }));
+}
+
+function buildEmailBodySuggestions(
+  emails: LinkedInboundEmailRow[],
+  fieldMap: Map<string, FieldRow>,
+): EmailBodySuggestion[] {
+  return emails.flatMap((email) => {
+    const emailFields = emailBodyFieldsFromRouting(email.routing_json);
+    const emailLabel = email.subject || email.from_name || email.from_email || "Linked email";
+    const emailMeta = [
+      email.from_name || email.from_email,
+      email.received_at ? formatShortDateTime(email.received_at) : null,
+    ].filter(Boolean).join(" | ");
+
+    return emailFields.flatMap((field) => {
+      const existing = fieldMap.get(field.field_key);
+      const currentValue = existing?.value?.trim() ?? "";
+      const suggestedValue = field.value.trim();
+      if (!suggestedValue) return [];
+      if (currentValue && valuesEquivalent(currentValue, suggestedValue)) return [];
+
+      return [{
+        inboundEmailId: email.id,
+        emailLabel,
+        emailMeta,
+        fieldKey: field.field_key,
+        label: field.label || fieldLabelForKey(field.field_key),
+        value: suggestedValue,
+        confidence: field.confidence,
+        currentValue,
+        sourceIsEmailBody: existing?.source_doc_type === "email_body",
+        hasConflict: Boolean(currentValue && !valuesEquivalent(currentValue, suggestedValue)),
+        isManual: Boolean(existing?.edited_at),
+      }];
+    });
+  });
+}
+
+function emailBodyFieldsFromRouting(routing: Record<string, unknown> | null) {
+  const value = routing?.email_body_fields;
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((candidate) => {
+      if (!candidate || typeof candidate !== "object") return null;
+      const item = candidate as Record<string, unknown>;
+      const fieldKey = typeof item.field_key === "string" ? item.field_key : "";
+      const fieldValue = typeof item.value === "string" ? item.value.trim() : "";
+      if (!fieldKey || !fieldValue) return null;
+      return {
+        field_key: fieldKey,
+        label: typeof item.label === "string" && item.label ? item.label : fieldLabelForKey(fieldKey),
+        value: fieldValue,
+        confidence: typeof item.confidence === "number" ? item.confidence : null,
+      };
+    })
+    .filter((item): item is { field_key: string; label: string; value: string; confidence: number | null } => Boolean(item));
+}
+
+function fieldLabelForKey(fieldKey: string) {
+  return FIELD_SECTIONS.flatMap((section) => section.fields).find((field) => field.key === fieldKey)?.label ??
+    fieldKey.replaceAll("_", " ");
+}
+
+function emailBodySuggestionId(suggestion: EmailBodySuggestion) {
+  return `${suggestion.inboundEmailId}:${suggestion.fieldKey}`;
+}
+
+function valuesEquivalent(a: string, b: string) {
+  return a.trim().replace(/\s+/g, " ").toLowerCase() === b.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function emailAttachmentTypeLabel(docType: string | null) {

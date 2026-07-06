@@ -66,7 +66,7 @@ export default async function DealPage({
 
   const { data: emailLinks } = await supabase
     .from("deal_email_links")
-    .select("inbound_emails(from_email, from_name)")
+    .select("inbound_email_id, inbound_emails(id, subject, from_email, from_name, received_at, routing_json)")
     .eq("deal_id", id);
 
   const { data: agents } = await supabase
@@ -138,6 +138,32 @@ export default async function DealPage({
             return email?.from_email ? { email: email.from_email, name: email.from_name ?? null } : null;
           })
           .filter((item): item is { email: string; name: string | null } => Boolean(item))
+      }
+      linkedInboundEmails={
+        (emailLinks ?? [])
+          .map((link) => {
+            const email = Array.isArray(link.inbound_emails) ? link.inbound_emails[0] : link.inbound_emails;
+            return email
+              ? {
+                  id: email.id ?? link.inbound_email_id,
+                  subject: email.subject ?? null,
+                  from_email: email.from_email ?? null,
+                  from_name: email.from_name ?? null,
+                  received_at: email.received_at ?? null,
+                  routing_json: email.routing_json ?? null,
+                }
+              : null;
+          })
+          .filter(
+            (item): item is {
+              id: string;
+              subject: string | null;
+              from_email: string | null;
+              from_name: string | null;
+              received_at: string | null;
+              routing_json: Record<string, unknown> | null;
+            } => Boolean(item),
+          )
       }
       agents={agents ?? []}
       requirementStatuses={requirementStatuses ?? []}
