@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState, type ComponentType } from "react";
+import { useMemo, useState, type ComponentType, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangleIcon, ArrowUpRightIcon, BellIcon, CalendarIcon, CheckCircle2Icon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, Clock3Icon, CopyIcon, DownloadIcon, FileTextIcon, MailIcon, MapPinIcon, PauseIcon, PencilIcon, RefreshCwIcon, SendIcon, ShieldCheckIcon, UsersIcon } from "lucide-react";
+import { AlertTriangleIcon, ArrowUpRightIcon, BellIcon, CalendarIcon, CheckCircle2Icon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, Clock3Icon, CopyIcon, DownloadIcon, FileTextIcon, MailIcon, MapPinIcon, PauseIcon, PencilIcon, PlusIcon, RefreshCwIcon, SendIcon, ShieldCheckIcon, Trash2Icon, UsersIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -160,6 +160,15 @@ type RequirementStatusRow = {
   lonewolf_uploaded_by: string | null;
 };
 type LoneWolfRequirementStatus = RequirementStatusRow["lonewolf_status"];
+
+type ConditionRow = {
+  id: string;
+  condition_type: string | null;
+  due_date: string | null;
+  met_date: string | null;
+  completed: boolean;
+  sort_order: number;
+};
 
 type LoneWolfWorkflowStatus = "not_started" | "open" | "complete" | "blocked";
 type LoneWolfStepStatus = "not_started" | "in_progress" | "completed" | "blocked" | "skipped";
@@ -322,11 +331,11 @@ const CHECKBOX_FIELD_KEYS = new Set([
   "marketing_fee",
   "rebate_to_clients",
   "referral",
-  "condition_completed",
   "seller_landlord_main_contact",
   "seller_landlord_moving_out",
   "buyer_tenant_main_contact",
   "outside_brokerage_hst_exempt",
+  "referral_hst_exempt",
 ]);
 const CONDITIONAL_FIELD_GATES: Record<string, string> = {
   additional_payee_1_name: "additional_payees",
@@ -336,9 +345,37 @@ const CONDITIONAL_FIELD_GATES: Record<string, string> = {
   marketing_fee_amount: "marketing_fee",
   rebate_amount: "rebate_to_clients",
   referral_to: "referral",
+  referral_network: "referral",
+  referral_agent_name: "referral",
+  referral_address: "referral",
+  referral_email: "referral",
+  referral_phone: "referral",
+  referral_fax: "referral",
+  referral_contact_name: "referral",
+  referral_contact_number: "referral",
+  referral_contact_email: "referral",
+  referral_pay_broker: "referral",
+  referral_end: "referral",
+  referral_hst: "referral",
+  referral_hst_exempt: "referral",
+  referral_charged_hst: "referral",
+  referral_franchise: "referral",
 };
 
+const LONE_WOLF_PARTY_TYPE_OPTIONS = [
+  "Buyer",
+  "Seller",
+  "Escrow Company",
+  "Landlord",
+  "Mortgage Company",
+  "Solicitor",
+  "Tenant",
+  "Title Company",
+];
+
 const LONE_WOLF_SELECT_OPTIONS: Record<string, string[]> = {
+  seller_landlord_type: LONE_WOLF_PARTY_TYPE_OPTIONS,
+  buyer_tenant_type: LONE_WOLF_PARTY_TYPE_OPTIONS,
   lonewolf_property_type: [
     "COMMERCIAL",
     "CONDO",
@@ -376,6 +413,9 @@ const LONE_WOLF_SELECT_OPTIONS: Record<string, string[]> = {
   outside_brokerage_pay_broker: ["Yes", "No"],
   outside_brokerage_end: ["Listing", "Selling"],
   outside_brokerage_charged_hst: ["Yes", "No"],
+  referral_pay_broker: ["Yes", "No"],
+  referral_end: ["Listing", "Selling"],
+  referral_charged_hst: ["Yes", "No"],
 };
 
 const LONE_WOLF_ENTRY_TABS: { id: string; label: string; loneWolfHint: string; sectionTitles: string[] }[] = [
@@ -395,7 +435,7 @@ const LONE_WOLF_ENTRY_TABS: { id: string; label: string; loneWolfHint: string; s
     id: "outside_brokers",
     label: "Outside Brokers",
     loneWolfHint: "Trade Records → Outside Brokers tab",
-    sectionTitles: ["Outside Brokers"],
+    sectionTitles: ["Outside Brokers", "Outside Brokers - Referral"],
   },
   {
     id: "commissions",
@@ -428,6 +468,30 @@ function sectionPanelTitle(title: string) {
     if (title.startsWith(prefix)) return title.slice(prefix.length);
   }
   return title;
+}
+
+function peopleSectionSummary(sectionTitle: string, currentValue: FieldValueGetter) {
+  if (sectionTitle === "People - Seller / Landlord") {
+    return partySummary(currentValue("seller_landlord_type"), currentValue("seller_landlord_names"));
+  }
+  if (sectionTitle === "People - Buyer / Tenant") {
+    return partySummary(currentValue("buyer_tenant_type"), currentValue("buyer_tenant_names"));
+  }
+  if (sectionTitle === "People - Solicitors") {
+    const sellerLawyer = currentValue("seller_lawyer_name");
+    const buyerLawyer = currentValue("buyer_lawyer_name");
+    const parts = [
+      sellerLawyer ? `Seller/Landlord: ${sellerLawyer}` : null,
+      buyerLawyer ? `Buyer/Tenant: ${buyerLawyer}` : null,
+    ].filter((part): part is string => Boolean(part));
+    return parts.length > 0 ? parts.join(" | ") : "Not set";
+  }
+  return "";
+}
+
+function partySummary(type: string, name: string) {
+  const parts = [type || "Type not set", name].filter(Boolean);
+  return parts.join(" - ");
 }
 
 type FieldValueGetter = (key: string) => string;
@@ -514,6 +578,7 @@ export function ReviewScreen({
   inboundEmailContacts = [],
   agents,
   requirementStatuses,
+  conditions,
   loneWolfWorkspace,
   depositVerification,
   emailAttachments,
@@ -529,6 +594,7 @@ export function ReviewScreen({
   inboundEmailContacts?: InboundEmailContact[];
   agents: AgentRow[];
   requirementStatuses: RequirementStatusRow[];
+  conditions: ConditionRow[];
   loneWolfWorkspace: LoneWolfWorkspaceRow | null;
   depositVerification: DepositVerificationRow | null;
   emailAttachments: EmailAttachmentRow[];
@@ -1055,6 +1121,165 @@ export function ReviewScreen({
     }
   }
 
+  function renderFieldGrid(visibleFields: FieldDef[]) {
+    return (
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        {visibleFields.map((f) => {
+          const row = fieldMap.get(f.key);
+          const inputId = `field-${f.key}`;
+          const value = currentValue(f.key);
+          const conflictSources = validConflictSources(row?.conflict_sources);
+          const fieldStatus = getFieldStatus(f.key, row, conflictSources.length, fieldMap, value);
+          const fieldDirty = edited[f.key] !== undefined;
+          const fieldSaving = savingFieldKey === f.key;
+          const isCheckboxField = CHECKBOX_FIELD_KEYS.has(f.key);
+          const selectOptions = LONE_WOLF_SELECT_OPTIONS[f.key];
+          const sourceLabel = fieldSourceLabel(row, pageLabelByNumber);
+          const inputClassName = reviewInputClass(fieldStatus.tone, fieldDirty);
+          const wideClass = f.wide || f.multiline || conflictSources.length > 1 ? "md:col-span-2" : "";
+          const suggestion = loneWolfFieldSuggestion(f.key, currentValue);
+
+          return (
+            <div key={f.key} className={`rounded-md border p-2.5 ${reviewFieldShellClass(fieldStatus.tone)} ${wideClass}`}>
+              <label htmlFor={inputId} className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {f.label}
+              </label>
+              <div className={f.multiline ? "mt-1.5 flex items-start gap-2" : "mt-1.5 flex items-center gap-2"}>
+                {isCheckboxField ? (
+                  <div className={`flex min-h-8 flex-1 items-center gap-3 rounded-md border px-3 text-sm ${inputClassName}`}>
+                    <input
+                      id={inputId}
+                      type="checkbox"
+                      className="size-4 rounded border-input accent-primary"
+                      checked={isCheckedValue(value)}
+                      onFocus={() => jumpToFieldSource(row, f.key)}
+                      onChange={(event) => setCheckboxFieldEdit(f.key, event.target.checked)}
+                    />
+                    <span>{isCheckedValue(value) ? "Yes" : "No"}</span>
+                  </div>
+                ) : selectOptions ? (
+                  <select
+                    id={inputId}
+                    className={`h-8 flex-1 rounded-md border px-3 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${inputClassName}`}
+                    value={value}
+                    onFocus={() => jumpToFieldSource(row, f.key)}
+                    onChange={(e) => setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                  >
+                    <option value="">Select...</option>
+                    {selectOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                ) : f.multiline ? (
+                  <Textarea
+                    id={inputId}
+                    className={`min-h-16 flex-1 ${inputClassName}`}
+                    value={value}
+                    onFocus={() => jumpToFieldSource(row, f.key)}
+                    onChange={(e) => setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                  />
+                ) : (
+                  <Input
+                    id={inputId}
+                    className={`h-8 flex-1 ${inputClassName}`}
+                    value={value}
+                    onFocus={() => jumpToFieldSource(row, f.key)}
+                    onChange={(e) => setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                  />
+                )}
+                {fieldDirty && conflictSources.length <= 1 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    onClick={() => saveFieldEdit(f.key)}
+                    disabled={saving || fieldSaving}
+                  >
+                    {fieldSaving ? "Saving..." : "Save"}
+                  </Button>
+                )}
+              </div>
+
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+                <FieldStatusDot tone={fieldStatus.tone} />
+                <span className={`font-medium ${fieldStatusTextClass(fieldStatus.tone)}`}>{reviewStatusLabel(fieldStatus)}</span>
+                {sourceLabel && (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
+                    onClick={() => jumpToFieldSource(row, f.key)}
+                  >
+                    <ArrowUpRightIcon className="size-3" />
+                    {sourceLabel}
+                  </button>
+                )}
+                {templateFallbackNote(row) && (
+                  <span className="inline-flex items-center gap-1 rounded-full px-1 py-0.5 text-[11px] text-muted-foreground">
+                    <AlertTriangleIcon className="size-3" />
+                    Template fallback
+                  </span>
+                )}
+                {suggestion && (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 hover:bg-blue-100"
+                    onClick={() => setEdited((prev) => ({ ...prev, [f.key]: suggestion }))}
+                  >
+                    Use suggestion: {suggestion}
+                  </button>
+                )}
+              </div>
+
+              {conflictSources.length > 1 && (
+                <div className="mt-2 overflow-hidden rounded-md border border-amber-300 bg-background">
+                  <div className="border-b border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-900">
+                    Which value is correct?
+                  </div>
+                  <div className="divide-y">
+                    {conflictSources.map((source, index) => {
+                      const active = selectedFieldKey === f.key && selectedSourceIndex === index;
+                      const label = conflictSourceLabel(source, pageLabelByNumber);
+                      return (
+                        <button
+                          key={`${source.sourceDocumentType ?? "source"}-${source.sourcePage ?? "?"}-${index}`}
+                          type="button"
+                          className={`grid w-full grid-cols-[auto_1fr] gap-x-2 px-2.5 py-2 text-left text-xs ${
+                            active ? "bg-amber-50" : "hover:bg-muted/40"
+                          }`}
+                          onClick={() => selectConflictSource(f.key, source, index)}
+                        >
+                          <span className={`mt-0.5 size-3 rounded-full border ${active ? "border-amber-700 bg-amber-700" : "border-amber-400"}`} />
+                          <span>
+                            <span className="block font-semibold text-foreground">{source.value}</span>
+                            <span className="block text-[11px] text-muted-foreground">{label}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between gap-3 border-t border-amber-200 bg-amber-50/40 px-2.5 py-2">
+                    <span className="text-xs text-amber-900">Select the correct value, then confirm</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => saveFieldEdit(f.key)}
+                      disabled={edited[f.key] === undefined || saving || fieldSaving}
+                    >
+                      {fieldSaving ? "Saving..." : "Confirm selection"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-[1400px] space-y-5 p-6">
       <header className="sticky top-0 z-20 -mx-6 border-b bg-background/95 px-6 py-4 backdrop-blur">
@@ -1390,179 +1615,48 @@ export function ReviewScreen({
                   );
                 }
 
-                return renderedSections.map(({ section, visibleFields }) => (
-                  <section key={section.title} className="space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {sectionPanelTitle(section.title)}
-                      </h3>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2 text-[11px]"
-                        onClick={() => copyFieldSection(section, visibleFields)}
-                      >
-                        <CopyIcon className="size-3" />
-                        Copy section
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                      {visibleFields.map((f) => {
-                        const row = fieldMap.get(f.key);
-                        const inputId = `field-${f.key}`;
-                        const value = currentValue(f.key);
-                        const conflictSources = validConflictSources(row?.conflict_sources);
-                        const fieldStatus = getFieldStatus(f.key, row, conflictSources.length, fieldMap, value);
-                        const fieldDirty = edited[f.key] !== undefined;
-                        const fieldSaving = savingFieldKey === f.key;
-                        const isCheckboxField = CHECKBOX_FIELD_KEYS.has(f.key);
-                        const selectOptions = LONE_WOLF_SELECT_OPTIONS[f.key];
-                        const sourceLabel = fieldSourceLabel(row, pageLabelByNumber);
-                        const inputClassName = reviewInputClass(fieldStatus.tone, fieldDirty);
-                        const wideClass = f.wide || f.multiline || conflictSources.length > 1 ? "md:col-span-2" : "";
-                        const suggestion = loneWolfFieldSuggestion(f.key, currentValue);
-
-                        return (
-                          <div key={f.key} className={`rounded-md border p-2.5 ${reviewFieldShellClass(fieldStatus.tone)} ${wideClass}`}>
-                            <label htmlFor={inputId} className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                              {f.label}
-                            </label>
-                            <div className={f.multiline ? "mt-1.5 flex items-start gap-2" : "mt-1.5 flex items-center gap-2"}>
-                              {isCheckboxField ? (
-                                <div className={`flex min-h-8 flex-1 items-center gap-3 rounded-md border px-3 text-sm ${inputClassName}`}>
-                                  <input
-                                    id={inputId}
-                                    type="checkbox"
-                                    className="size-4 rounded border-input accent-primary"
-                                    checked={isCheckedValue(value)}
-                                    onFocus={() => jumpToFieldSource(row, f.key)}
-                                    onChange={(event) => setCheckboxFieldEdit(f.key, event.target.checked)}
-                                  />
-                                  <span>{isCheckedValue(value) ? "Yes" : "No"}</span>
-                                </div>
-                              ) : selectOptions ? (
-                                <select
-                                  id={inputId}
-                                  className={`h-8 flex-1 rounded-md border px-3 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${inputClassName}`}
-                                  value={value}
-                                  onFocus={() => jumpToFieldSource(row, f.key)}
-                                  onChange={(e) => setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                                >
-                                  <option value="">Select...</option>
-                                  {selectOptions.map((option) => (
-                                    <option key={option} value={option}>
-                                      {option}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : f.multiline ? (
-                                <Textarea
-                                  id={inputId}
-                                  className={`min-h-16 flex-1 ${inputClassName}`}
-                                  value={value}
-                                  onFocus={() => jumpToFieldSource(row, f.key)}
-                                  onChange={(e) => setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                                />
-                              ) : (
-                                <Input
-                                  id={inputId}
-                                  className={`h-8 flex-1 ${inputClassName}`}
-                                  value={value}
-                                  onFocus={() => jumpToFieldSource(row, f.key)}
-                                  onChange={(e) => setEdited((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                                />
-                              )}
-                              {fieldDirty && conflictSources.length <= 1 && (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="shrink-0"
-                                  onClick={() => saveFieldEdit(f.key)}
-                                  disabled={saving || fieldSaving}
-                                >
-                                  {fieldSaving ? "Saving..." : "Save"}
-                                </Button>
-                              )}
-                            </div>
-
-                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
-                              <FieldStatusDot tone={fieldStatus.tone} />
-                              <span className={`font-medium ${fieldStatusTextClass(fieldStatus.tone)}`}>{reviewStatusLabel(fieldStatus)}</span>
-                              {sourceLabel && (
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
-                                  onClick={() => jumpToFieldSource(row, f.key)}
-                                >
-                                  <ArrowUpRightIcon className="size-3" />
-                                  {sourceLabel}
-                                </button>
-                              )}
-                              {templateFallbackNote(row) && (
-                                <span className="inline-flex items-center gap-1 rounded-full px-1 py-0.5 text-[11px] text-muted-foreground">
-                                  <AlertTriangleIcon className="size-3" />
-                                  Template fallback
-                                </span>
-                              )}
-                              {suggestion && (
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 hover:bg-blue-100"
-                                  onClick={() => setEdited((prev) => ({ ...prev, [f.key]: suggestion }))}
-                                >
-                                  Use suggestion: {suggestion}
-                                </button>
-                              )}
-                            </div>
-
-                            {conflictSources.length > 1 && (
-                              <div className="mt-2 overflow-hidden rounded-md border border-amber-300 bg-background">
-                                <div className="border-b border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-900">
-                                  Which value is correct?
-                                </div>
-                                <div className="divide-y">
-                                  {conflictSources.map((source, index) => {
-                                    const active = selectedFieldKey === f.key && selectedSourceIndex === index;
-                                    const label = conflictSourceLabel(source, pageLabelByNumber);
-                                    return (
-                                      <button
-                                        key={`${source.sourceDocumentType ?? "source"}-${source.sourcePage ?? "?"}-${index}`}
-                                        type="button"
-                                        className={`grid w-full grid-cols-[auto_1fr] gap-x-2 px-2.5 py-2 text-left text-xs ${
-                                          active ? "bg-amber-50" : "hover:bg-muted/40"
-                                        }`}
-                                        onClick={() => selectConflictSource(f.key, source, index)}
-                                      >
-                                        <span className={`mt-0.5 size-3 rounded-full border ${active ? "border-amber-700 bg-amber-700" : "border-amber-400"}`} />
-                                        <span>
-                                          <span className="block font-semibold text-foreground">{source.value}</span>
-                                          <span className="block text-[11px] text-muted-foreground">{label}</span>
-                                        </span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                                <div className="flex items-center justify-between gap-3 border-t border-amber-200 bg-amber-50/40 px-2.5 py-2">
-                                  <span className="text-xs text-amber-900">Select the correct value, then confirm</span>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={() => saveFieldEdit(f.key)}
-                                    disabled={edited[f.key] === undefined || saving || fieldSaving}
-                                  >
-                                    {fieldSaving ? "Saving..." : "Confirm selection"}
-                                  </Button>
-                                </div>
-                              </div>
-                            )}
+                return (
+                  <>
+                    {renderedSections.map(({ section, visibleFields }) =>
+                      activeTab.id === "people" ? (
+                        <CollapsiblePeopleCard
+                          key={section.title}
+                          title={sectionPanelTitle(section.title)}
+                          summary={peopleSectionSummary(section.title, currentValue)}
+                          onCopy={() => copyFieldSection(section, visibleFields)}
+                        >
+                          {renderFieldGrid(visibleFields)}
+                        </CollapsiblePeopleCard>
+                      ) : (
+                        <section key={section.title} className="space-y-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              {sectionPanelTitle(section.title)}
+                            </h3>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-[11px]"
+                              onClick={() => copyFieldSection(section, visibleFields)}
+                            >
+                              <CopyIcon className="size-3" />
+                              Copy section
+                            </Button>
                           </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                ));
+                          {renderFieldGrid(visibleFields)}
+                        </section>
+                      ),
+                    )}
+                    {activeTab.id === "key_info" && (
+                      <ConditionsPanel
+                        dealId={deal.id}
+                        conditions={conditions}
+                        firmOrConditional={currentValue("firm_or_conditional")}
+                      />
+                    )}
+                  </>
+                );
               })()}
             </CardContent>
           </Card>
@@ -1657,6 +1751,232 @@ export function ReviewScreen({
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function CollapsiblePeopleCard({
+  title,
+  summary,
+  onCopy,
+  children,
+}: {
+  title: string;
+  summary: string;
+  onCopy: () => void;
+  children: ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <section className="space-y-3 rounded-md border p-3">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-3 text-left"
+        onClick={() => setExpanded((prev) => !prev)}
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <ChevronDownIcon className={`size-3.5 shrink-0 transition-transform ${expanded ? "" : "-rotate-90"}`} />
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
+          <span className="truncate text-sm text-foreground">{summary}</span>
+        </span>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 shrink-0 px-2 text-[11px]"
+          onClick={(event) => {
+            event.stopPropagation();
+            onCopy();
+          }}
+        >
+          <CopyIcon className="size-3" />
+          Copy section
+        </Button>
+      </button>
+      {expanded && children}
+    </section>
+  );
+}
+
+function ConditionsPanel({
+  dealId,
+  conditions,
+  firmOrConditional,
+}: {
+  dealId: string;
+  conditions: ConditionRow[];
+  firmOrConditional: string;
+}) {
+  const router = useRouter();
+  const isFirm = firmOrConditional.trim().toLowerCase().startsWith("firm");
+  const [expanded, setExpanded] = useState(!isFirm);
+  const [addingCondition, setAddingCondition] = useState(false);
+  const [savingConditionId, setSavingConditionId] = useState<string | null>(null);
+  const [removingConditionId, setRemovingConditionId] = useState<string | null>(null);
+
+  async function addCondition() {
+    setAddingCondition(true);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/conditions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sortOrder: conditions.length }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? "Could not add condition");
+      setExpanded(true);
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not add condition");
+    } finally {
+      setAddingCondition(false);
+    }
+  }
+
+  async function patchCondition(
+    conditionId: string,
+    patch: { conditionType?: string; dueDate?: string; metDate?: string; completed?: boolean },
+  ) {
+    setSavingConditionId(conditionId);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/conditions/${conditionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? "Could not update condition");
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update condition");
+    } finally {
+      setSavingConditionId(null);
+    }
+  }
+
+  async function removeCondition(conditionId: string) {
+    setRemovingConditionId(conditionId);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/conditions/${conditionId}`, { method: "DELETE" });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? "Could not remove condition");
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not remove condition");
+    } finally {
+      setRemovingConditionId(null);
+    }
+  }
+
+  return (
+    <section className="space-y-3 rounded-md border p-3">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-2"
+        onClick={() => setExpanded((prev) => !prev)}
+      >
+        <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <ChevronDownIcon className={`size-3.5 transition-transform ${expanded ? "" : "-rotate-90"}`} />
+          Conditions {conditions.length > 0 && `(${conditions.length})`}
+        </span>
+        {isFirm && (
+          <Badge variant="outline" className="border-green-200 bg-green-50 text-[11px] text-green-700">
+            Firm - conditions collapsed
+          </Badge>
+        )}
+      </button>
+      {expanded && (
+        <div className="space-y-2">
+          {conditions.length === 0 && (
+            <p className="text-sm text-muted-foreground">No conditions added yet.</p>
+          )}
+          {conditions.map((condition) => (
+            <ConditionRowEditor
+              key={`${condition.id}-${condition.due_date ?? ""}-${condition.met_date ?? ""}`}
+              condition={condition}
+              saving={savingConditionId === condition.id}
+              removing={removingConditionId === condition.id}
+              onPatch={(patch) => patchCondition(condition.id, patch)}
+              onRemove={() => removeCondition(condition.id)}
+            />
+          ))}
+          <Button type="button" size="sm" variant="outline" onClick={addCondition} disabled={addingCondition}>
+            <PlusIcon className="size-3.5" />
+            Add condition
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ConditionRowEditor({
+  condition,
+  saving,
+  removing,
+  onPatch,
+  onRemove,
+}: {
+  condition: ConditionRow;
+  saving: boolean;
+  removing: boolean;
+  onPatch: (patch: { conditionType?: string; dueDate?: string; metDate?: string; completed?: boolean }) => void;
+  onRemove: () => void;
+}) {
+  const [dueDate, setDueDate] = useState(condition.due_date ?? "");
+  const [metDate, setMetDate] = useState(condition.met_date ?? "");
+
+  const disabled = saving || removing;
+
+  return (
+    <div className="grid grid-cols-1 gap-2 rounded-md border bg-background p-2.5 sm:grid-cols-[1.3fr_1fr_1fr_auto_auto] sm:items-center">
+      <select
+        className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+        value={condition.condition_type ?? ""}
+        disabled={disabled}
+        onChange={(event) => onPatch({ conditionType: event.target.value })}
+      >
+        <option value="">Select type...</option>
+        {LONE_WOLF_SELECT_OPTIONS.condition_type.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+      <Input
+        className="h-8"
+        placeholder="Due date"
+        value={dueDate}
+        disabled={disabled}
+        onChange={(event) => setDueDate(event.target.value)}
+        onBlur={() => {
+          if (dueDate !== (condition.due_date ?? "")) onPatch({ dueDate });
+        }}
+      />
+      <Input
+        className="h-8"
+        placeholder="Met date"
+        value={metDate}
+        disabled={disabled}
+        onChange={(event) => setMetDate(event.target.value)}
+        onBlur={() => {
+          if (metDate !== (condition.met_date ?? "")) onPatch({ metDate });
+        }}
+      />
+      <label className="flex items-center gap-1.5 whitespace-nowrap text-sm">
+        <input
+          type="checkbox"
+          className="size-4 rounded border-input accent-primary"
+          checked={condition.completed}
+          disabled={disabled}
+          onChange={(event) => onPatch({ completed: event.target.checked })}
+        />
+        Met
+      </label>
+      <Button type="button" size="sm" variant="outline" className="h-8 px-2" disabled={disabled} onClick={onRemove}>
+        <Trash2Icon className="size-3.5" />
+      </Button>
     </div>
   );
 }

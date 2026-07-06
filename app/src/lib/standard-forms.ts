@@ -166,8 +166,8 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
         note: calibratedRegionNote,
       },
       {
-        fieldKey: "seller_lawyer_phone",
-        label: "Lawyer Phone",
+        fieldKey: "seller_landlord_phone",
+        label: "Phone",
         page: 1,
         boxes: [{ x: 0.0375, y: 0.643, width: 0.3882, height: 0.0325 }],
         note: calibratedRegionNote,
@@ -201,8 +201,8 @@ export const STANDARD_FORMS: readonly StandardFormDefinition[] = [
         note: calibratedRegionNote,
       },
       {
-        fieldKey: "buyer_lawyer_phone",
-        label: "Lawyer Phone",
+        fieldKey: "buyer_tenant_phone",
+        label: "Phone",
         page: 1,
         boxes: [{ x: 0.5112, y: 0.6451, width: 0.3742, height: 0.0314 }],
         note: calibratedRegionNote,

@@ -87,6 +87,12 @@ export default async function DealPage({
     .eq("deal_id", id)
     .maybeSingle();
 
+  const { data: conditions } = await supabase
+    .from("deal_conditions")
+    .select("id, condition_type, due_date, met_date, completed, sort_order")
+    .eq("deal_id", id)
+    .order("sort_order", { ascending: true });
+
   const { data: depositVerification } = await supabase
     .from("deal_deposit_verifications")
     .select("id, status, proof_amount, confirmed_amount, note, source_inbound_email_id, source_email, source_name, source_received_at, confirmed_by, confirmed_at, profiles(email, full_name)")
@@ -135,6 +141,7 @@ export default async function DealPage({
       }
       agents={agents ?? []}
       requirementStatuses={requirementStatuses ?? []}
+      conditions={conditions ?? []}
       loneWolfWorkspace={loneWolfWorkspace ?? null}
       depositVerification={depositVerification ?? null}
       emailAttachments={emailAttachments ?? []}
