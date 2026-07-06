@@ -1385,12 +1385,6 @@ export function ReviewScreen({
         />
       </div>
 
-      <LoneWolfAutomationHandoffPanel
-        packet={loneWolfAutomationPacket}
-        onCopyPacket={copyLoneWolfAutomationPacket}
-        onCopyNextAction={copyLoneWolfNextAction}
-      />
-
       <DepositVerificationCard
         verification={depositVerification}
         depositAmount={depositAmount}
@@ -1407,9 +1401,12 @@ export function ReviewScreen({
         saving={savingLoneWolfWorkspace}
         pendingDocumentCount={packageCounts.pendingLoneWolf}
         tradeRecordSheetAttachments={tradeRecordSheetAttachments}
+        automationPacket={loneWolfAutomationPacket}
         onDraftChange={setLoneWolfDraft}
         onSave={() => saveLoneWolfWorkspace()}
         onStepStatusChange={updateLoneWolfStep}
+        onCopyAutomationPacket={copyLoneWolfAutomationPacket}
+        onCopyNextAction={copyLoneWolfNextAction}
       />
 
       <PackageDocumentsPanel
@@ -2126,98 +2123,56 @@ function LoneWolfAutomationHandoffPanel({
 }) {
   const packetJson = JSON.stringify(packet, null, 2);
   const packetDownloadUrl = `data:application/json;charset=utf-8,${encodeURIComponent(packetJson)}`;
-  const checks = [
-    {
-      label: "Trade record exists",
-      detail: packet.loneWolf.tradeNumber
-        ? `Trade # ${packet.loneWolf.tradeNumber}`
-        : "Create or enter the Lone Wolf Trade Number first.",
-      ok: Boolean(packet.loneWolf.tradeNumber),
-    },
-    {
-      label: "Reviewed fields ready",
-      detail: packet.readiness.blockers.some((blocker) => blocker.includes("field"))
-        ? "Resolve field review blockers before automation."
-        : "No field-review blockers in the packet.",
-      ok: !packet.readiness.blockers.some((blocker) => blocker.includes("field")),
-    },
-    {
-      label: "Document queue known",
-      detail: `${packet.documents.pendingUpload.length} pending upload, ${packet.documents.uploaded.length} uploaded.`,
-      ok: packet.documents.needsReview.length === 0,
-    },
-    {
-      label: "Safe mode",
-      detail: "Reviewed fields only, stop on unexpected screens, operator confirms before save.",
-      ok: true,
-    },
-  ];
 
   return (
-    <Card className="overflow-hidden py-0">
-      <CardHeader className="border-b px-4 py-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-base">Start Lone Wolf Entry</CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Copy a structured packet for attended RDP automation. The assistant should stop if Lone Wolf shows an unexpected screen.
-            </p>
-          </div>
-          <Badge
+    <div className="rounded-md border bg-muted/10 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">Start Lone Wolf Entry</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Copy a structured packet for attended RDP automation. The assistant should stop if Lone Wolf shows an unexpected screen.
+          </p>
+        </div>
+        <Badge
+          variant="outline"
+          className={packet.readiness.ready ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}
+        >
+          {packet.readiness.ready ? "Ready for assisted entry" : "Prep required"}
+        </Badge>
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
+        <div className="rounded-md border bg-background p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Next action</p>
+          <p className="mt-1 text-sm">{packet.readiness.nextAction}</p>
+          {packet.readiness.warnings.length > 0 && (
+            <p className="mt-2 text-xs text-amber-700">{packet.readiness.warnings[0]}</p>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2 lg:justify-end">
+          <Button type="button" variant="outline" onClick={onCopyNextAction}>
+            <CopyIcon className="size-4" />
+            Copy next action
+          </Button>
+          <Button
+            type="button"
             variant="outline"
-            className={packet.readiness.ready ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}
+            nativeButton={false}
+            render={<a href={packetDownloadUrl} download={`lonewolf-${packet.deal.id}.json`} />}
           >
-            {packet.readiness.ready ? "Ready for assisted entry" : "Prep required"}
-          </Badge>
+            <DownloadIcon className="size-4" />
+            Download packet
+          </Button>
+          <Button type="button" onClick={onCopyPacket}>
+            <CopyIcon className="size-4" />
+            Copy automation packet
+          </Button>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-3 p-4">
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-          {checks.map((check) => (
-            <div key={check.label} className="rounded-md border bg-background p-3">
-              <div className="flex items-center gap-2">
-                <span className={`size-2 rounded-full ${check.ok ? "bg-green-600" : "bg-amber-500"}`} />
-                <p className="text-sm font-medium">{check.label}</p>
-              </div>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{check.detail}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
-          <div className="rounded-md border bg-muted/15 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Next action</p>
-            <p className="mt-1 text-sm">{packet.readiness.nextAction}</p>
-            {packet.readiness.warnings.length > 0 && (
-              <p className="mt-2 text-xs text-amber-700">{packet.readiness.warnings[0]}</p>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2 lg:justify-end">
-            <Button type="button" variant="outline" onClick={onCopyNextAction}>
-              <CopyIcon className="size-4" />
-              Copy next action
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              nativeButton={false}
-              render={<a href={packetDownloadUrl} download={`lonewolf-${packet.deal.id}.json`} />}
-            >
-              <DownloadIcon className="size-4" />
-              Download packet
-            </Button>
-            <Button type="button" onClick={onCopyPacket}>
-              <CopyIcon className="size-4" />
-              Copy automation packet
-            </Button>
-          </div>
-        </div>
-        <details className="rounded-md border bg-background">
-          <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Packet preview</summary>
-          <Textarea className="min-h-48 rounded-none border-x-0 border-b-0 font-mono text-xs" readOnly value={packetJson} />
-        </details>
-      </CardContent>
-    </Card>
+      </div>
+      <details className="mt-3 rounded-md border bg-background">
+        <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Packet preview</summary>
+        <Textarea className="min-h-48 rounded-none border-x-0 border-b-0 font-mono text-xs" readOnly value={packetJson} />
+      </details>
+    </div>
   );
 }
 
@@ -2958,38 +2913,6 @@ function DealStatCard({
   );
 }
 
-const LONE_WOLF_ENTRY_STEP_FIELDS: Array<{
-  key: keyof Pick<
-    LoneWolfWorkspaceDraft,
-    "keyInfoStatus" | "peopleStatus" | "outsideBrokersStatus" | "commissionsStatus"
-  >;
-  label: string;
-  detail: string;
-}> = [
-  {
-    key: "keyInfoStatus",
-    label: "Key Info",
-    detail: "Trade basics, address, dates, price, MLS, type, and classification.",
-  },
-  {
-    key: "peopleStatus",
-    label: "People",
-    detail: "Buyers, sellers, solicitors, contacts, and FINTRAC-ready party details.",
-  },
-  {
-    key: "outsideBrokersStatus",
-    label: "Outside Brokers",
-    detail: "Co-operating brokerage, referral broker, HST, pay broker, and end.",
-  },
-  {
-    key: "commissionsStatus",
-    label: "Commissions",
-    detail: "Sub-trade, commission income, expenses, rebates, and agent info.",
-  },
-];
-
-// Rendered exclusively inside the Trade Record Sheet Lifecycle box below —
-// kept out of LONE_WOLF_ENTRY_STEP_FIELDS so those 3 statuses aren't shown twice.
 const LONE_WOLF_DOCUMENT_STEP_FIELDS: Array<{
   key: keyof Pick<
     LoneWolfWorkspaceDraft,
@@ -3015,7 +2938,7 @@ const LONE_WOLF_DOCUMENT_STEP_FIELDS: Array<{
   },
 ];
 
-const LONE_WOLF_ALL_STEP_FIELDS = [...LONE_WOLF_ENTRY_STEP_FIELDS, ...LONE_WOLF_DOCUMENT_STEP_FIELDS];
+const LONE_WOLF_ALL_STEP_FIELDS = LONE_WOLF_DOCUMENT_STEP_FIELDS;
 
 const LONE_WOLF_STEP_STATUS_OPTIONS: Array<{ value: LoneWolfStepStatus; label: string }> = [
   { value: "not_started", label: "Not started" },
@@ -3031,18 +2954,24 @@ function LoneWolfWorkspacePanel({
   saving,
   pendingDocumentCount,
   tradeRecordSheetAttachments,
+  automationPacket,
   onDraftChange,
   onSave,
   onStepStatusChange,
+  onCopyAutomationPacket,
+  onCopyNextAction,
 }: {
   workspace: LoneWolfWorkspaceRow | null;
   draft: LoneWolfWorkspaceDraft;
   saving: boolean;
   pendingDocumentCount: number;
   tradeRecordSheetAttachments: TradeRecordSheetAttachment[];
+  automationPacket: LoneWolfAutomationPacket;
   onDraftChange: (draft: LoneWolfWorkspaceDraft) => void;
   onSave: () => void | Promise<void>;
   onStepStatusChange: (key: keyof LoneWolfWorkspaceDraft, status: LoneWolfStepStatus) => void | Promise<void>;
+  onCopyAutomationPacket: () => void | Promise<void>;
+  onCopyNextAction: () => void | Promise<void>;
 }) {
   const completedCount = LONE_WOLF_ALL_STEP_FIELDS.filter((step) => draft[step.key] === "completed").length;
   const blockedCount = LONE_WOLF_ALL_STEP_FIELDS.filter((step) => draft[step.key] === "blocked").length;
@@ -3118,36 +3047,6 @@ function LoneWolfWorkspacePanel({
           </div>
         </div>
 
-        <div>
-          <h3 className="text-sm font-semibold">Entry tab progress</h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Mirrors the Key Info / People / Outside Brokers / Commissions tabs in the entry packet above.
-          </p>
-          <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-            {LONE_WOLF_ENTRY_STEP_FIELDS.map((step) => (
-              <div key={step.key} className="rounded-md border bg-background p-3">
-                <div className="flex items-center gap-2">
-                  <span className={`size-2 rounded-full ${loneWolfStepDotClass(draft[step.key])}`} />
-                  <p className="font-medium leading-tight">{step.label}</p>
-                </div>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{step.detail}</p>
-                <select
-                  className="mt-2 h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  value={draft[step.key]}
-                  disabled={saving}
-                  onChange={(event) => onStepStatusChange(step.key, event.target.value as LoneWolfStepStatus)}
-                >
-                  {LONE_WOLF_STEP_STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ))}
-          </div>
-        </div>
-
         <div className="rounded-md border bg-muted/10 p-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -3193,6 +3092,12 @@ function LoneWolfWorkspacePanel({
             onMarkSignedUploaded={() => onStepStatusChange("signedTradeRecordSheetStatus", "completed")}
           />
         </div>
+
+        <LoneWolfAutomationHandoffPanel
+          packet={automationPacket}
+          onCopyPacket={onCopyAutomationPacket}
+          onCopyNextAction={onCopyNextAction}
+        />
 
         <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
           <div className="space-y-1">
