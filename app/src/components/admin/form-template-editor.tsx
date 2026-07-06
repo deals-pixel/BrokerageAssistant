@@ -12,6 +12,7 @@ import {
   MousePointer2,
   Plus,
   Save,
+  Search,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -106,13 +107,46 @@ const NUDGE_SMALL = 0.002;
 const NUDGE_LARGE = 0.01;
 const RESIZE_HANDLES: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
-const FIELD_OPTIONS = FIELD_REGISTRY_SECTIONS.flatMap((section) =>
-  section.fields.map((field) => ({
-    key: field.key,
-    label: field.label,
-    section: section.title,
-  })),
-);
+type FieldOption = {
+  key: string;
+  label: string;
+  section: string;
+};
+
+const FIELD_SELECTOR_TABS = [
+  {
+    id: "key_info",
+    label: "Key Info",
+    sectionTitles: ["Key Info - Trade Record", "Key Info - Dates", "Key Info - Trade Details", "Brokerage Sides"],
+  },
+  {
+    id: "people",
+    label: "People",
+    sectionTitles: ["People - Seller / Landlord", "People - Buyer / Tenant", "People - Solicitors"],
+  },
+  {
+    id: "outside_brokers",
+    label: "Outside Brokers",
+    sectionTitles: ["Outside Brokers", "Outside Brokers - Referral"],
+  },
+  {
+    id: "trust",
+    label: "Trust",
+    sectionTitles: ["Deposit Reference - Not Trust Entry"],
+  },
+  {
+    id: "commissions",
+    label: "Commissions",
+    sectionTitles: ["Commissions - Sale Closing", "Commissions - Income", "Commissions - Outside Brokers & Expenses"],
+  },
+  {
+    id: "agent_info",
+    label: "Agent Info",
+    sectionTitles: ["Agent Info", "Representation & Derived Fields"],
+  },
+];
+
+const FIELD_OPTIONS = uniqueFieldOptions(FIELD_REGISTRY_SECTIONS);
 
 const LEGACY_FIELD_KEY_ALIASES: Record<string, string> = {
   sale_price: "price_or_rent",
@@ -127,7 +161,37 @@ const LEGACY_FIELD_KEY_ALIASES: Record<string, string> = {
   buyer_is_corporation: "buyer_tenant_is_corporation",
   buyer_address: "buyer_tenant_address",
   deposit_held_by: "deposit_holder",
+  lonewolf_property_type: "property_type",
 };
+
+function uniqueFieldOptions(sections: typeof FIELD_REGISTRY_SECTIONS): FieldOption[] {
+  const options = new Map<string, FieldOption>();
+  for (const section of sections) {
+    for (const field of section.fields) {
+      if (options.has(field.key)) continue;
+      options.set(field.key, {
+        key: field.key,
+        label: field.label,
+        section: section.title,
+      });
+    }
+  }
+  return [...options.values()];
+}
+
+function filterFieldOptions(activeTabId: string, search: string) {
+  const activeTab = FIELD_SELECTOR_TABS.find((tab) => tab.id === activeTabId) ?? FIELD_SELECTOR_TABS[0];
+  const sectionTitles = new Set(activeTab.sectionTitles);
+  const query = search.trim().toLowerCase();
+  return FIELD_OPTIONS.filter((option) => {
+    if (!query) return sectionTitles.has(option.section);
+    return (
+      option.label.toLowerCase().includes(query) ||
+      option.key.toLowerCase().includes(query) ||
+      option.section.toLowerCase().includes(query)
+    );
+  });
+}
 
 export function FormTemplateEditor() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -139,6 +203,8 @@ export function FormTemplateEditor() {
   const [newFormTitle, setNewFormTitle] = useState("");
   const [newFormNumber, setNewFormNumber] = useState("");
   const [newFormDocumentType, setNewFormDocumentType] = useState<DocumentType>("other");
+  const [activeFieldTab, setActiveFieldTab] = useState(FIELD_SELECTOR_TABS[0]?.id ?? "key_info");
+  const [fieldSearch, setFieldSearch] = useState("");
   const [selectedFieldKey, setSelectedFieldKey] = useState(FIELD_OPTIONS[0]?.key ?? "");
   const [customLabel, setCustomLabel] = useState("");
   const [fileName, setFileName] = useState("");
@@ -162,6 +228,10 @@ export function FormTemplateEditor() {
   const selectedFormIsCustom = customForms.some((form) => form.key === selectedForm?.key);
   const activePageImage = pages.find((page) => page.pageNumber === activePage) ?? pages[0];
   const activeField = FIELD_OPTIONS.find((field) => field.key === selectedFieldKey);
+  const visibleFieldOptions = useMemo(
+    () => filterFieldOptions(activeFieldTab, fieldSearch),
+    [activeFieldTab, fieldSearch],
+  );
   const selectedRegion = regions.find((region) => region.id === selectedRegionId) ?? null;
   const exportSnippet = useMemo(
     () => buildTypeScriptSnippet(regions, selectedForm),
@@ -705,24 +775,54 @@ export function FormTemplateEditor() {
             </div>
 
             <div className="space-y-2">
-              <label htmlFor="field-select" className="text-sm font-medium">
+              <label htmlFor="field-search" className="text-sm font-medium">
                 Field for next box
               </label>
-              <select
-                id="field-select"
-                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                value={selectedFieldKey}
-                onChange={(event) => {
-                  setSelectedFieldKey(event.target.value);
-                  setCustomLabel("");
-                }}
-              >
-                {FIELD_OPTIONS.map((field) => (
-                  <option key={field.key} value={field.key}>
-                    {field.label}
-                  </option>
+              <div className="grid grid-cols-2 gap-1">
+                {FIELD_SELECTOR_TABS.map((tab) => (
+                  <Button
+                    key={tab.id}
+                    type="button"
+                    variant={activeFieldTab === tab.id ? "secondary" : "outline"}
+                    size="sm"
+                    className="justify-start"
+                    onClick={() => setActiveFieldTab(tab.id)}
+                  >
+                    {tab.label}
+                  </Button>
                 ))}
-              </select>
+              </div>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="field-search"
+                  value={fieldSearch}
+                  onChange={(event) => setFieldSearch(event.target.value)}
+                  className="pl-8"
+                  placeholder="Search fields"
+                />
+              </div>
+              <div className="max-h-56 space-y-1 overflow-auto rounded-md border bg-background p-1">
+                {visibleFieldOptions.map((field) => (
+                  <button
+                    key={field.key}
+                    type="button"
+                    className={`w-full rounded px-2 py-1.5 text-left text-sm ${
+                      selectedFieldKey === field.key ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                    }`}
+                    onClick={() => {
+                      setSelectedFieldKey(field.key);
+                      setCustomLabel("");
+                    }}
+                  >
+                    <span className="block truncate font-medium">{field.label}</span>
+                    <span className="block truncate text-xs opacity-75">{field.section}</span>
+                  </button>
+                ))}
+                {visibleFieldOptions.length === 0 && (
+                  <div className="p-3 text-sm text-muted-foreground">No matching fields.</div>
+                )}
+              </div>
               <Input
                 value={customLabel}
                 onChange={(event) => setCustomLabel(event.target.value)}

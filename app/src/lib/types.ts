@@ -109,8 +109,7 @@ export const FIELD_SECTIONS: FieldSection[] = [
     fields: [
       { key: "price_or_rent", label: "Sell Price / Rent" },
       { key: "mls_number", label: "MLS Number" },
-      { key: "lonewolf_property_type", label: "Type" },
-      { key: "lonewolf_classification", label: "Classification" },
+      { key: "property_type", label: "Type" },
       { key: "we_manage", label: "We Manage" },
       { key: "ends", label: "Ends" },
       { key: "tax_roll_number", label: "Tax Roll Number" },
@@ -193,7 +192,6 @@ export const FIELD_SECTIONS: FieldSection[] = [
   {
     title: "Outside Brokers",
     fields: [
-      { key: "outside_broker_type", label: "Type" },
       { key: "outside_brokerage", label: "Company" },
       { key: "outside_agent_name", label: "Agent" },
       { key: "outside_brokerage_address", label: "Address", wide: true },
@@ -238,8 +236,6 @@ export const FIELD_SECTIONS: FieldSection[] = [
     fields: [
       { key: "price_or_rent", label: "Sell Price / Rent" },
       { key: "closing_date", label: "Closing Date" },
-      { key: "lonewolf_sub_trade", label: "Sub-Trade" },
-      { key: "lonewolf_trade_status", label: "Status" },
       { key: "accounts_receivable_amount", label: "A.R." },
     ],
   },

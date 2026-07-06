@@ -376,7 +376,7 @@ const LONE_WOLF_PARTY_TYPE_OPTIONS = [
 const LONE_WOLF_SELECT_OPTIONS: Record<string, string[]> = {
   seller_landlord_type: LONE_WOLF_PARTY_TYPE_OPTIONS,
   buyer_tenant_type: LONE_WOLF_PARTY_TYPE_OPTIONS,
-  lonewolf_property_type: [
+  property_type: [
     "COMMERCIAL",
     "CONDO",
     "FARM",
@@ -387,18 +387,6 @@ const LONE_WOLF_SELECT_OPTIONS: Record<string, string[]> = {
     "RETAIL",
   ],
   we_manage: ["Yes", "No"],
-  lonewolf_classification: [
-    "DOUBLE ENDER - LEASE",
-    "MORTGAGE REFERRAL",
-    "NEW BUILD",
-    "LISTING SIDE",
-    "BUYER SIDE",
-    "DOUBLE ENDER - SALE",
-    "OFFICE DOUBLE ENDER",
-    "REFERRALS",
-    "LEASE",
-    "APPRAISAL OR VALUATION FEE",
-  ],
   condition_type: [
     "Financing",
     "Inspection",
@@ -409,7 +397,6 @@ const LONE_WOLF_SELECT_OPTIONS: Record<string, string[]> = {
     "Due Diligence",
     "Builder Approval of Assignment",
   ],
-  outside_broker_type: ["Outside Broker", "Referral"],
   outside_brokerage_pay_broker: ["Yes", "No"],
   outside_brokerage_end: ["Listing", "Selling"],
   outside_brokerage_charged_hst: ["Yes", "No"],
@@ -506,14 +493,9 @@ function loneWolfFieldSuggestion(fieldKey: string, currentValue: FieldValueGette
   if (fieldKey === "province") return parsedAddress.province;
   if (fieldKey === "postal_code") return parsedAddress.postalCode;
   if (fieldKey === "we_manage") return "No";
-  if (fieldKey === "lonewolf_classification") return inferLoneWolfClassification(currentValue);
   if (fieldKey === "condition_type") return inferLoneWolfConditionType(currentValue("conditions_summary"));
-  if (fieldKey === "outside_broker_type") {
-    if (currentValue("referral_to").trim()) return "Referral";
-    if (currentValue("outside_brokerage_name").trim() || currentValue("outside_broker_agent").trim()) return "Outside Broker";
-  }
-  if (fieldKey === "outside_brokerage_pay_broker" && currentValue("outside_brokerage_name").trim()) return "Yes";
-  if (fieldKey === "outside_brokerage_charged_hst" && currentValue("outside_brokerage_name").trim()) return "Yes";
+  if (fieldKey === "outside_brokerage_pay_broker" && currentValue("outside_brokerage").trim()) return "Yes";
+  if (fieldKey === "outside_brokerage_charged_hst" && currentValue("outside_brokerage").trim()) return "Yes";
   return "";
 }
 
@@ -539,20 +521,6 @@ function formatLoneWolfPostalCode(value: string) {
   const compact = value.replace(/[^A-Z0-9]/gi, "").toUpperCase();
   if (compact.length !== 6) return value.toUpperCase();
   return `${compact.slice(0, 3)}-${compact.slice(3)}`;
-}
-
-function inferLoneWolfClassification(currentValue: FieldValueGetter) {
-  const transactionType = currentValue("transaction_type").toLowerCase();
-  const representationSide = currentValue("representation_side").toLowerCase();
-  const brokerageSide = currentValue("brokerage_side").toLowerCase();
-  const referralTo = currentValue("referral_to").toLowerCase();
-  const combinedSide = `${representationSide} ${brokerageSide}`;
-
-  if (referralTo.includes("referral")) return "REFERRALS";
-  if (transactionType.includes("lease")) return "LEASE";
-  if (combinedSide.includes("buyer") || combinedSide.includes("selling") || combinedSide.includes("cooperat")) return "BUYER SIDE";
-  if (combinedSide.includes("seller") || combinedSide.includes("listing")) return "LISTING SIDE";
-  return "";
 }
 
 function inferLoneWolfConditionType(value: string) {
