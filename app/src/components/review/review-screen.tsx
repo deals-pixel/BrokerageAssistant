@@ -322,6 +322,7 @@ type LoneWolfKeyboardPlan = {
   title: string;
   mode: "dry_run_no_store";
   startingFocus: string;
+  requiresManualFocusConfirmation: boolean;
   stopBefore: string;
   expectedSeconds: { low: number; high: number };
   inputMethod: "keypress_keysyms";
@@ -2439,6 +2440,11 @@ function LoneWolfAutomationHandoffPanel({
             <p className="mt-1 text-xs text-muted-foreground">
               {actionableStepCount} active steps | estimated {keyInfoPlan.expectedSeconds.low}-{keyInfoPlan.expectedSeconds.high}s after focus is set.
             </p>
+            {keyInfoPlan.requiresManualFocusConfirmation && (
+              <p className="mt-2 text-xs font-medium text-amber-700">
+                Manual focus check required: place the cursor in Street Number before playback.
+              </p>
+            )}
           </div>
           <Button type="button" variant="outline" onClick={onCopyKeyInfoPlan}>
             <CopyIcon className="size-4" />
@@ -4554,6 +4560,7 @@ function buildLoneWolfKeyInfoKeyboardPlan(currentValue: FieldValueGetter): LoneW
     title: "Key Info tab keyboard-only dry run",
     mode: "dry_run_no_store",
     startingFocus: "Key Info tab, Street Number field",
+    requiresManualFocusConfirmation: true,
     stopBefore: "Store button",
     expectedSeconds: {
       low: Math.max(60, activeSteps * 5),
@@ -4562,7 +4569,7 @@ function buildLoneWolfKeyInfoKeyboardPlan(currentValue: FieldValueGetter): LoneW
     inputMethod: "keypress_keysyms",
     assumptions: [
       "Dummy trade is already open on the Lone Wolf Key Info tab.",
-      "Focus starts in Street Number.",
+      "Operator must manually place focus in Street Number before playback; RDP coordinate and tab anchoring were not reliable enough.",
       "Use per-character keypresses. In RDP testing, direct text injection and clipboard paste did not land, but numpad keysyms did.",
       "Dropdowns are verified visually before moving to the next field.",
       "Blank values are skipped; existing Lone Wolf defaults are not overwritten unless a value exists in BrokerageAssistant.",
