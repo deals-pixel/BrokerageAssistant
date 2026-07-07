@@ -291,6 +291,9 @@ type LoneWolfAutomationPacket = {
     title: string;
     fields: Array<{ key: string; label: string; value: string }>;
   }>;
+  keyboardPlans: {
+    keyInfo: LoneWolfKeyboardPlan;
+  };
   documents: {
     pendingUpload: Array<{ requirementId: string; label: string; documentLabel: string; pages: number[] }>;
     uploaded: Array<{ requirementId: string; label: string; uploadedAt: string | null }>;
@@ -301,6 +304,27 @@ type LoneWolfAutomationPacket = {
     signedUploadStatus: LoneWolfStepStatus;
     candidateAttachments: TradeRecordSheetAttachment[];
   };
+};
+
+type LoneWolfKeyboardPlanStep = {
+  order: number;
+  fieldKey: string;
+  loneWolfLabel: string;
+  value: string;
+  action: "type" | "select" | "skip" | "verify";
+  tabAfter: number;
+  note?: string;
+};
+
+type LoneWolfKeyboardPlan = {
+  id: "key_info";
+  title: string;
+  mode: "dry_run_no_store";
+  startingFocus: string;
+  stopBefore: string;
+  expectedSeconds: { low: number; high: number };
+  assumptions: string[];
+  steps: LoneWolfKeyboardPlanStep[];
 };
 
 type PackageFilter =
@@ -990,6 +1014,13 @@ export function ReviewScreen({
     await copyText(loneWolfAutomationPacket.readiness.nextAction, "Lone Wolf next action copied.");
   }
 
+  async function copyLoneWolfKeyInfoPlan() {
+    await copyText(
+      JSON.stringify(loneWolfAutomationPacket.keyboardPlans.keyInfo, null, 2),
+      "Lone Wolf Key Info dry-run plan copied.",
+    );
+  }
+
   async function copyFieldSection(section: FieldSection, visibleFields: FieldDef[]) {
     const lines = [
       `${friendlyFieldSectionTitle(section.title)}:`,
@@ -1501,6 +1532,7 @@ export function ReviewScreen({
         onStepStatusChange={updateLoneWolfStep}
         onCopyAutomationPacket={copyLoneWolfAutomationPacket}
         onCopyNextAction={copyLoneWolfNextAction}
+        onCopyKeyInfoPlan={copyLoneWolfKeyInfoPlan}
       />
 
       <PackageDocumentsPanel
@@ -2341,13 +2373,17 @@ function LoneWolfAutomationHandoffPanel({
   packet,
   onCopyPacket,
   onCopyNextAction,
+  onCopyKeyInfoPlan,
 }: {
   packet: LoneWolfAutomationPacket;
   onCopyPacket: () => void | Promise<void>;
   onCopyNextAction: () => void | Promise<void>;
+  onCopyKeyInfoPlan: () => void | Promise<void>;
 }) {
   const packetJson = JSON.stringify(packet, null, 2);
   const packetDownloadUrl = `data:application/json;charset=utf-8,${encodeURIComponent(packetJson)}`;
+  const keyInfoPlan = packet.keyboardPlans.keyInfo;
+  const actionableStepCount = keyInfoPlan.steps.filter((step) => step.action !== "skip").length;
 
   return (
     <div className="rounded-md border bg-muted/10 p-3">
@@ -2392,6 +2428,35 @@ function LoneWolfAutomationHandoffPanel({
             Copy automation packet
           </Button>
         </div>
+      </div>
+      <div className="mt-3 rounded-md border bg-background p-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Keyboard dry run</p>
+            <p className="mt-1 text-sm font-medium">{keyInfoPlan.title}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {actionableStepCount} active steps | estimated {keyInfoPlan.expectedSeconds.low}-{keyInfoPlan.expectedSeconds.high}s after focus is set.
+            </p>
+          </div>
+          <Button type="button" variant="outline" onClick={onCopyKeyInfoPlan}>
+            <CopyIcon className="size-4" />
+            Copy Key Info plan
+          </Button>
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {keyInfoPlan.steps.slice(0, 6).map((step) => (
+            <div key={`${step.order}-${step.fieldKey}`} className="rounded-md border bg-muted/20 p-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="truncate text-xs font-semibold">{step.order}. {step.loneWolfLabel}</p>
+                <Badge variant="outline" className="shrink-0 capitalize">{step.action}</Badge>
+              </div>
+              <p className="mt-1 truncate text-xs text-muted-foreground">{step.value || "blank / skip"}</p>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Starts at {keyInfoPlan.startingFocus}. Stops before {keyInfoPlan.stopBefore}.
+        </p>
       </div>
       <details className="mt-3 rounded-md border bg-background">
         <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Packet preview</summary>
@@ -3185,6 +3250,7 @@ function LoneWolfWorkspacePanel({
   onStepStatusChange,
   onCopyAutomationPacket,
   onCopyNextAction,
+  onCopyKeyInfoPlan,
 }: {
   workspace: LoneWolfWorkspaceRow | null;
   draft: LoneWolfWorkspaceDraft;
@@ -3197,6 +3263,7 @@ function LoneWolfWorkspacePanel({
   onStepStatusChange: (key: keyof LoneWolfWorkspaceDraft, status: LoneWolfStepStatus) => void | Promise<void>;
   onCopyAutomationPacket: () => void | Promise<void>;
   onCopyNextAction: () => void | Promise<void>;
+  onCopyKeyInfoPlan: () => void | Promise<void>;
 }) {
   const completedCount = LONE_WOLF_ALL_STEP_FIELDS.filter((step) => draft[step.key] === "completed").length;
   const blockedCount = LONE_WOLF_ALL_STEP_FIELDS.filter((step) => draft[step.key] === "blocked").length;
@@ -3322,6 +3389,7 @@ function LoneWolfWorkspacePanel({
           packet={automationPacket}
           onCopyPacket={onCopyAutomationPacket}
           onCopyNextAction={onCopyNextAction}
+          onCopyKeyInfoPlan={onCopyKeyInfoPlan}
         />
 
         <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
@@ -4379,6 +4447,9 @@ function buildLoneWolfAutomationPacket({
           value: currentValue(field.key),
         })),
     })).filter((section) => section.fields.some((field) => field.value.trim())),
+    keyboardPlans: {
+      keyInfo: buildLoneWolfKeyInfoKeyboardPlan(currentValue),
+    },
     documents: {
       pendingUpload: pendingUpload.map((row) => ({
         requirementId: row.requirementId,
@@ -4425,6 +4496,70 @@ function nextLoneWolfAutomationAction({
     return "Download the signed Trade Record Sheet candidate, upload it to Lone Wolf, then mark signed sheet uploaded.";
   }
   return "Start attended Lone Wolf entry using the copied automation packet. Stop before saving if the screen does not match the packet section.";
+}
+
+const LONE_WOLF_KEY_INFO_KEYBOARD_FIELDS: Array<{
+  fieldKey: string;
+  loneWolfLabel: string;
+  action: LoneWolfKeyboardPlanStep["action"];
+  tabAfter: number;
+  note?: string;
+}> = [
+  { fieldKey: "street_number", loneWolfLabel: "Street Number", action: "type", tabAfter: 1 },
+  { fieldKey: "street_direction", loneWolfLabel: "Direction", action: "type", tabAfter: 1 },
+  { fieldKey: "street_name", loneWolfLabel: "Street Name", action: "type", tabAfter: 1 },
+  { fieldKey: "unit", loneWolfLabel: "Unit", action: "type", tabAfter: 1 },
+  { fieldKey: "city", loneWolfLabel: "City", action: "type", tabAfter: 1 },
+  { fieldKey: "province", loneWolfLabel: "Province", action: "select", tabAfter: 1, note: "Usually defaults to Ontario; verify instead of changing if already correct." },
+  { fieldKey: "postal_code", loneWolfLabel: "Postal Code", action: "type", tabAfter: 1 },
+  { fieldKey: "lot_plan", loneWolfLabel: "Lot and Plan", action: "type", tabAfter: 1 },
+  { fieldKey: "offer_date", loneWolfLabel: "Offer Date", action: "type", tabAfter: 1, note: "Date format MM/DD/YYYY." },
+  { fieldKey: "acceptance_date", loneWolfLabel: "Firm Date", action: "type", tabAfter: 1, note: "Date format MM/DD/YYYY." },
+  { fieldKey: "closing_date", loneWolfLabel: "Close Date", action: "type", tabAfter: 1, note: "Date format MM/DD/YYYY." },
+  { fieldKey: "price_or_rent", loneWolfLabel: "Sell Price", action: "type", tabAfter: 1 },
+  { fieldKey: "mls_number", loneWolfLabel: "MLS Number", action: "type", tabAfter: 1 },
+  { fieldKey: "property_type", loneWolfLabel: "Type", action: "select", tabAfter: 1, note: "Use Lone Wolf dropdown value." },
+  { fieldKey: "we_manage", loneWolfLabel: "We Manage", action: "select", tabAfter: 1 },
+  { fieldKey: "conditions_summary", loneWolfLabel: "Classification", action: "verify", tabAfter: 1, note: "Classification is derived from transaction/side; operator verifies dropdown value." },
+  { fieldKey: "ends", loneWolfLabel: "Ends", action: "type", tabAfter: 1 },
+  { fieldKey: "tax_roll_number", loneWolfLabel: "Tax Roll Number", action: "type", tabAfter: 1 },
+  { fieldKey: "tax_rate", loneWolfLabel: "Tax Rate", action: "type", tabAfter: 0 },
+];
+
+function buildLoneWolfKeyInfoKeyboardPlan(currentValue: FieldValueGetter): LoneWolfKeyboardPlan {
+  const steps = LONE_WOLF_KEY_INFO_KEYBOARD_FIELDS.map((field, index) => {
+    const value = currentValue(field.fieldKey).trim();
+    const action: LoneWolfKeyboardPlanStep["action"] = value ? field.action : "skip";
+    return {
+      order: index + 1,
+      fieldKey: field.fieldKey,
+      loneWolfLabel: field.loneWolfLabel,
+      value,
+      action,
+      tabAfter: field.tabAfter,
+      note: field.note,
+    };
+  });
+  const activeSteps = steps.filter((step) => step.action !== "skip").length;
+  return {
+    id: "key_info",
+    title: "Key Info tab keyboard-only dry run",
+    mode: "dry_run_no_store",
+    startingFocus: "Key Info tab, Street Number field",
+    stopBefore: "Store button",
+    expectedSeconds: {
+      low: Math.max(45, activeSteps * 4),
+      high: Math.max(90, activeSteps * 8),
+    },
+    assumptions: [
+      "Dummy trade is already open on the Lone Wolf Key Info tab.",
+      "Focus starts in Street Number.",
+      "Automation may use keyboard navigation and clipboard paste, but must not click Store.",
+      "Dropdowns are verified visually before moving to the next field.",
+      "Blank values are skipped; existing Lone Wolf defaults are not overwritten unless a value exists in BrokerageAssistant.",
+    ],
+    steps,
+  };
 }
 
 function buildTradeRecordSheetAttachments(
