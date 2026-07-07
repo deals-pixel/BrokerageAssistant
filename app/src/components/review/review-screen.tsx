@@ -506,7 +506,7 @@ function partySummary(type: string, name: string) {
 
 type FieldValueGetter = (key: string) => string;
 
-function loneWolfFieldSuggestion(fieldKey: string, currentValue: FieldValueGetter) {
+function loneWolfFieldSuggestion(fieldKey: string, currentValue: FieldValueGetter, deal: DealRow) {
   if (currentValue(fieldKey).trim()) return "";
 
   const parsedAddress = parseLoneWolfPropertyAddress(currentValue("property_address"));
@@ -519,7 +519,44 @@ function loneWolfFieldSuggestion(fieldKey: string, currentValue: FieldValueGette
   if (fieldKey === "condition_type") return inferLoneWolfConditionType(currentValue("conditions_summary"));
   if (fieldKey === "outside_brokerage_pay_broker" && currentValue("outside_brokerage").trim()) return "Yes";
   if (fieldKey === "outside_brokerage_charged_hst" && currentValue("outside_brokerage").trim()) return "Yes";
+  if (fieldKey === "outside_brokerage_commission_pct" && currentValue("outside_brokerage").trim()) {
+    return outsideBrokerCommissionSuggestion(currentValue, deal);
+  }
   return "";
+}
+
+function outsideBrokerCommissionSuggestion(currentValue: FieldValueGetter, deal: DealRow) {
+  const outsideEnd = currentValue("outside_brokerage_end").trim().toLowerCase();
+  if (outsideEnd === "listing") return currentValue("listing_commission_pct");
+  if (outsideEnd === "selling") return currentValue("cooperating_commission_pct");
+
+  const perspective = commissionPerspectiveForDeal(deal);
+  if (perspective.listingSide && !perspective.cooperatingSide) return currentValue("cooperating_commission_pct");
+  if (perspective.cooperatingSide && !perspective.listingSide) return currentValue("listing_commission_pct");
+  return "";
+}
+
+function commissionPerspectiveForDeal(deal: DealRow) {
+  const key = deal.scenario_key ?? "";
+  const label = (deal.scenario_label ?? "").toLowerCase();
+  const listingSide =
+    key.startsWith("sale_seller") ||
+    key.startsWith("lease_landlord") ||
+    key === "sale_same_agent_both_sides" ||
+    key === "lease_same_agent_both_sides" ||
+    label.includes("seller rep") ||
+    label.includes("landlord rep");
+  const cooperatingSide =
+    key.startsWith("sale_buyer") ||
+    key.startsWith("lease_tenant") ||
+    key === "sale_same_agent_both_sides" ||
+    key === "lease_same_agent_both_sides" ||
+    key === "sale_seller_rep_buyer_sga" ||
+    key === "lease_landlord_rep_tenant_sga" ||
+    key === "pre_construction" ||
+    label.includes("buyer rep") ||
+    label.includes("tenant rep");
+  return { listingSide, cooperatingSide };
 }
 
 function parseLoneWolfPropertyAddress(value: string) {
@@ -1186,7 +1223,7 @@ export function ReviewScreen({
           const sourceLabel = fieldSourceLabel(row, pageLabelByNumber);
           const inputClassName = reviewInputClass(fieldStatus.tone, fieldDirty);
           const wideClass = f.wide || f.multiline || conflictSources.length > 1 ? "md:col-span-2" : "";
-          const suggestion = loneWolfFieldSuggestion(f.key, currentValue);
+          const suggestion = loneWolfFieldSuggestion(f.key, currentValue, deal);
 
           return (
             <div key={f.key} className={`rounded-md border p-2.5 ${reviewFieldShellClass(fieldStatus.tone)} ${wideClass}`}>
@@ -1709,6 +1746,9 @@ export function ReviewScreen({
                         firmOrConditional={currentValue("firm_or_conditional")}
                       />
                     )}
+                    {activeTab.id === "commissions" && (
+                      <CommissionFormulaPanel currentValue={currentValue} />
+                    )}
                   </>
                 );
               })()}
@@ -1961,6 +2001,40 @@ function ConditionsPanel({
           </Button>
         </div>
       )}
+    </section>
+  );
+}
+
+function CommissionFormulaPanel({ currentValue }: { currentValue: FieldValueGetter }) {
+  const summary = buildCommissionFormulaSummary(currentValue);
+  const rows = [
+    { label: "Total commission before HST", value: summary.totalCommissionBeforeHst, detail: "Sell Price / Rent x Commission %" },
+    { label: "Listing commission", value: summary.listingCommission, detail: "TC x Listing %" },
+    { label: "Selling commission", value: summary.sellingCommission, detail: "TC x Selling %" },
+    { label: "Selling brokerage HST", value: summary.sellingBrokerageHst, detail: "Selling commission x 13%" },
+    { label: "Selling brokerage total", value: summary.sellingBrokerageTotal, detail: "Selling commission + HST" },
+  ];
+
+  return (
+    <section className="space-y-3 rounded-md border bg-muted/10 p-3">
+      <div>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Generated commission amounts</h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Amounts below are generated from percentages for review only. Lone Wolf should calculate the editable amount fields.
+        </p>
+      </div>
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {rows.map((row) => (
+          <div key={row.label} className="rounded-md border bg-background p-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{row.label}</div>
+            <div className="mt-1 text-sm font-semibold">{formatNullableCurrency(row.value)}</div>
+            <div className="mt-1 text-[11px] text-muted-foreground">{row.detail}</div>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+        HST is fixed at 13%. Outside broker commission information uses the selling brokerage calculation above.
+      </div>
     </section>
   );
 }
@@ -3500,6 +3574,57 @@ function formatDepositAmount(value: string) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(numeric);
+}
+
+function formatNullableCurrency(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return "Needs inputs";
+  return new Intl.NumberFormat("en-CA", {
+    style: "currency",
+    currency: "CAD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function buildCommissionFormulaSummary(currentValue: FieldValueGetter) {
+  const salePrice = parseMoneyValue(currentValue("price_or_rent"));
+  const totalPct = parsePercentValue(currentValue("total_commission_pct"));
+  const listingPct = parsePercentValue(currentValue("listing_commission_pct"));
+  const sellingPct = parsePercentValue(currentValue("cooperating_commission_pct"));
+
+  const totalCommissionBeforeHst = salePrice != null && totalPct != null ? salePrice * (totalPct / 100) : null;
+  const listingCommission = totalCommissionBeforeHst != null && listingPct != null
+    ? totalCommissionBeforeHst * (listingPct / 100)
+    : null;
+  const sellingCommission = totalCommissionBeforeHst != null && sellingPct != null
+    ? totalCommissionBeforeHst * (sellingPct / 100)
+    : null;
+  const sellingBrokerageHst = sellingCommission != null ? sellingCommission * 0.13 : null;
+  const sellingBrokerageTotal = sellingCommission != null && sellingBrokerageHst != null
+    ? sellingCommission + sellingBrokerageHst
+    : null;
+
+  return {
+    totalCommissionBeforeHst,
+    listingCommission,
+    sellingCommission,
+    sellingBrokerageHst,
+    sellingBrokerageTotal,
+  };
+}
+
+function parseMoneyValue(value: string) {
+  const normalized = value.replace(/[$,\s]/g, "");
+  if (!normalized) return null;
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function parsePercentValue(value: string) {
+  const normalized = value.replace(/[%\s]/g, "");
+  if (!normalized) return null;
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function verificationSourceLabel(verification: DepositVerificationRow) {
