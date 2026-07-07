@@ -328,6 +328,17 @@ type LoneWolfKeyboardPlan = {
   inputMethod: "keypress_keysyms";
   assumptions: string[];
   steps: LoneWolfKeyboardPlanStep[];
+  visionCheckpoints: LoneWolfVisionCheckpoint[];
+};
+
+type LoneWolfVisionCheckpoint = {
+  id: string;
+  afterStepOrder: number;
+  title: string;
+  visibleRegion: string;
+  expected: Array<{ fieldKey: string; loneWolfLabel: string; value: string }>;
+  passCriteria: string[];
+  onFail: string;
 };
 
 type PackageFilter =
@@ -2470,6 +2481,19 @@ function LoneWolfAutomationHandoffPanel({
         <p className="mt-3 text-xs text-muted-foreground">
           Starts at {keyInfoPlan.startingFocus}. Uses {keyInfoPlan.inputMethod.replaceAll("_", " ")}. Stops before {keyInfoPlan.stopBefore}.
         </p>
+        <div className="mt-3 rounded-md border border-dashed bg-muted/10 p-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Vision checkpoints</p>
+          <div className="mt-2 grid gap-2 md:grid-cols-3">
+            {keyInfoPlan.visionCheckpoints.map((checkpoint) => (
+              <div key={checkpoint.id} className="rounded-md border bg-background p-2">
+                <p className="truncate text-xs font-semibold">{checkpoint.title}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  After step {checkpoint.afterStepOrder} | {checkpoint.expected.length} value{checkpoint.expected.length === 1 ? "" : "s"}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
       <details className="mt-3 rounded-md border bg-background">
         <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Packet preview</summary>
@@ -4571,12 +4595,77 @@ function buildLoneWolfKeyInfoKeyboardPlan(currentValue: FieldValueGetter): LoneW
       "Dummy trade is already open on the Lone Wolf Key Info tab.",
       "Operator must manually place focus in Street Number before playback; RDP coordinate and tab anchoring were not reliable enough.",
       "Use per-character keypresses. In RDP testing, direct text injection and clipboard paste did not land, but numpad keysyms did.",
+      "After each checkpoint block, capture the RDP screenshot and use vision to verify expected values before continuing.",
       "Dropdowns are verified visually before moving to the next field.",
       "Blank values are skipped; existing Lone Wolf defaults are not overwritten unless a value exists in BrokerageAssistant.",
       "Automation must not click Store.",
     ],
     steps,
+    visionCheckpoints: buildLoneWolfKeyInfoVisionCheckpoints(steps),
   };
+}
+
+function buildLoneWolfKeyInfoVisionCheckpoints(steps: LoneWolfKeyboardPlanStep[]): LoneWolfVisionCheckpoint[] {
+  const valueByKey = new Map(steps.map((step) => [step.fieldKey, step]));
+  const checkpointSpecs: Array<{
+    id: string;
+    afterStepOrder: number;
+    title: string;
+    visibleRegion: string;
+    fieldKeys: string[];
+  }> = [
+    {
+      id: "address_top",
+      afterStepOrder: 3,
+      title: "Address top row",
+      visibleRegion: "Key Info tab, Address section: Street Number, Direction, Street Name",
+      fieldKeys: ["street_number", "street_direction", "street_name"],
+    },
+    {
+      id: "address_bottom",
+      afterStepOrder: 8,
+      title: "Address lower fields",
+      visibleRegion: "Key Info tab, Address section: Unit, City, Province, Postal Code, Lot and Plan",
+      fieldKeys: ["unit", "city", "province", "postal_code", "lot_plan"],
+    },
+    {
+      id: "dates",
+      afterStepOrder: 11,
+      title: "Dates",
+      visibleRegion: "Key Info tab, Dates section: Offer Date, Firm Date, Close Date",
+      fieldKeys: ["offer_date", "acceptance_date", "closing_date"],
+    },
+    {
+      id: "trade_details",
+      afterStepOrder: 19,
+      title: "Trade details",
+      visibleRegion: "Key Info tab, Trade Details section: Sell Price, MLS Number, Type, We Manage, Classification, Ends, Tax Roll Number, Tax Rate",
+      fieldKeys: ["price_or_rent", "mls_number", "property_type", "we_manage", "conditions_summary", "ends", "tax_roll_number", "tax_rate"],
+    },
+  ];
+
+  return checkpointSpecs
+    .map((checkpoint) => ({
+      id: checkpoint.id,
+      afterStepOrder: checkpoint.afterStepOrder,
+      title: checkpoint.title,
+      visibleRegion: checkpoint.visibleRegion,
+      expected: checkpoint.fieldKeys
+        .map((fieldKey) => valueByKey.get(fieldKey))
+        .filter((step): step is LoneWolfKeyboardPlanStep => Boolean(step?.value))
+        .map((step) => ({
+          fieldKey: step.fieldKey,
+          loneWolfLabel: step.loneWolfLabel,
+          value: step.value,
+        })),
+      passCriteria: [
+        "Expected visible fields are readable in the RDP screenshot.",
+        "Every expected nonblank value matches the corresponding Lone Wolf field.",
+        "No value appears shifted into the wrong field.",
+      ],
+      onFail: "Stop playback, do not click Store, and ask the operator to correct focus or field mapping.",
+    }))
+    .filter((checkpoint) => checkpoint.expected.length > 0);
 }
 
 function keysymsForLoneWolfText(value: string) {
