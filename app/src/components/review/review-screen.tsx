@@ -313,6 +313,7 @@ type LoneWolfKeyboardPlanStep = {
   value: string;
   action: "type" | "select" | "skip" | "verify";
   tabAfter: number;
+  keys: string[];
   note?: string;
 };
 
@@ -323,6 +324,7 @@ type LoneWolfKeyboardPlan = {
   startingFocus: string;
   stopBefore: string;
   expectedSeconds: { low: number; high: number };
+  inputMethod: "keypress_keysyms";
   assumptions: string[];
   steps: LoneWolfKeyboardPlanStep[];
 };
@@ -2451,11 +2453,16 @@ function LoneWolfAutomationHandoffPanel({
                 <Badge variant="outline" className="shrink-0 capitalize">{step.action}</Badge>
               </div>
               <p className="mt-1 truncate text-xs text-muted-foreground">{step.value || "blank / skip"}</p>
+              {step.keys.length > 0 && (
+                <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+                  {step.keys.slice(0, 8).join(" ")}{step.keys.length > 8 ? " ..." : ""}
+                </p>
+              )}
             </div>
           ))}
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          Starts at {keyInfoPlan.startingFocus}. Stops before {keyInfoPlan.stopBefore}.
+          Starts at {keyInfoPlan.startingFocus}. Uses {keyInfoPlan.inputMethod.replaceAll("_", " ")}. Stops before {keyInfoPlan.stopBefore}.
         </p>
       </div>
       <details className="mt-3 rounded-md border bg-background">
@@ -4537,6 +4544,7 @@ function buildLoneWolfKeyInfoKeyboardPlan(currentValue: FieldValueGetter): LoneW
       value,
       action,
       tabAfter: field.tabAfter,
+      keys: action === "type" ? keysymsForLoneWolfText(value) : [],
       note: field.note,
     };
   });
@@ -4548,18 +4556,41 @@ function buildLoneWolfKeyInfoKeyboardPlan(currentValue: FieldValueGetter): LoneW
     startingFocus: "Key Info tab, Street Number field",
     stopBefore: "Store button",
     expectedSeconds: {
-      low: Math.max(45, activeSteps * 4),
-      high: Math.max(90, activeSteps * 8),
+      low: Math.max(60, activeSteps * 5),
+      high: Math.max(120, activeSteps * 10),
     },
+    inputMethod: "keypress_keysyms",
     assumptions: [
       "Dummy trade is already open on the Lone Wolf Key Info tab.",
       "Focus starts in Street Number.",
-      "Automation may use keyboard navigation and clipboard paste, but must not click Store.",
+      "Use per-character keypresses. In RDP testing, direct text injection and clipboard paste did not land, but numpad keysyms did.",
       "Dropdowns are verified visually before moving to the next field.",
       "Blank values are skipped; existing Lone Wolf defaults are not overwritten unless a value exists in BrokerageAssistant.",
+      "Automation must not click Store.",
     ],
     steps,
   };
+}
+
+function keysymsForLoneWolfText(value: string) {
+  return [...value].map((char) => keysymForLoneWolfChar(char)).filter((key): key is string => Boolean(key));
+}
+
+function keysymForLoneWolfChar(char: string) {
+  if (/[0-9]/.test(char)) return `KP_${char}`;
+  if (/[a-z]/.test(char)) return char;
+  if (/[A-Z]/.test(char)) return `Shift_L+${char.toLowerCase()}`;
+  if (char === " ") return "space";
+  if (char === "-") return "minus";
+  if (char === "/") return "slash";
+  if (char === ".") return "period";
+  if (char === ",") return "comma";
+  if (char === "#") return "Shift_L+3";
+  if (char === "&") return "Shift_L+7";
+  if (char === "'") return "apostrophe";
+  if (char === "(") return "Shift_L+9";
+  if (char === ")") return "Shift_L+0";
+  return "";
 }
 
 function buildTradeRecordSheetAttachments(
